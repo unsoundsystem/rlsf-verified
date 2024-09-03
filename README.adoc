@@ -1,0 +1,15 @@
+= TLSFアロケータのdeductive verification
+
+* Rust実装の正当性を保証したい
+
+== 現状の方針
+
+* RefinedRustの適用を試みる
+    ** 非技術的な動機
+        *** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
+        *** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
+
+== TODO
+
+* RefinedRustaに関する調査
+* rlsfへの適用可能性に関する調査
