@@ -1,0 +1,16 @@
+= RefinedRustに関するメモ
+
+* RustBeltのlambdarustを拡張して、より現実に即した操作的意味論を与えている(Radium)
+    ** borrow/reborrowが扱える
+* trait/trait objectなどにはまだ明示的に対応していないが検証時にLayoutを与えることで、ポリモーフィックな関数も扱える
+* 定理証明ベースでありながら、自動化のためのrefinement type systemがある
+    ** Coq上の型との対応関係を一部推論してくれる
+    ** cf. https://plv.mpi-sws.org/refinedc/[refinedc]
+
+== 検証ツールについて
+
+* RustのMIRをCoq/Irisを使って構築した言語に変換して、性質の証明を行う
+* Rustのコードを変換するフロントエンドが、かなり未成熟で対応していないシンタックスがおおい
+    ** https://gitlab.mpi-sws.org/lgaeher/refinedrust-dev/-/blob/main/rr_frontend/limitations.md?ref_type=heads
+* "caesium"が見つからないと言われて、サンプルが動かせない
+    ** 私用の環境では動いた覚えがある

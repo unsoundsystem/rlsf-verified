@@ -13,3 +13,9 @@
 
 * RefinedRustaに関する調査
 * rlsfへの適用可能性に関する調査
+
+== references
+
+* https://plv.mpi-sws.org/refinedrust/[RefinedRust webpage]
+* https://github.com/yvt/rlsf/tree/main[rlsf repository]
+* https://iris-project.org[Iris webpage]
