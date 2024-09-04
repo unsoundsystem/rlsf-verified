@@ -12,5 +12,4 @@
 * RustのMIRをCoq/Irisを使って構築した言語に変換して、性質の証明を行う
 * Rustのコードを変換するフロントエンドが、かなり未成熟で対応していないシンタックスがおおい
     ** https://gitlab.mpi-sws.org/lgaeher/refinedrust-dev/-/blob/main/rr_frontend/limitations.md?ref_type=heads
-* "caesium"が見つからないと言われて、サンプルが動かせない
-    ** 私用の環境では動いた覚えがある
+* サンプルは概ね動かせたが､minivecの変換が上手く行っておらず自動生成+patchでやっているが上手く行っていない
