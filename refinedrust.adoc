@@ -12,4 +12,8 @@
 * RustのMIRをCoq/Irisを使って構築した言語に変換して、性質の証明を行う
 * Rustのコードを変換するフロントエンドが、かなり未成熟で対応していないシンタックスがおおい
     ** https://gitlab.mpi-sws.org/lgaeher/refinedrust-dev/-/blob/main/rr_frontend/limitations.md?ref_type=heads
-* サンプルは概ね動かせたが､minivecの変換が上手く行っておらず自動生成+patchでやっているが上手く行っていない
+* サンプルは概ね動かせた
+* nixのdevshell内で、duneにCOQPATHがうまく渡っていない
+    ** workaround: shellHookに以下を追記
+        *** export COQPATH=${packages.theories.outPath}/lib/coq/${coq.version}/user-contrib:''$COQPATH
+
