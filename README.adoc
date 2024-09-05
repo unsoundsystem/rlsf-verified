@@ -12,7 +12,10 @@
 == TODO
 
 * RefinedRustaに関する調査
+    * 論文を精読/Coqの形式化を読む
+    * 文書にまとめる
 * rlsfへの適用可能性に関する調査
+    * `crates/rlsf/src/tlsf.rs`を現在のフロントエンドで扱える範囲に、書き換える
 
 == references
 

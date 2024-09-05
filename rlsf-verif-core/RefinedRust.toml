@@ -1,0 +1,2 @@
+output_dir="./output"
+generate_dune_project = false
