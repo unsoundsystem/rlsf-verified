@@ -15,6 +15,9 @@
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#![feature(register_tool)]
+#![register_tool(rr)]
+#![feature(custom_inner_attributes)]
 //! The TLSF allocator core
 mod int;
 mod utils;
@@ -29,9 +32,8 @@ use core::{
     ptr::{addr_of, NonNull},
 };
 
-use int::BinInteger,
-use utils::{nonnull_slice_from_raw_parts, nonnull_slice_len, nonnull_slice_start},
-;
+use int::BinInteger;
+use utils::{nonnull_slice_from_raw_parts, nonnull_slice_len, nonnull_slice_start};
 
 #[doc = svgbobdoc::transform!(
 /// The TLSF header (top-level) data structure.
@@ -1629,6 +1631,14 @@ impl BlockInfo<'_> {
     pub fn is_occupied(&self) -> bool {
         (self.block_hdr.size & SIZE_USED) != 0
     }
+}
+
+#[rr::params(z)]
+#[rr::args("z")]
+#[rr::requires("z + 42 ∈ i32")]
+#[rr::returns("z + 42")]
+pub fn add_42(x : i32) -> i32 {
+  x + 42
 }
 
 #[cfg(test)]

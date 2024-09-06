@@ -9,13 +9,20 @@
         *** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
         *** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
 
+== 現状
+
+* 理論的にもツールの実装状況を見ても、適用可能に見える
+    ** refinedrust-dev/case_studies/testsを見る限り、多少手を加える必要はあるかもしれないがrlsfのコア部分を扱うのには十分
+    ** 元論文ではunsafeな実装やreborrowなどが扱えるとされているので、rlsfの仕様記述・検証に使えそう
+
 == TODO
 
-* RefinedRustaに関する調査
-    * 論文を精読/Coqの形式化を読む
-    * 文書にまとめる
-* rlsfへの適用可能性に関する調査
-    * `crates/rlsf/src/tlsf.rs`を現在のフロントエンドで扱える範囲に、書き換える
+* rlsfの実装を読む
+    ** `crates/rlsf/src/tlsf.rs`を中心にインフォーマルに正当性を考えてみる
+* `crates/rlsf/src/tlsf.rs`を現在のフロントエンドで扱える範囲に、書き換える
+* RefinedRustに関する調査
+    ** 論文を精読/Coqの形式化を読む
+    ** 文書にまとめる
 
 == references
 
