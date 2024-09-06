@@ -1,0 +1,48 @@
+= rlsfの実装よみ
+
+== memo
+
+* main struct: `tlsf::Tlsf`
+    ** fl_bitmap, sl_bitmap, freelist
+* allocation granularity: `size_of::<usize>() * 4`
+    ** free block aligned to ↑
+* block header: `tlsf::BlockHdr`
+    ** ↓とのことからプール内の最後のブロックは常に`SIZE_LAST_IN_POOL`と`SIZE_USED`がどっちも立っている
+[quote, rlsf/README.md]
+---
+The end of each memory pool is capped by a sentinel block
+(a permanently occupied block) instead of a normal block with a
+last-block-in-pool flag. This simplifies the code a bit and improves
+its worst-case performance and code size.
+---
+
+* `BlockHdr::next_phys_block`: 次のブロックの存在を仮定
+* `BlockHdr`を共通部分として構成
+    ** `FreeBlockHdr`:  双方向リスト
+    ** `UsedBlockHdr`: `BlockHdr`のみ
+* `Tlsf::new`
+    ** const genericsでパラメータを初期化している←RefinedRust向けに動的な初期化に書き換える必要がありそう
+        *** const parameterについてコンパイル時にvalidationしてるので、適当な動的初期化を検証してconst genericsを使ったトレイトでラップすれば良さそう
+* `Tlsf::map_floor(size: usize)`
+    **`size`から適当なfreelistを見つける
+* first level indexの計算
+[code, rust]
+---
+let fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+---
+* second level indexの計算
+[code,rust]
+---
+let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+---
+
+[quote, crates/rlsf/src/tlsf.rs]
+---
+The shift amount can be negative, and rotation lets us handle both
+cases without branching. Underflowed digits can be simply masked out
+in `map_floor`.
+---
+
+* `Tlsf::map_ceil`: すべてのアイテムが要求サイズ以上なfreelistを見つける
+* `Tlsf::map_ceil_and_unmap`: すべてのアイテムが要求サイズ以上なfreelistを見つけ, そのリストの最小の要素のサイズを返す
+* `Tlsf::link_free_block`: map_floorで計算して新しいブロックをリストに挿入
