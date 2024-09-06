@@ -1,5 +1,19 @@
 = rlsfの実装よみ
 
+== 証明すると良さそうな性質
+
+=== APIとして
+
+* RustのAllocator APIに要求される仕様
+
+=== 内部構造について
+* index計算
+    ** 安全性
+    ** 正当性はfreelist invariantに含まれる
+* freelist invariant
+    ** すべてのfreelistはsentinelを持つ
+    ** すべてのfreelistには規定サイズ範囲のブロックしかない
+
 == memo
 
 * main struct: `tlsf::Tlsf`
@@ -26,23 +40,36 @@ its worst-case performance and code size.
 * `Tlsf::map_floor(size: usize)`
     **`size`から適当なfreelistを見つける
 * first level indexの計算
-[code, rust]
----
+[source, rust]
+----
 let fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
----
+----
 * second level indexの計算
-[code,rust]
----
+[source,rust]
+----
 let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
----
+----
 
 [quote, crates/rlsf/src/tlsf.rs]
----
+----
 The shift amount can be negative, and rotation lets us handle both
 cases without branching. Underflowed digits can be simply masked out
 in `map_floor`.
----
+----
 
 * `Tlsf::map_ceil`: すべてのアイテムが要求サイズ以上なfreelistを見つける
 * `Tlsf::map_ceil_and_unmap`: すべてのアイテムが要求サイズ以上なfreelistを見つけ, そのリストの最小の要素のサイズを返す
 * `Tlsf::link_free_block`: map_floorで計算して新しいブロックをリストに挿入
+* `Tlsf::unlink_free_block`: blockへのnonnullptrとsizeで削除
+* `Tlsf::insert_free_block_ptr`: スライスのポインタからメモリプールに追加する
+* `Tlsf::insert_free_block_ptr_aligned`
+* `Tlsf::append_free_block_ptr`: 
+
+[quote, crates/rlsf/src/tlsf.rs]
+----
+In the current implementation, this method can coalesce memory pools
+only if the maximum pool size is outside the range of `usize`, i.e.,
+`log2(GRANULARITY) + FLLEN >= usize::BITS`. This is because it does not
+track each pool's size and cannot check whether the resulting pool will
+have a valid size.
+----
