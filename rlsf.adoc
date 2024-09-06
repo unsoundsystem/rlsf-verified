@@ -5,6 +5,8 @@
 === APIとして
 
 * RustのAllocator APIに要求される仕様
+    ** https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html
+    ** https://doc.rust-lang.org/std/alloc/trait.Allocator.html
 
 === 内部構造について
 * index計算

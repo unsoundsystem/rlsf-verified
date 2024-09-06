@@ -2,9 +2,10 @@
 
 * RustBeltのlambdarustを拡張して、より現実に即した操作的意味論を与えている(Radium)
     ** borrow/reborrowが扱える
+    ** MIRとの対応からCFGベースの形式言語Radiumを形式化
 * trait/trait objectなどにはまだ明示的に対応していないが検証時にLayoutを与えることで、ポリモーフィックな関数も扱える
 * 定理証明ベースでありながら、自動化のためのrefinement type systemがある
-    ** Coq上の型との対応関係を一部推論してくれる
+    ** Coq上の型との対応関係を一部自動証明してくれる
     ** cf. https://plv.mpi-sws.org/refinedc/[refinedc]
 
 == 検証ツールについて
