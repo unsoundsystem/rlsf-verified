@@ -18,3 +18,6 @@
     ** workaround: shellHookに以下を追記
         *** export COQPATH=${packages.theories.outPath}/lib/coq/${coq.version}/user-contrib:''$COQPATH
 
+* 標準ライブラリの形式化
+    ** 現状ほぼされていないが、枠組みはありVecやOption,Resultなどの空の実装にspecをつけている
+    ** プリミティブ型とその操作に関する形式仕様を作っていきたいが、そのための枠組みがあるかは不明

@@ -15,6 +15,8 @@
 * freelist invariant
     ** すべてのfreelistはsentinelを持つ
     ** すべてのfreelistには規定サイズ範囲のブロックしかない
+* free blockは隣接しない ref. `// Invariant: No two adjacent free blocks`
+* alignment
 
 == memo
 
@@ -66,7 +68,6 @@ in `map_floor`.
 * `Tlsf::insert_free_block_ptr`: スライスのポインタからメモリプールに追加する
 * `Tlsf::insert_free_block_ptr_aligned`
 * `Tlsf::append_free_block_ptr`: 
-
 [quote, crates/rlsf/src/tlsf.rs]
 ----
 In the current implementation, this method can coalesce memory pools
@@ -74,4 +75,33 @@ only if the maximum pool size is outside the range of `usize`, i.e.,
 `log2(GRANULARITY) + FLLEN >= usize::BITS`. This is because it does not
 track each pool's size and cannot check whether the resulting pool will
 have a valid size.
+----
+* `Tlsf::insert_free_block`: safe wrapper mutでexcl, 'poolでoutlive self
+* `Tlsf::pool_size_to_contain_allocation`: layoutの割当が成功するような最小のGRANULARITY-alignedなメモリプールのサイズ
+* `Tlsf::allcate`:
+    ** layout.alignがGRANUALITYより小さいときは最終的にアライン後のポインタを比較して検証している
+[qutote, crates/rlsf/src/tlsf.rs]
+----
+After choosing a free block, we need to adjust the payload's location
+to meet the alignment requirement. Every block is aligned to
+`GRANULARITY` bytes. `size_of::<UsedBlockHdr>` is `GRANULARITY / 2`
+bytes, so the address immediately following `UsedBlockHdr` is only
+aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
+a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
+----
+[qutote, crates/rlsf/rc/tlsf.rs Tlsf::allocate]
+----
+// Invariant: No two adjacent free blocks
+debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
+next_phys_block.as_mut().prev_phys_block = Some(new_free_block.cast());
+----
+* `Tlsf::deallocate_block`: used block headerをとって、freelistに戻す
+    * 前後のfree blockを結合
+    * sizeのlsb 2ビットは 使ってないので加算でflagを継承できる
+[qutote, crates/rlsf/rc/tlsf.rs Tlsf::deallocate_block]
+----
+// It's coalescable. Add its size to `size`. This will transfer
+// any `SIZE_LAST_IN_POOL` flag `next_phys_block` may have at
+// the same time.
+size += next_phys_block_size;
 ----
