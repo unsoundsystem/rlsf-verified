@@ -1,23 +1,5 @@
 = rlsfの実装よみ
 
-== 証明すると良さそうな性質
-
-=== APIとして
-
-* RustのAllocator APIに要求される仕様
-    ** https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html
-    ** https://doc.rust-lang.org/std/alloc/trait.Allocator.html
-
-=== 内部構造について
-* index計算
-    ** 安全性
-    ** 正当性はfreelist invariantに含まれる
-* freelist invariant
-    ** すべてのfreelistはsentinelを持つ
-    ** すべてのfreelistには規定サイズ範囲のブロックしかない
-* free blockは隣接しない ref. `// Invariant: No two adjacent free blocks`
-* alignment
-
 == memo
 
 * main struct: `tlsf::Tlsf`

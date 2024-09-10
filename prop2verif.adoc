@@ -1,0 +1,38 @@
+= 検証の対象とする性質・仕様
+
+== assumptions
+
+* RefinedRustにおけるMIR/Radiumの操作的意味論の適切さ
+* 検証時に用いるlayout algorithmの適切さ
+* ビット操作などRust以外(e.g. llvm intrinsics)で実装されている部分
+
+== 証明すると良さそうな性質
+
+=== APIとして
+
+* RustのAllocator APIに要求される仕様
+    ** https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html
+    ** https://doc.rust-lang.org/std/alloc/trait.Allocator.html
+
+=== 内部構造に言及する仕様
+
+* index計算
+    ** 安全性
+    ** 正当性はfreelist invariantに含まれる
+* freelist invariant
+    ** すべてのfreelistはsentinelを持つ
+    ** すべてのfreelistには規定サイズ範囲のブロックしかない
+* free blockは隣接しない ref. `// Invariant: No two adjacent free blocks`
+* alignment
+* validな領域(?)を対象としていれば初期化(e.g. `insert_free_block`)は成功する
+    ** validな領域
+        *** 非null
+        *** Tlsfより長いライフタイムを持つ
+        *** validな領域からキャストされた領域
+* 要求されたサイズ(+alignment+header)を満たすエントリが存在すれば、割当は成功する
+* 指定されたアドレスに対応するused headerが存在すれば、開放は成功する
+
+== references
+
+* https://github.com/yvt/rlsf/blob/main/crates/rlsf/src/tlsf/tests.rs
+* https://github.com/PrincetonUniversity/DeepSpecDB/blob/master/memmgr/README.txt
