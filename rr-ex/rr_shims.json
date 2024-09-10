@@ -1,0 +1,8 @@
+[
+  {
+    "path": ["core", "intrinsics", "saturating_add"],
+    "kind": "function",
+    "name": "saturating_add",
+    "spec": "saturating_add_spec"
+  }
+]

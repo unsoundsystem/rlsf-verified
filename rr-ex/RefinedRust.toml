@@ -1,1 +1,3 @@
 output_dir="./output"
+extra_specs = "./extra_specs.v"
+shims = "./rr_shims.json"
