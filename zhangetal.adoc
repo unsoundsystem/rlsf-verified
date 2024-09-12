@@ -1,0 +1,54 @@
+= メモ: A Verified Specification of  TLSF Memory Management Allocator Using State Monad
+
+* TLSFのIsabelleとstate monadによる仕様と動作の形式化
+* system config
+    ** `sli :: nat`: log2 SLI, `sl cfg = 2^(sli cfg)`とする
+    ** `sm :: nat`: 最小ブロックのサイズlog2, 0≤r≤2\^smなるrサイズのブロックは最小のリストfl=0に入る
+    ** `overhead :: nat`: ヘッダサイズなど
+    ** `min_block :: nat`: 最小のブロックサイズ(最小のヘッダサイズ)を返す, このモデルでは抽象的なまま
+    ** `fl cfg = log2(mem_size cfg) - sm cfg`: FLIはメモリプールのサイズから計算する
+    ** `spec(conf)`
+        *** `sm-ge-sli`: `sm conf >= sli conf` i.e. `2^sm >= 2^sli`, sm=sliのときsliは1バイトごとに区間を分割している
+* TLSFの抽象的な状態のモデル
+    ** `block = (start, end)`
+    ** `state`
+        ** `allocated_block :: block set`: 割当済み
+        ** `free_block_matrix: nat -> nat -> block set`: bitmapからfree blockを集める
+* bitmapに関して
+    ** `(fl, sl)=(i,j)`に対応するブロックについて
+        *** `size(i,_) = 2^i / 2^sli`: first level index `i`を持つ各free blockのサイズ幅
+        *** `range(i,j) = [2^i + size(i,j) * j, 2^i + size(i,j) * (j+1)(`: 実際のサイズ区間、幅はsize(i,j)
+    ** 一意性: 各`i<i',j<j'`なる`(i,j), (i',j')`について、`range(i,j)∩range(i',j')=∅ `
+        *** ブロックサイズ`r`が与えられたとき、`r∈range(i,j)`なる`(i,j)`は高々1組しか存在しない 
+        *** `0≤r≤mem_size cfg`ならば`r∈range(i,j)`なる`(i,j)`はが存在する  
+    ** 単調性: ` r∈range(i,j), r'∈range(i',j')`なる`r≤r'`について(i,j) ≤  (i',j')
+    ** get_index(r): rに対応するそのような(i,j)を返す
+* 不変条件
+    ** 連続したfree blockは存在しない
+        *** 開放時に結合する
+        *** 初期化時は大きな単一のfree blockなので、成立する
+    ** 割当済みのblockと未割り当てのblockはdisjoint
+    ** メモリプール内のどんなblockも互いにdisjoint
+    ** block well-formedness
+        *** blockのstartがendより小さい、メモリプールの終わりより小さい
+    ** free listに繋がれたすべてのブロックが各サイズ制約を満たしている
+    ** すべてのused/free blockのサイズを足し合わせるとメモリプールのサイズと一致する
+* alloc/dealloc操作は不変条件を保存する
+* alloc操作の結果アドレスaddrから始まるnbytesサイズの領域が割り当てられたとする。alloc操作は以下を満たす
+    ** 事前に該当するfree block `b`が存在し、開始アドレスがaddrと一致する
+    ** nbytesは要求したサイズ以上である
+    ** `size(b) - r ≤  threshold`だったとき(分割可能だったとき),適切に状態が更新されている
+    ** `size(b) - r >  threshold`だったとき(分割不可能だったとき),適切に状態が更新されている
+* dealloc操作
+    ** double freeの挙動は未定義として考慮しない
+    ** 前/後ろ/前後両方にfree blockがあるときで場合分けして、mergeされたblockがfree listに入ることを言明
+* state monadによる実装と対応する形式仕様の証明
+* `mapping_search`: ブロックサイズ`r`から、すべてのfree blockのサイズが`r`以上であるようなリストのインデックスを求める
+    ** `r`があるリストのサイズ幅の下限だったら(r,get_index(r))
+    ** `r`があるリストのサイズ幅の下限ではなければ(r',(get_index(r).fst + 1, 0))
+    ** first level indexがオーバフローする可能性がある
+        *** 1bit足す
+* TLSFでは要求サイズより大きなfree blockがあってもallocationが成功するとは限らない
+* 以下のいずれかの条件が満たされると割当は失敗する
+    ** rがon boundで すべてのfree blockのサイズがr未満
+    ** rがon boundでなく、全てのfree blockのbitmap indexがrに対応するbitmap index以下
