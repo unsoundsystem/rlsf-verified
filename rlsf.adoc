@@ -1,5 +1,43 @@
 = rlsfの実装よみ
 
+== map_ceilの正当性
+
+* 設定
+    ** FLI=log2(pool_size) - log2(GRANULARITY) = 16
+    ** SLI=4
+    ** GRANULARITY=4*4=2\^4
+    ** pool_size=2MB=1024\^2=2\^20 bytes
+
+[source, rust]
+----
+fn map_ceil(size: usize) -> Option<(usize, usize)> {
+    debug_assert!(size >= GRANULARITY);
+    debug_assert!(size % GRANULARITY == 0);
+    let mut fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+
+    // The shift amount can be negative, and rotation lets us handle both
+    // cases without branching.
+    let mut sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+
+    // The most significant one of `size` should be now at `sl[SLI]`
+    debug_assert!(((sl >> Self::SLI) & 1) == 1);
+
+    // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
+    // be rounded up
+    sl = (sl & (SLLEN - 1)) + (sl >= (1 << (Self::SLI + 1))) as usize;
+
+    // if sl[SLI] { fl += 1; sl = 0; }
+    fl += (sl >> Self::SLI) as u32;
+
+    // `fl` must be in a valid range
+    if fl as usize >= FLLEN {
+        return None;
+    }
+
+    Some((fl as usize, sl & (SLLEN - 1)))
+}
+----
+
 == memo
 
 * main struct: `tlsf::Tlsf`

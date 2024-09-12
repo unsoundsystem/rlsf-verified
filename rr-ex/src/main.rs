@@ -13,12 +13,12 @@ fn bitop(x: usize) -> bool {
     (x & SIZE_USED) != 0
 }
 
-#[rr::params(z)]
-#[rr::requires("z ∈ usize_t")]
-#[rr::returns("max_int usize_t")]
-fn usizeops() -> usize {
-    rrusize::saturating_add(usize::MAX, usize::MAX)
-}
+//#[rr::params(z)]
+//#[rr::requires("z ∈ usize_t")]
+//#[rr::returns("max_int usize_t")]
+//fn usizeops() -> usize {
+    //rrusize::saturating_add(usize::MAX, usize::MAX)
+//}
 
 
 #[rr::params(z)]
@@ -28,13 +28,24 @@ struct BlockHdr {
     size: usize,
     prev_phys_block: Option<Box<BlockHdr>>,
 }
-
+#[rr::returns("()")]
 fn main() {
     assert!(bitop(0xfusize));
-    assert_eq!(usizeops(), usize::MAX);
-    let a = BlockHdr { size: 1, prev_phys_block: None };
-    assert_eq!(a.size, 1);
-    assert!(a.prev_phys_block.is_none());
+    //assert_eq!(usizeops(), usize::MAX);
+    //let a = BlockHdr { size: 1, prev_phys_block: None };
+    //assert_eq!(a.size, 1);
+    //assert!(a.prev_phys_block.is_none());
+    let x = A { e: 1, next: std::ptr::null() };
+    assert_eq!(x.e, 1);
+}
+
+
+#[rr::refined_by("(e, xs)" @ "(Z * list Z)")]
+struct A {
+    #[rr::field("e" @ "Z")]
+    e: usize,
+    #[rr::field("next")]
+    next: *const A
 }
 
 mod rrusize {
