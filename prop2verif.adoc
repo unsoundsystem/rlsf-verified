@@ -34,6 +34,12 @@
 * 指定されたアドレスに対応するused headerが存在すれば、開放は成功する
 * 割当済みの領域と未割り当ての領域は非交和
 
+== Rustコード断片に対するインフォーマルな仕様検討
+
+* `Tlsf::map_floor`: free blockを挿入するべき、リストを計算
+    ** 
+* `Tlsf::map_ceil`: 要求サイズ以上のブロックしか存在しないリストを計算,割当時に使う
+
 == references
 
 * https://github.com/yvt/rlsf/blob/main/crates/rlsf/src/tlsf/tests.rs

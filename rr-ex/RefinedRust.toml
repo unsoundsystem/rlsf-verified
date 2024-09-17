@@ -1,3 +1,5 @@
 output_dir="./output"
-extra_specs = "./extra_specs.v"
+#extra_specs = "./coq/extra_specs.v"
 shims = "./rr_shims.json"
+generate_dune_project = true
+lib_load_paths = ["../rr-ex-utils"]
