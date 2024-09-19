@@ -22,4 +22,4 @@ From refinedrust Require Import typing.
 Definition int_bitwidth (it: int_type) := 8*2^it_byte_size_log it.
 Definition Zrotate_right ws x n := Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).
 Definition rotate_right_usize x n := Zrotate_right (int_bitwidth usize_t) x n.
-Compute Zrotate_right 8 1 1.
+(*Compute Zrotate_right 8 1 1.*)

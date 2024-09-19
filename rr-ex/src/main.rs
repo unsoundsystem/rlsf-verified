@@ -42,7 +42,7 @@ fn main() {
         //prev_phys_block: None
     //};
     //assert_eq!(a.size, 1);
-    assert_eq!(utils::rotate_right(1, u32::MAX), 2);
+    //assert_eq!(utils::rotate_right(1, u32::MAX), 2);
     //assert!(a.prev_phys_block.is_none());
     //let x = A { e: 1, next: std::ptr::null() };
     //assert_eq!(x.e, 1);
