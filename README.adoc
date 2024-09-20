@@ -25,10 +25,13 @@
         *** workaround: 使うのはu32/usizeへのビット操作で実態はllvm intrinsicsなので検証できないし、関数呼び出しでラップして`rr::only_spec`をつければ良さそう
 * Z上にrotate_shift(nbit width)を形式化する
     ** 他のビット演算を含め、Z.某を使えばできるがRefinedRustのプロジェクトで外部のCoqライブラリを導入する方法がなさそう
+* 外部のCoqライブラリを導入できるようにした
+    ** RefinedRust.tomlにexternal_coq_libsをついか
 
 == TODO
 
-* 外部のCoqライブラリを導入できるようにする
+* count leading/trailing zerosの形式仕様
+    ** usizeなどが単にZの制限なので、cherry-pickingに注意
 * 検証の対象とする性質の検討
     ** Rustのアロケータとして要求される仕様について検討する
 * Tlsf::allocate/Tlsf::deallocateに絞って正当性を考えて・スペックを書き始める
