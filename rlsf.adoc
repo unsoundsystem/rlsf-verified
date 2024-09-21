@@ -3,10 +3,10 @@
 == map_ceilの正当性
 
 * 設定
-    ** FLI=log2(pool_size) - log2(GRANULARITY) = 16
-    ** SLI=4
-    ** GRANULARITY=4*4=2\^4
-    ** pool_size=2MB=1024\^2=2\^20 bytes
+    ** `FLI=log2(pool_size) - log2(GRANULARITY) = 16`
+    ** `SLI=4`
+    ** `GRANULARITY=4*4=2^4`
+    ** `pool_size=2MB=1024^2=2^20 bytes`
 
 [source, rust]
 ----
@@ -46,6 +46,7 @@ fn map_ceil(size: usize) -> Option<(usize, usize)> {
     ** free block aligned to ↑
 * block header: `tlsf::BlockHdr`
     ** ↓とのことからプール内の最後のブロックは常に`SIZE_LAST_IN_POOL`と`SIZE_USED`がどっちも立っている
+
 [quote, rlsf/README.md]
 ---
 The end of each memory pool is capped by a sentinel block
@@ -55,20 +56,23 @@ its worst-case performance and code size.
 ---
 
 * `BlockHdr::next_phys_block`: 次のブロックの存在を仮定
-* `BlockHdr`を共通部分として構成
+* `BlockHdr` を共通部分として構成
     ** `FreeBlockHdr`:  双方向リスト
-    ** `UsedBlockHdr`: `BlockHdr`のみ
+    ** `UsedBlockHdr`: `BlockHdr` のみ
 * `Tlsf::new`
     ** const genericsでパラメータを初期化している←RefinedRust向けに動的な初期化に書き換える必要がありそう
         *** const parameterについてコンパイル時にvalidationしてるので、適当な動的初期化を検証してconst genericsを使ったトレイトでラップすれば良さそう
 * `Tlsf::map_floor(size: usize)`
-    **`size`から適当なfreelistを見つける
+    ** `size` から適当なfreelistを見つける
 * first level indexの計算
+
 [source, rust]
 ----
 let fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
 ----
+
 * second level indexの計算
+
 [source,rust]
 ----
 let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
@@ -88,6 +92,7 @@ in `map_floor`.
 * `Tlsf::insert_free_block_ptr`: スライスのポインタからメモリプールに追加する
 * `Tlsf::insert_free_block_ptr_aligned`
 * `Tlsf::append_free_block_ptr`: 
+
 [quote, crates/rlsf/src/tlsf.rs]
 ----
 In the current implementation, this method can coalesce memory pools
@@ -96,10 +101,12 @@ only if the maximum pool size is outside the range of `usize`, i.e.,
 track each pool's size and cannot check whether the resulting pool will
 have a valid size.
 ----
-* `Tlsf::insert_free_block`: safe wrapper mutでexcl, 'poolでoutlive self
+
+* `Tlsf::insert_free_block`: safe wrapper mutでexcl, `'pool` でoutlive self
 * `Tlsf::pool_size_to_contain_allocation`: layoutの割当が成功するような最小のGRANULARITY-alignedなメモリプールのサイズ
 * `Tlsf::allcate`:
     ** layout.alignがGRANUALITYより小さいときは最終的にアライン後のポインタを比較して検証している
+
 [qutote, crates/rlsf/src/tlsf.rs]
 ----
 After choosing a free block, we need to adjust the payload's location
@@ -109,15 +116,18 @@ bytes, so the address immediately following `UsedBlockHdr` is only
 aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
 a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
 ----
+
 [qutote, crates/rlsf/rc/tlsf.rs Tlsf::allocate]
 ----
 // Invariant: No two adjacent free blocks
 debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
 next_phys_block.as_mut().prev_phys_block = Some(new_free_block.cast());
 ----
+
 * `Tlsf::deallocate_block`: used block headerをとって、freelistに戻す
     * 前後のfree blockを結合
     * sizeのlsb 2ビットは 使ってないので加算でflagを継承できる
+
 [qutote, crates/rlsf/rc/tlsf.rs Tlsf::deallocate_block]
 ----
 // It's coalescable. Add its size to `size`. This will transfer

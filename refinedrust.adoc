@@ -16,7 +16,7 @@
 * サンプルは概ね動かせた
 * nixのdevshell内で、duneにCOQPATHがうまく渡っていない
     ** workaround: shellHookに以下を追記
-        *** export COQPATH=${packages.theories.outPath}/lib/coq/${coq.version}/user-contrib:''$COQPATH
+        *** `export COQPATH=${packages.theories.outPath}/lib/coq/${coq.version}/user-contrib:''$COQPATH`
 
 * 標準ライブラリの形式化
     ** 現状ほぼされていないが、枠組みはありVecやOption,Resultなどの空の実装にspecをつけている
