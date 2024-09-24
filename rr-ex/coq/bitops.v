@@ -49,6 +49,23 @@ induction j.
     apply IHj. lia.
 Qed.
 
+Lemma ZinductionSucc: forall  (P: Z -> Prop),
+  P 0 ->
+  (forall i, 0 < i -> P i -> P (i + 1)) ->
+  forall n, 0 <= n -> P n.
+Proof.
+intros.
+rewrite <- (Z2Nat.id n) in * by lia.
+set (j := Z.to_nat n) in *. clearbody j.
+induction j.
+- simpl. apply H.
+- apply (H0 (S $ Z.of_nat j)).
+  + rewrite inj_S. unfold Z.succ. lia.
+  + rewrite inj_S. unfold Z.succ. rewrite Z.add_simpl_r.
+    apply IHj. lia.
+Qed.
+
+
 Compute Z.testbit 4 3.
  Print positive.
  Check (xI xH).
@@ -100,16 +117,32 @@ Definition clz_itP (n: Z) : bool :=
 
 QuickChick clz_itP.
 
+Search "Odd".
+Lemma msb_enabled_log2_nbits_odd: forall m ws,
+  0 < ws ->
+  0 < m < 2^ws ->
+  Z.log2 m = msb_enabled (Z.to_nat (ws - 1)) m - 1.
+Proof.
+  intros m ws Hws.
+  pattern m ; apply Zinduction ; intros.
+  - inversion H. inversion H0.
+  - destruct (Z.Even_or_Odd i).
+    + admit.
+    Search (Z.log2 (_ + _)).
+    Search Nat.Odd_Even_ind.
+    + Search Z.Odd. unfold Z.Odd in H2. Check Z.log2_succ_double.
+
+Abort.
+
 Lemma count_leading_zeros_spec: forall it m,
   it_signed it = false -> m∈  it
   (* to avoid log2 0 = -1 *)
    -> 0 < m
-   -> Z.log2 (m) = (bits_per_int it) - count_leading_zeros it m - 1.
+   -> Z.log2 m = (bits_per_int it) - count_leading_zeros it m - 1.
 Proof.
   intros it m Hsigned Hit_range.
   unfold count_leading_zeros.
   pattern m ; apply Zinduction ; intros ; ring_simplify.
   - inversion H.
-  - Search Z.log2.
-  rewrite msb_enabled2_equation.
+  - 
 Abort.
