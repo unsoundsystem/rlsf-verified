@@ -27,6 +27,7 @@
     ** 他のビット演算を含め、Z.某を使えばできるがRefinedRustのプロジェクトで外部のCoqライブラリを導入する方法がなさそう
 * 外部のCoqライブラリを導入できるようにした
     ** `RefinedRust.toml` にオプション `external_coq_libs` を追加
+* QuickChick(property based/mutation testing)を導入した
 
 == TODO
 
