@@ -33,6 +33,10 @@
 
 * count leading/trailing zerosの形式仕様
     ** usizeなどが単にZの制限なので、cherry-pickingに注意
+* rotating shiftに関する補題の追加
+    ** testbit x n iff testbit x (shifted-loc)
+* zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
+    * インデックス計算の形式化
 * 検証の対象とする性質の検討
     ** Rustのアロケータとして要求される仕様について検討する
 * `Tlsf::allocate` / `Tlsf::deallocate` に絞って正当性を考えて・スペックを書き始める

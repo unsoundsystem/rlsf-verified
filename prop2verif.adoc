@@ -1,4 +1,5 @@
 = 検証の対象とする性質・仕様
+:stem:
 
 == assumptions
 
@@ -34,8 +35,41 @@
 * 指定されたアドレスに対応するused headerが存在すれば、開放は成功する
 * 割当済みの領域と未割り当ての領域は非交和
 
-== Rustコード断片に対するインフォーマルな仕様検討
-* `tlsf.fl_bitmap` のn番目のビットが1のとき、
+== Rustコード断片に対するインフォーマルな抽象仕様の検討
+
+Zhang et.al. に習ってrlsfに合った抽象仕様を考えてみる。
+(cf. `./rr-ex/coq/model.v`)
+
+=== Configuration
+
+* FLLEN: maximum first level index
+* SLLEN: maximum second level index
+* 最小のブロックサイズ
+    ** rlsfでは`GRANULARITY`
+
+=== Blockの定義
+
+TLSFがメモリ領域を管理する単位。開始アドレスとサイズの対で表す。
+(e.g. `block := (start_addr, GRANULARITY*2)`)
+
+* `start block` で開始アドレスを表す
+* `size block` でサイズを表す
+* `end block := start block + size block`
+
+=== TLSF allocatorの構造体
+
+* 
+
+=== 抽象的な状態モデル
+
+* `allocated_block`
+* `free_blocks`
+
+=== indexの計算
+=== 不変条件
+
+* 領域が連続したブロックは存在しない
+* `tlsf.fl_bitmap` のn番目のビットが1のとき、 `[ 2^(n+GRANULARITY_LOG2),2^(n+GRANULARITY_LOG2+1) (` の範囲の未割り当てブロックリストが非空
 * `Tlsf::map_floor`: free blockを挿入するべき、リストを計算
 * `Tlsf::map_ceil`: 要求サイズ以上のブロックしか存在しないリストを計算,割当時に使う
 

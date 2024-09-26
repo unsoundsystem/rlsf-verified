@@ -22,8 +22,23 @@ Require Import FunInd Recdef.
 (*|}.*)
 
 Definition int_bitwidth (it: int_type) := 8*2^it_byte_size_log it.
-Definition Zrotate_right ws x n := Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).
+(* `ws` is the bitwidth of the target
+   `x` is the target integer
+   `n` is the shift amount
+ *)
+Definition Zrotate_right ws x n := Z.land (Z.ones ws)
+  $ Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).
 Definition rotate_right_usize x n := Zrotate_right (int_bitwidth usize_t) x n.
+
+Search Z.testbit.
+(* `m` is 0-indexed bit position *)
+Lemma Zrotate_right_spec: forall ws x n m,
+  0 < ws ->
+  0 ≤ m < ws ->
+  Z.testbit x m -> Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws).
+Proof.
+  Check Z.testbit_neg_r.
+Admitted.
 (*Compute Zrotate_right 8 1 1.*)
 Compute Z.shiftl 1 3.
 Check Z.to_nat.
