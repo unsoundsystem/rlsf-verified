@@ -25,12 +25,32 @@ Definition int_bitwidth (it: int_type) := 8*2^it_byte_size_log it.
 (* `ws` is the bitwidth of the target
    `x` is the target integer
    `n` is the shift amount
+   ref. https://stackoverflow.com/questions/776508/best-practices-for-circular-shift-rotate-operations-in-c/776523#776523
  *)
-Definition Zrotate_right ws x n := Z.land (Z.ones ws)
-  $ Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).
+Definition Zrotate_right ws x n :=
+  let mask := Z.land (ws-1) in
+  let count := mask n in
+  mask $ Z.lor (Z.shiftr x count) (Z.shiftl x (mask (-count))).
 Definition rotate_right_usize x n := Zrotate_right (int_bitwidth usize_t) x n.
 
+(* FIXME: corner cases to fix *)
+Compute Zrotate_right 1 1 (-1). (* must be 1 *)
+Compute Zrotate_right 1 1 (1). (* must be 1 *)
+Compute Zrotate_right 2 1 1. (* ? *)
+
+Definition rotate_itP (ws x n m: Z) : bool := 
+  orb (negb (bool_decide (0 ≤  x < 2^ws)%Z)) $
+  bool_decide (orb (negb $ Z.testbit x m)
+    (Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws))).
+Compute N.ldiff 7 2.
+Compute Z.land (2^64) (-1).
+
+(* FIXME *)
+QuickChick rotate_itP.
+
 Search Z.testbit.
+
+(* TODO *)
 (* `m` is 0-indexed bit position *)
 Lemma Zrotate_right_spec: forall ws x n m,
   0 < ws ->
@@ -64,21 +84,21 @@ induction j.
     apply IHj. lia.
 Qed.
 
-Lemma ZinductionSucc: forall  (P: Z -> Prop),
-  P 0 ->
-  (forall i, 0 < i -> P i -> P (i + 1)) ->
-  forall n, 0 <= n -> P n.
-Proof.
-intros.
-rewrite <- (Z2Nat.id n) in * by lia.
-set (j := Z.to_nat n) in *. clearbody j.
-induction j.
-- simpl. apply H.
-- apply (H0 (S $ Z.of_nat j)).
-  + rewrite inj_S. unfold Z.succ. lia.
-  + rewrite inj_S. unfold Z.succ. rewrite Z.add_simpl_r.
-    apply IHj. lia.
-Qed.
+(*Lemma ZinductionSucc: forall  (P: Z -> Prop),*)
+  (*P 0 ->*)
+  (*(forall i, 0 < i -> P i -> P (i + 1)) ->*)
+  (*forall n, 0 <= n -> P n.*)
+(*Proof.*)
+(*intros.*)
+(*rewrite <- (Z2Nat.id n) in * by lia.*)
+(*set (j := Z.to_nat n) in *. clearbody j.*)
+(*induction j.*)
+(*- simpl. apply H.*)
+(*- apply (H0 (S $ Z.of_nat j)).*)
+  (*+ rewrite inj_S. unfold Z.succ. lia.*)
+  (*+ rewrite inj_S. unfold Z.succ. rewrite Z.add_simpl_r.*)
+    (*apply IHj. lia.*)
+(*Qed.*)
 
 
 Compute Z.testbit 4 3.
@@ -126,13 +146,14 @@ Definition msb_enabled_64bitP (n: Z) :=
 
 QuickChick msb_enabled_64bitP.
 
-Definition clz_itP (n: Z) : bool := 
-  orb (negb (bool_decide (0 < n < 2^64)%Z)) $
-  bool_decide (Z.log2 n = msb_enabled 63 n - 1).
+Definition clz_itP (n m: Z) : bool := 
+  orb (negb (bool_decide (0 < n < 2^m)%Z)) $
+  bool_decide (Z.log2 n = msb_enabled (Z.to_nat m) n - 1).
 
 QuickChick clz_itP.
 
 Search "Odd".
+(* TODO *)
 Lemma msb_enabled_log2_nbits_odd: forall m ws,
   0 < ws ->
   0 < m < 2^ws ->
@@ -149,6 +170,7 @@ Proof.
 
 Abort.
 
+(* TODO *)
 Lemma count_leading_zeros_spec: forall it m,
   it_signed it = false -> m∈  it
   (* to avoid log2 0 = -1 *)
