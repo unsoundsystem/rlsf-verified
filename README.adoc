@@ -1,4 +1,5 @@
 = TLSFアロケータのdeductive verification
+ifdef::env-name[:relfilesuffix: .adoc]
 
 * Rust実装の正当性を保証したい
 
@@ -51,6 +52,10 @@
 
 == references
 
+* xref:prop2verif.adoc[検証の対象とする性質の検討]
+* xref:rlsf.adoc[rlsfに関するメモ]
+* xref:refinedrust.adoc[RefinedRustに関するメモ]
+* xref:zhangetal.adoc[ZhangらによるTLSFの形式仕様に関するメモ]
 * https://plv.mpi-sws.org/refinedrust/[RefinedRust webpage]
 * https://github.com/yvt/rlsf/tree/main[rlsf repository]
 * https://iris-project.org[Iris webpage]
