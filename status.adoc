@@ -1,0 +1,93 @@
+= 現状
+:source-highlighter: pygments
+
+時系列順に調査・実装などについて、書いていきます。
+
+== 2024/09/26以前
+
+=== Refinedrustの適用可能性について
+
+==== フロントエンド
+
+Radiumの表現力は十分に見えるが､フロントエンド・Coqによる形式化に手を加える
+必要がある。RustからCoqへの変換フロントエンドの機能がrlsfの実装をそのまま扱
+うには、不十分だが等価な実装に置き換えることで対応可能だと思われる。
+(ref. `refinedrust-dev/case_studies/tests`)
+
+==== Radiumの表現力
+
+元論文ではunsafeな実装やreborrowなどが扱えるとされおり、rlsfの実装を検証す
+るのに十分な表現力があるように見える。
+
+==== 標準ライブラリの形式化状況
+
+標準ライブラリに関する形式化などは、まだほとんどなされていない。`shim` とい
+う仕組みが用意されていて、手動で書いたRadium/Coqの表現を使った検証が可能。
+
+=== ビット演算の形式化
+
+TLSFではビット演算を多用するため、Rustによるビット演算の実装を検証できるこ
+とが望ましい。RefinedRustでは、現在TLSFで用いるビット演算に関する形式化がさ
+れていないため実装する。
+
+==== 方針
+
+Rustのプリミティブ整数型では、TLSFで扱う `wrapping_add` / `saturating_add`
+/ `rotate_right` のような関数はllvm intrinsicsへコンパイルされ、
+footnote:[llvm_fshr, https://llvm.org/docs/LangRef.html#llvm-fshr-intrinsic]
+Rustの意味論を使って検証することができないため、RefinedRustの `spec_only` アノ
+テーションで形式仕様のみ記述する。
+
+また、Rustのコンパイラプラグインの事情でプリミティブ型へのメソッドを扱うことが
+難しそうだったため、footnote:[rustc_plug, rustc_hirでdef_idを取得できないように見える]
+プリミティブへのメソッド呼び出しを通常の関数でラップした上で、
+`rr::spec_only` アノテーションをしている。
+
+RefinedRust/Radiumでは、Rustの整数型はCoqの(無限長の)整数型 `Z` 上の制限と
+して形式化されている。Coqの `Z` は正の数をバイナリ表現で形式化した
+`positive` 型を使って以下のように定義されているため、 `Z.land` / `Z.lor` の
+ような論理演算が定義されている。
+
+[source, coq]
+----
+Inductive Z : Set :=
+    | Z0 : Z
+    | Zpos : positive -> Z
+    | Zneg : positive -> Z.
+----
+
+`Z` については、様々な数学的成果が形式されているが、ここではビット演算の仕様を
+記述するため、 `Z.log2` のような数学的な語彙ではなく `Z.shiftr` のような論理演
+算に関する形式化を使う。 `Z.log2` のような語彙を使うと、TLSFのインデックス計算
+で用いる性質をそのままエンコードしてしまい、形式化の信頼性が損なわれる。
+footnote:[完全な私見なので、検討の余地があります]
+
+==== rotate_right
+
+シフトするビット数が負になり得るケースを含む定義を上手くする方法を考察中。
+
+定義の妥当性を保証する仕様として、n bitシフトしたときにm bit目(0-indexed)が
+`(m - n + ws) mod ws` に移動していてほしい(ref. `Zrotate_right_spec` )
+
+==== count_(leading|traling)_zeros
+
+0になるまで右シフトする定義が具体的な値に対する計算量が大きすぎたので、代わりに
+与えられた幅だけ1ビットづつテストしていく定義を与えた。
+
+=== RefinedRustを使った検証コードベースに外部のCoqライブラリを導入する
+
+`cargo-refinedrust` に手を加えて、 `RefinedRust.toml` にオプション `external_coq_libs` を追加
+
+=== QuickChickを導入
+
+Coqのproperty-based testingができるQuickChickを導入。証明に入る前に定義を吟味する際に便利。
+
+== 2024/09/27
+
+* 開発環境を自前の `flake.nix` に移行することを試みた
+    ** Coqのバージョン、コンパイルしたOCamlコンパイラのバージョンが一致しているにもかかわらず、以下のようなエラーが発生する
+
+    Compiled library stdpp.numbers (in file /nix/store/nsbxf0vixraln8nlsi4frg5kxrpcddmy-coq8.17-stdpp-4be5fd62ddbd5359f912e2cebb415b015c37e565/lib/coq/8.17/user-contrib/stdpp/numbers.vo) makes inconsistent assumptions over library Coq.Init.Ltac
+
+    ** 現在は `refinedrust-dev/flake.nix` のdevShellに依存を追加して使っている
+* 本リポジトリのドキュメント・ `rr-ex` のcoqdocをwebサイトにした

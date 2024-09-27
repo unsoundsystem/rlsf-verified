@@ -2,6 +2,7 @@
 ifdef::env-name[:relfilesuffix: .adoc]
 
 * Rust実装の正当性を保証したい
+* 現在やったこと・やっていること xref:./status.adoc[現状]
 
 == 現状の方針
 
@@ -10,26 +11,6 @@ ifdef::env-name[:relfilesuffix: .adoc]
         *** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
         *** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
 
-== 現状
-
-* Radiumの表現力は十分に見えるが､フロントエンド・Coqによる形式化に手を加える必要がある
-    ** refinedrust-dev/case_studies/testsを見る限り、多少手を加える必要はあるかもしれないがrlsfのコア部分を扱うのには十分
-    ** 元論文ではunsafeな実装やreborrowなどが扱えるとされているので、rlsfの仕様記述・検証に使えそう
-    ** しかし、標準ライブラリに関する形式化などは、まだほとんどなされていない
-* 標準ライブラリに関する検証状況を調査する cf. `refinedrust-dev/stdlib`
-    ** 特にusizeなどはビット操作で標準ライブラリの関数を多用しているので、注意する必要がある
-        *** -> rlsfで用いられるusizeのビット操作は問題なくCoq.Z.BinInt周りの補題などに還元できそう
-    ** その他の標準ライブラリに関する形式化などは、まだほとんどなされていない
-    ** `std::ptr::NonNull` は特別に手動でメソッドなどが形式化されてユーザーからも検証時に利用できる ref. `theories/rust_typing/shim.v`
-* プリミティブ型に関する操作の形式仕様を拡張する方法を探す
-    ** primitive typeへのメソッド呼び出しの変換が難しそう（rustc_hirでdef_idを取得できないように見える)
-        *** workaround: 使うのはu32/usizeへのビット操作で実態はllvm intrinsicsなので検証できないし、関数呼び出しでラップして `rr::only_spec` をつければ良さそう
-* Z上にrotate_shift(nbit width)を形式化する
-    ** 他のビット演算を含め、Z.某を使えばできるがRefinedRustのプロジェクトで外部のCoqライブラリを導入する方法がなさそう
-* 外部のCoqライブラリを導入できるようにした
-    ** `RefinedRust.toml` にオプション `external_coq_libs` を追加
-* QuickChick(property based/mutation testing)を導入した
-* rotate shiftについて、n bitシフトしたときにm bit目(0-indexed)が `(m - n + ws) mod ws` に移動していてほしい(ref. `Zrotate_right_spec`)
 
 == TODO
 
@@ -52,6 +33,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == references
 
+* xref:./status.adoc[現状]
 * xref:prop2verif.adoc[検証の対象とする性質の検討]
 * xref:rlsf.adoc[rlsfに関するメモ]
 * xref:refinedrust.adoc[RefinedRustに関するメモ]
