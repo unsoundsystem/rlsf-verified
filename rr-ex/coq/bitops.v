@@ -64,6 +64,7 @@ QuickChick (rotate_itP (int_bitwidth usize_t)).
 Search Z.testbit.
 
 (* TODO: Leave proving this for general int for future work *)
+(* similar formalization? stdpp.numbers.rotate_nat_add *)
 (* `m` is 0-indexed bit position *)
 Definition Zrotate_right_spec := fun ws => forall x n m,
   0 < ws ->
