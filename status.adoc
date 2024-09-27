@@ -91,3 +91,4 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 
     ** 現在は `refinedrust-dev/flake.nix` のdevShellに依存を追加して使っている
 * 本リポジトリのドキュメント・ `rr-ex` のcoqdocをwebサイトにした
+* rotate_rightに関する補題を各ビット幅に具体化して示すように方針を変えた

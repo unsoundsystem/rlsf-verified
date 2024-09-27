@@ -27,16 +27,30 @@ Definition int_bitwidth (it: int_type) := 8*2^it_byte_size_log it.
    `n` is the shift amount
    ref. https://stackoverflow.com/questions/776508/best-practices-for-circular-shift-rotate-operations-in-c/776523#776523
  *)
-Definition Zrotate_right ws x n :=
-  let mask := Z.land (ws-1) in
-  let count := mask n in
-  mask $ Z.lor (Z.shiftr x count) (Z.shiftl x (mask (-count))).
+(*Definition Zrotate_right ws x n :=*)
+  (*let mask := Z.land (ws-1) in*)
+  (*let count := mask n in*)
+  (*mask $ Z.lor (Z.shiftr x count) (Z.shiftl x (mask (-count))).*)
+
+(*Definition Zrotate_right ws x n := Z.land (Z.ones ws)*)
+  (*$ Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).*)
+
+(** * Rotate shift
+  We don't going general.
+  Use this function like [Zrotate_right (int_bitwidth _)] for each integer type.
+ *)
+Definition Zrotate_right (ws: Z) (x n: Z) :=
+    Z.land (Z.ones ws) $
+    if decide (n < 0)
+    then Z.lor (Z.shiftl x (Z.abs n)) (Z.shiftr x (ws - n))
+    else Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).
+
 Definition rotate_right_usize x n := Zrotate_right (int_bitwidth usize_t) x n.
 
 (* FIXME: corner cases to fix *)
-Compute Zrotate_right 1 1 (-1). (* must be 1 *)
-Compute Zrotate_right 1 1 (1). (* must be 1 *)
-Compute Zrotate_right 2 1 1. (* ? *)
+(*Compute Zrotate_right 1 1 (-1). [> must be 1 <]*)
+(*Compute Zrotate_right 1 1 (1). [> must be 1 <]*)
+(*Compute Zrotate_right 2 1 1. [> ? <]*)
 
 Definition rotate_itP (ws x n m: Z) : bool := 
   orb (negb (bool_decide (0 ≤  x < 2^ws)%Z)) $
@@ -45,18 +59,23 @@ Definition rotate_itP (ws x n m: Z) : bool :=
 Compute N.ldiff 7 2.
 Compute Z.land (2^64) (-1).
 
-(* FIXME *)
-QuickChick rotate_itP.
+QuickChick (rotate_itP (int_bitwidth usize_t)).
 
 Search Z.testbit.
 
-(* TODO *)
+(* TODO: Leave proving this for general int for future work *)
 (* `m` is 0-indexed bit position *)
-Lemma Zrotate_right_spec: forall ws x n m,
+Definition Zrotate_right_spec := fun ws => forall x n m,
   0 < ws ->
   0 ≤ m < ws ->
-  Z.testbit x m -> Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws).
+  Z.testbit x m = Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws).
+
+Lemma Zrotate_right_usize_spec: Zrotate_right_spec (int_bitwidth usize_t).
 Proof.
+  unfold Zrotate_right_spec.
+  intros.
+  unfold Zrotate_right.
+  destruct (decide (n < 0)).
   Check Z.testbit_neg_r.
 Admitted.
 (*Compute Zrotate_right 8 1 1.*)

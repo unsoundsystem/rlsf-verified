@@ -14,6 +14,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == TODO
 
+* 証明を簡単にするために各補題のビット幅を固定する
 * count leading/trailing zerosの形式仕様
     ** usizeなどが単にZの制限なので、cherry-pickingに注意
 * rotating shift
@@ -33,6 +34,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == references
 
+* link:coqdoc/index.html[`rr-ex` のcoqdoc]
 * xref:./status.adoc[現状]
 * xref:prop2verif.adoc[検証の対象とする性質の検討]
 * xref:rlsf.adoc[rlsfに関するメモ]
