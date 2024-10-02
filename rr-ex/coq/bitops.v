@@ -40,10 +40,10 @@ Definition int_bitwidth (it: int_type) := 8*2^it_byte_size_log it.
   Use this function like [Zrotate_right (int_bitwidth _)] for each integer type.
  *)
 Definition Zrotate_right (ws: Z) (x n: Z) :=
-    Z.land (Z.ones ws) $
-    if decide (n < 0)
-    then Z.lor (Z.shiftl x (Z.abs n)) (Z.shiftr x (ws - n))
-    else Z.lor (Z.shiftr x n) (Z.shiftl x (ws - n)).
+  let sa := n `mod` ws in
+    Z.land
+    (Z.lor (Z.shiftr x sa) (Z.shiftl x (ws - sa)))
+    (Z.ones ws).
 
 Definition rotate_right_usize x n := Zrotate_right (int_bitwidth usize_t) x n.
 
@@ -76,7 +76,13 @@ Proof.
   unfold Zrotate_right_spec.
   intros.
   unfold Zrotate_right.
-  destruct (decide (n < 0)).
+  rewrite Z.land_ones.
+  (* TODO: ashitayaru *)
+  - admit.
+  - done.
+  Search Z.ones.
+  Check Z.land_ones.
+  Check Z.ones_mod_pow2 _ (int_bitwidth usize_t).
   Check Z.testbit_neg_r.
 Admitted.
 (*Compute Zrotate_right 8 1 1.*)

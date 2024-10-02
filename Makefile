@@ -9,7 +9,7 @@ HTMLS := $(addprefix $(OUTDIR)/, index.html $(subst .adoc,.html,$(SRCS)))
 
 all: $(HTMLS)
 	dune build --root=rr-ex coq/extras.html
-	cp -r ./rr-ex/_build/default/coq/extras.html $(OUTDIR)/coqdoc
+	cp -rf ./rr-ex/_build/default/coq/extras.html $(OUTDIR)/coqdoc
 
 $(OUTDIR)/index.html: README.adoc
 	asciidoctor $(ASCIIDOCTOR_OPS) $< -o $(@F)

@@ -91,4 +91,12 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 
     ** 現在は `refinedrust-dev/flake.nix` のdevShellに依存を追加して使っている
 * 本リポジトリのドキュメント・ `rr-ex` のcoqdocをwebサイトにした
-* rotate_rightに関する補題を各ビット幅に具体化して示すように方針を変えた
+* [[rotate_shiftに関する形式化の方針転換]]rotate_rightに関する補題を各ビット幅に具体化して示すように方針を変えた
+    ** 理由: 実際に使うビット幅は限られるため
+    footnote:[余談: 任意幅に一般化するなら、各幅についてlist boolとの間に全単射を構成したほうが良さそう。
+            stdppやsailなどcircular shiftの形式化を扱う実装を確認したが、listを使った実装になっていた]
+        *** Z上の制限として固定ビット幅の整数に関するビット操作を扱っているVST/CompCertやVellvmでも同様の方針をとっているように見える
+
+== 2024/10/02
+
+* xref:rotate_shiftに関する形式化の方針転換[この方針]にしたがって定義を簡素化した
