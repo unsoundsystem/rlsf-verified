@@ -134,6 +134,7 @@ Proof.
         `mod` 2 ^ int_bitwidth usize_t)
     )
   .
+  Search (_ = _ \/ _ = _).
   (*-*)
   (*generalize dependent x.*)
     (*[>assert (Hws_is: int_bitwidth usize_t = 64). { reflexivity. }<]*)
@@ -164,15 +165,6 @@ Proof.
         (*((Z.succ x ≪ (int_bitwidth usize_t - n `mod` int_bitwidth usize_t)) `mod` 2 ^ int_bitwidth usize_t)*)
         (*)*)
       (*.*)
-Admitted.
-
-
-Search Z.testbit.
-  - done.
-  Search Z.ones.
-  Check Z.land_ones.
-  Check Z.ones_mod_pow2 _ (int_bitwidth usize_t).
-  Check Z.testbit_neg_r.
 Admitted.
 (*Compute Zrotate_right 8 1 1.*)
 Compute Z.shiftl 1 3.
@@ -250,6 +242,22 @@ Proof.
     assumption.
 Qed.
 
+Definition msb_enabled_succ ws_pred x :=
+  msb_enabled ws_pred (Z.succ x) = msb_enabled ws_pred x
+    \/ msb_enabled ws_pred (Z.succ x) = (msb_enabled ws_pred x) - 1.
+
+
+(*TODO*)
+Lemma msb_enabled_succ_usize : forall x,
+  x∈ usize_t ->
+  msb_enabled_succ (Z.to_nat (int_bitwidth usize_t) - 1) x.
+Proof.
+  unfold msb_enabled_succ.
+  intros x Hx.
+  induction x using (Z.succ_pred_induction 1).
+Admitted.
+
+
 Definition count_leading_zeros (it: int_type) (i: Z) :=
   bits_per_int it - msb_enabled (Z.to_nat $ bits_per_int it - 1) i.
 
@@ -267,34 +275,29 @@ Definition clz_itP (n m: Z) : bool :=
 
 QuickChick clz_itP.
 
-Search "Odd".
-(* TODO *)
-Lemma msb_enabled_log2_nbits_odd: forall m ws,
-  0 < ws ->
-  0 < m < 2^ws ->
-  Z.log2 m = msb_enabled (Z.to_nat (ws - 1)) m - 1.
-Proof.
-  intros m ws Hws.
-  pattern m ; apply Zinduction ; intros.
-  - inversion H. inversion H0.
-  - destruct (Z.Even_or_Odd i).
-    + admit.
-    Search (Z.log2 (_ + _)).
-    Search Nat.Odd_Even_ind.
-    + Search Z.Odd. unfold Z.Odd in H2. Check Z.log2_succ_double.
-
-Abort.
-
-(* TODO *)
-Lemma count_leading_zeros_spec: forall it m,
-  it_signed it = false -> m∈  it
+(** This specification assumes integer type is unsigned.
+    (it's vocaous when signed type specified)
+*)
+Definition count_leading_zeros_spec it := forall m,
+  it_signed it = false
+  -> m∈  it
   (* to avoid log2 0 = -1 *)
    -> 0 < m
    -> Z.log2 m = (bits_per_int it) - count_leading_zeros it m - 1.
+
+
+Lemma count_leading_zeros_usize_spec: count_leading_zeros_spec usize_t.
 Proof.
-  intros it m Hsigned Hit_range.
+  unfold count_leading_zeros_spec.
+  intros m Hunsigned Hm_ran Hm_pos.
   unfold count_leading_zeros.
-  pattern m ; apply Zinduction ; intros ; ring_simplify.
-  - inversion H.
-  - 
-Abort.
+  ring_simplify.
+  Print Pos.size.
+  Search Pos.size.
+  Print Z.log2.
+  induction m using (Z.succ_pred_induction 1); [reflexivity|..].
+  Check Z.log2_succ_or.
+  - destruct (Z.log2_succ_or m) as [Hlog2 | Hlog2'].
+    + unfold msb_enabled. Z.bitwise.
+
+  Admitted.

@@ -103,4 +103,4 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 
 == 2024/10/03
 
-* 
+* rotate shift/count leading zeros周りの補題( `count_leading_zeros_usize_spec` / `Zrotate_right_usize_spec` )の証明を進めた

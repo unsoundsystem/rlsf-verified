@@ -14,11 +14,13 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == TODO
 
-* 証明を簡単にするために各補題のビット幅を固定する
-* count leading/trailing zerosの形式仕様
-    ** usizeなどが単にZの制限なので、cherry-pickingに注意
-* rotating shift
-    ** shift amountが負の場合が上手く行ってないのは治ったが、まだ壊れている
+* ビット操作周り
+    ** 各ビット幅を取るモジュールで証明を整理する
+    ** count leading/trailing zerosの形式仕様
+        *** trailing zerosの定義
+        *** `Z.log2` との対応( `count_leading_zeros_usize_spec` )
+    ** rotating shift
+        *** `Zrotate_right_usize_spec` の証明
 * zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
     * インデックス計算の形式化
 * 検証の対象とする性質の検討
