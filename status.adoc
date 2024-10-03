@@ -100,3 +100,7 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 == 2024/10/02
 
 * xref:rotate_shiftに関する形式化の方針転換[この方針]にしたがって定義を簡素化した
+
+== 2024/10/03
+
+* 

@@ -1,7 +1,10 @@
+Require Import ZArith.
+From stdpp Require Import numbers.
 From refinedrust Require Import typing.
 From QuickChick Require Import QuickChick.
 Require Import FunInd Recdef.
 
+Open Scope Z.
 (*Definition type_of_ptr_add `{!typeGS Σ} (T_rt : Type) (T_st : syn_type) :=*)
   (*fn(∀ () : 0 | ( *[T_ty]) : [(T_rt, T_st)] | (l, offset) : loc * Z, (λ ϝ, []); l :@: alias_ptr_t, (offset) :@: int usize_t; λ π,*)
     (*⌜l `has_layout_loc` (use_layout_alg' T_st)⌝ ∗*)
@@ -39,11 +42,12 @@ Definition int_bitwidth (it: int_type) := 8*2^it_byte_size_log it.
   We don't going general.
   Use this function like [Zrotate_right (int_bitwidth _)] for each integer type.
  *)
+Check (_ && _).
+Check Z.succ_pred_induction 0.
 Definition Zrotate_right (ws: Z) (x n: Z) :=
   let sa := n `mod` ws in
-    Z.land
-    (Z.lor (Z.shiftr x sa) (Z.shiftl x (ws - sa)))
-    (Z.ones ws).
+    Z.land (Z.ones ws) $
+      (Z.lor (Z.shiftr x sa) (Z.shiftl x (ws - sa))).
 
 Definition rotate_right_usize x n := Zrotate_right (int_bitwidth usize_t) x n.
 
@@ -60,25 +64,110 @@ Compute N.ldiff 7 2.
 Compute Z.land (2^64) (-1).
 
 QuickChick (rotate_itP (int_bitwidth usize_t)).
-
-Search Z.testbit.
+Example rotr_rot :
+  rotate_right_usize 1 (1) = (1 ≪  (int_bitwidth usize_t - 1)) := ltac:(reflexivity).
+Example rotr_sa_neg :
+  rotate_right_usize 1 (-(int_bitwidth usize_t - 1)) = (1 ≪  (int_bitwidth usize_t - 1)) := ltac:(reflexivity).
 
 (* TODO: Leave proving this for general int for future work *)
 (* similar formalization? stdpp.numbers.rotate_nat_add *)
 (* `m` is 0-indexed bit position *)
 Definition Zrotate_right_spec := fun ws => forall x n m,
   0 < ws ->
+  0 ≤  x < 2^ws ->
   0 ≤ m < ws ->
   Z.testbit x m = Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws).
+
+(*Lemma Zrotate_right_spec_succ := fun ws => forall x n m,*)
+  (*0 < ws ->*)
+  (*0 ≤  x < 2^ws-1 ->*)
+  (*0 ≤ m < ws ->*)
+  (*Z.testbit x m = Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws).*)
+
+Check forall a b, 0 ≤ a < b -> a `mod` b = a.
+Search (0 ≤ _ < _ -> _ `mod` _ = _).
+
+Definition Zrotate_right_in_range (ws: Z) := forall (x n: Z),
+  0 ≤ x < 2^ws -> 0 ≤  Zrotate_right ws x n < 2^ws.
+
+Lemma Zrotate_right_in_range_usize: Zrotate_right_in_range (int_bitwidth usize_t).
+Proof.
+  unfold Zrotate_right_in_range.
+  intros x n H.
+  unfold Zrotate_right.
+  rewrite Z.land_comm Z.land_ones; [lia |done].
+Qed.
+
+Check Z.lor_spec.
+
+Definition lor_nbits (ws: Z) := forall x y,
+  0 ≤ x < 2^ws -> 0 ≤ y < 2^ws -> Z.lor x y = (Z.lor x y) `mod` 2^ws.
+
+Lemma lor_nbits_usize: lor_nbits (int_bitwidth usize_t).
+Proof.
+  intros x y Hx Hy.
+  rewrite <- Z.land_ones; [..| done].
+  rewrite Z.land_lor_distr_l !Z.land_ones; [..|done|done].
+  rewrite !Z.mod_small;[reflexivity|assumption|assumption].
+Qed.
+
+  (*symmetry.*)
+  (*apply (Z.mod_small (Z.lor x y) (2^int_bitwidth usize_t)).*)
+  (*split.*)
+  (*- rewrite Z.lor_nonneg; lia.*)
+  (*-*)
+    (*[>Check Z.log2_le_mono (Z.lor x y) (2^int_bitwidth usize_t).<]*)
+    (*Search Z.lor. Search (_ < _ -> _ _< _ _).  *)
 
 Lemma Zrotate_right_usize_spec: Zrotate_right_spec (int_bitwidth usize_t).
 Proof.
   unfold Zrotate_right_spec.
-  intros.
+  intros x n m Hws_pos Hx_ran Hm_ws.
   unfold Zrotate_right.
-  rewrite Z.land_ones.
-  (* TODO: ashitayaru *)
-  - admit.
+  rewrite Z.land_comm.
+  (*rewrite Z.land_ones.*)
+  rewrite Z.land_lor_distr_l !Z.land_ones; [..|done|done].
+  rewrite (
+    Z.lor_spec
+      ((x ≫ (n `mod` int_bitwidth usize_t)) `mod` 2 ^ int_bitwidth usize_t)
+      ((x ≪ (int_bitwidth usize_t - n `mod` int_bitwidth usize_t))
+        `mod` 2 ^ int_bitwidth usize_t)
+    )
+  .
+  (*-*)
+  (*generalize dependent x.*)
+    (*[>assert (Hws_is: int_bitwidth usize_t = 64). { reflexivity. }<]*)
+    (*[>rewrite Hws_is.<]*)
+    (*Search Z.lor.*)
+    (*induction x using (Z.succ_pred_induction 0); intros Hx_ran; [..|lia].*)
+    (*[> NOTE: ref. theories/Numbers/Abstract/ZBits.v <]*)
+    (*Search Z.testbit.*)
+    (*+ rewrite Z.land_ones; [..|lia].*)
+      (*rewrite Z.shiftr_0_l Z.lor_0_l Z.shiftl_0_l Zmod_0_l !Z.bits_0.*)
+      (*reflexivity.*)
+    (*+ Check Z.mod_add.*)
+      (*Check Z.bits_inj. Check Z.mul_pow2_bits.*)
+      (*Search (Z.testbit (Z.lor _ _) _).*)
+      (*[>Search Z.land<]*)
+      (*Search Z.modulo.*)
+      (*Check Z.lor_spec (Z.succ x ≫ (n `mod` 64)) (Z.succ x ≪ (64 - n `mod` 64)) m.*)
+      (*(* NOTE: JUST USE [Z.land_lor_distr_l]:*)
+         (*~~we cannot eliminate the mask/`mod` out of [Z.lor] here*)
+         (*we have to specialize [Z.lor_spec] for fixed-bitwidth~~*)
+      (**)*)
+      (*[>Check Z.shiftl_spec (Z.succ x ≫ (n `mod` int_bitwidth usize_t))<]*)
+      (*[>(Z.succ x ≪ (int_bitwidth usize_t - n `mod` int_bitwidth usize_t)).<]*)
+      (*rewrite Z.land_lor_distr_l !Z.land_ones.*)
+
+  (** rewrite (Z.lor_spec*)
+        (*((Z.succ x ≫ (n `mod` int_bitwidth usize_t)) `mod` 2 ^ int_bitwidth usize_t)*)
+        (*((Z.succ x ≪ (int_bitwidth usize_t - n `mod` int_bitwidth usize_t)) `mod` 2 ^ int_bitwidth usize_t)*)
+        (*)*)
+      (*.*)
+Admitted.
+
+
+Search Z.testbit.
   - done.
   Search Z.ones.
   Check Z.land_ones.
