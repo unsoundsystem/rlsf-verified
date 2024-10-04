@@ -5,6 +5,8 @@
 
 * RefinedRustにおけるMIR/Radiumの操作的意味論の適切さ
 * 検証時に用いるlayout algorithmの適切さ
+* RefinedRustのフロントエンドが変換したRadiumの表現の適切さ
+    ** フロントエンドが変換できない部分を手動で変換した〜
 * ビット操作などRust以外(e.g. llvm intrinsics)で実装されている部分
 
 == 証明すると良さそうな性質
@@ -24,6 +26,10 @@
     ** すべてのfreelistはsentinelを持つ
     ** すべてのfreelistには規定サイズ範囲のブロックしかない
     ** bitmapの更新状況がfreelistの状態と整合している
+[quote,rlsf]
+----
+`sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
+----
 * free blockは隣接しない ref. `// Invariant: No two adjacent free blocks`
 * alignment
 * validな領域(?)を対象としていれば初期化(e.g. `insert_free_block`)は成功する
@@ -38,39 +44,52 @@
 == Rustコード断片に対するインフォーマルな抽象仕様の検討
 
 Zhang et.al. に習ってrlsfに合った抽象仕様を考えてみる。
-(cf. `./rr-ex/coq/model.v`)
+(cf. `./rr-ex/coq/model.v`, `/coqdoc` にホストしてあるcoqdoc)
 
 === Configuration
 
 * FLLEN: maximum first level index
 * SLLEN: maximum second level index
-* 最小のブロックサイズ
-    ** rlsfでは`GRANULARITY`
+* GRANULARITY: 最小のブロックサイズ
+    ** rlsfでは `GRANULARITY`
 
 === Blockの定義
 
 TLSFがメモリ領域を管理する単位。開始アドレスとサイズの対で表す。
 (e.g. `block := (start_addr, GRANULARITY*2)`)
 
-* `start block` で開始アドレスを表す
-* `size block` でサイズを表す
-* `end block := start block + size block`
+* `block.start` で開始アドレスを表す
+* `block.size` でサイズを表す
+* `end_addr block := start block + size block`
 
-=== TLSF allocatorの構造体
+=== TLSFの設定
 
-* 
+* `FLLEN`: first level listの最大長
+* `SLLEN`: second level listの最大長
+* `GRANULARITY`: アロケータが扱う最小のブロックサイズ
+    ** rlsfでは全ての未割り当てブロックのサイズは `GRANULARITY` より大きい
 
-=== 抽象的な状態モデル
+=== TLSF allocatorの構造体/抽象的な状態のモデル
 
-* `allocated_block`
-* `free_blocks`
+* bitmap
+    ** rlsfでは `fl_bitmap` / `sl_bitmap` がそれぞれ存在して、
+        second level bitmapには `sl_bitmap[fl].get_bit(sl)` のようにアクセスする
+* `allocated_block`: 割当済みブロックのリスト
+    ** rlsfでは明示的に対応する構造体があるわけではない
+* `free_blocks`: 未割り当てブロックのリスト
+    ** rlsfでは `Tlsf::first_free` から未割り当てブロックの双方向リンクリストがある
 
 === indexの計算
+
+ref. `model.v` / `Section index.`
+
 === 不変条件
 
 * 領域が連続したブロックは存在しない
-* `tlsf.fl_bitmap` のn番目のビットが1のとき、 `[ 2^(n+GRANULARITY_LOG2),2^(n+GRANULARITY_LOG2+1) (` の範囲の未割り当てブロックリストが非空
-* `Tlsf::map_floor`: free blockを挿入するべき、リストを計算
+* `tlsf.fl_bitmap` のn番目のビットが1のとき、
+  latexmath:[[ 2^{n+\log_2 GRANULARITY}, 2^{n+\log_2 GRANULARITY+1} (]
+  の範囲のサイズを持つ未割り当てブロックリスト(i.e. `self.first_free[n]`)が非空
+* `Tlsf::map_floor`: free blockを挿入するべきリストを計算
 * `Tlsf::map_ceil`: 要求サイズ以上のブロックしか存在しないリストを計算,割当時に使う
 
 == references

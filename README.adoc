@@ -14,15 +14,20 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == TODO
 
+* 抽象仕様周り
+    ** bitmapの形式化の検討
+    ** インデックス計算の形式化
+    ** zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
+    ** 実際の実装へのrefinementのステートメントを考える
 * ビット操作周り
+    ** Rustによるビット操作の検証の例示
+    ** `rr:spec_only` でつけた形式仕様に要求されるsidecondisionに関して調査する
     ** 各ビット幅を取るモジュールで証明を整理する
     ** count leading/trailing zerosの形式仕様
         *** trailing zerosの定義
         *** `Z.log2` との対応( `count_leading_zeros_usize_spec` )
     ** rotating shift
         *** `Zrotate_right_usize_spec` の証明
-* zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
-    * インデックス計算の形式化
 * 検証の対象とする性質の検討
     ** Rustのアロケータとして要求される仕様について検討する
 * `Tlsf::allocate` / `Tlsf::deallocate` に絞って正当性を考えて・スペックを書き始める

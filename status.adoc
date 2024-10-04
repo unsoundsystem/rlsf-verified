@@ -2,6 +2,7 @@
 :source-highlighter: pygments
 
 時系列順に調査・実装などについて、書いていきます。
+調査するべき項目が生じたときは `Q: ...` として、後に明らかになれば言及します。
 
 == 2024/09/26以前
 
@@ -104,3 +105,11 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 == 2024/10/03
 
 * rotate shift/count leading zeros周りの補題( `count_leading_zeros_usize_spec` / `Zrotate_right_usize_spec` )の証明を進めた
+
+== 2024/10/04
+
+* インデックス計算の補題の証明を進めた
+* ビット操作を扱うRustコードの検証のminimal exampleを作った→上手く動かない
+    ** `rr::spec_only` でつけた形式仕様がRefinedRustの生成するsidecondisionを満たせていない
+* 抽象仕様(`rr-ex/coq/models.v`)のドキュメントを少し書いた
+* Q: `rr:spec_only` でつけた形式仕様に要求されるsidecondisionに関して調査する

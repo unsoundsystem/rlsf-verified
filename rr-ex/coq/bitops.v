@@ -85,7 +85,6 @@ Definition Zrotate_right_spec := fun ws => forall x n m,
   (*Z.testbit x m = Z.testbit (Zrotate_right ws x n) ((m - n + ws) `mod` ws).*)
 
 Check forall a b, 0 ≤ a < b -> a `mod` b = a.
-Search (0 ≤ _ < _ -> _ `mod` _ = _).
 
 Definition Zrotate_right_in_range (ws: Z) := forall (x n: Z),
   0 ≤ x < 2^ws -> 0 ≤  Zrotate_right ws x n < 2^ws.
@@ -134,7 +133,6 @@ Proof.
         `mod` 2 ^ int_bitwidth usize_t)
     )
   .
-  Search (_ = _ \/ _ = _).
   (*-*)
   (*generalize dependent x.*)
     (*[>assert (Hws_is: int_bitwidth usize_t = 64). { reflexivity. }<]*)
@@ -155,12 +153,12 @@ Proof.
       (*(* NOTE: JUST USE [Z.land_lor_distr_l]:*)
          (*~~we cannot eliminate the mask/`mod` out of [Z.lor] here*)
          (*we have to specialize [Z.lor_spec] for fixed-bitwidth~~*)
-      (**)*)
+      (* *)*)
       (*[>Check Z.shiftl_spec (Z.succ x ≫ (n `mod` int_bitwidth usize_t))<]*)
       (*[>(Z.succ x ≪ (int_bitwidth usize_t - n `mod` int_bitwidth usize_t)).<]*)
       (*rewrite Z.land_lor_distr_l !Z.land_ones.*)
 
-  (** rewrite (Z.lor_spec*)
+  (* * rewrite (Z.lor_spec*)
         (*((Z.succ x ≫ (n `mod` int_bitwidth usize_t)) `mod` 2 ^ int_bitwidth usize_t)*)
         (*((Z.succ x ≪ (int_bitwidth usize_t - n `mod` int_bitwidth usize_t)) `mod` 2 ^ int_bitwidth usize_t)*)
         (*)*)
@@ -191,34 +189,15 @@ induction j.
     apply IHj. lia.
 Qed.
 
-(*Lemma ZinductionSucc: forall  (P: Z -> Prop),*)
-  (*P 0 ->*)
-  (*(forall i, 0 < i -> P i -> P (i + 1)) ->*)
-  (*forall n, 0 <= n -> P n.*)
-(*Proof.*)
-(*intros.*)
-(*rewrite <- (Z2Nat.id n) in * by lia.*)
-(*set (j := Z.to_nat n) in *. clearbody j.*)
-(*induction j.*)
-(*- simpl. apply H.*)
-(*- apply (H0 (S $ Z.of_nat j)).*)
-  (*+ rewrite inj_S. unfold Z.succ. lia.*)
-  (*+ rewrite inj_S. unfold Z.succ. rewrite Z.add_simpl_r.*)
-    (*apply IHj. lia.*)
-(*Qed.*)
+(** * Count leadng/trailing zeros
+ *)
 
-
-Compute Z.testbit 4 3.
- Print positive.
- Check (xI xH).
-Print Pos.size.
-
-(* Searching for enabled bit bitween [msb_idx, 0] bits.
- * Returns 1-indexed position from LSB for the highest bit which is 1.
- * Returns 0 for input 0b0.
- * i.e. clz b = bitwidth - msb_enabled bitwidth b
- *
- * Example 1:
+(** Searching for enabled bit bitween [msb_idx, 0] bits.
+ - Returns 1-indexed position from LSB for the highest bit which is 1.
+ - Returns 0 for input 0b0.
+ - i.e. clz b = bitwidth - msb_enabled bitwidth b
+ -
+ - Example 1:
      n = 0b00010000
      msb_enabled 8 n = 5
 *)
