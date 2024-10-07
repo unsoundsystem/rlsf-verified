@@ -109,7 +109,16 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 == 2024/10/04
 
 * インデックス計算の補題の証明を進めた
-* ビット操作を扱うRustコードの検証のminimal exampleを作った→上手く動かない
+* [[bitop_min_ex]]ビット操作を扱うRustコードの検証のminimal exampleを作った→上手く動かない
     ** `rr::spec_only` でつけた形式仕様がRefinedRustの生成するsidecondisionを満たせていない
 * 抽象仕様(`rr-ex/coq/models.v`)のドキュメントを少し書いた
 * Q: `rr:spec_only` でつけた形式仕様に要求されるsidecondisionに関して調査する
+
+== 2024/10/07
+
+* xref:bitop_min_ex[ビット操作を扱うコードの検証例]を直した
+    ** 原因: アノテーションの使い方が間違っていた
+        *** 関数の引数に関する事前条件の指定には `rr::args` を使うべき
+* Q: `rotate_right` のシフト幅が負の場合の扱い
+    ** 厄介な点: `u32` を符号付きとして暗黙的に扱っている(`assert_eq!(2, 1usize.rotate_right(u32::MAX))`)
+    ** Coq側で `i32` として解釈した分シフトするようにして、事後条件も `usize` の取る値の範囲でシフト幅の正負が変わることを明示する

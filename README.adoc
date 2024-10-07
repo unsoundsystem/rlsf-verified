@@ -14,14 +14,14 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == TODO
 
+* RefinedRustのAllocator APIに関する形式化を調査する
 * 抽象仕様周り
     ** bitmapの形式化の検討
     ** インデックス計算の形式化
     ** zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
     ** 実際の実装へのrefinementのステートメントを考える
 * ビット操作周り
-    ** Rustによるビット操作の検証の例示
-    ** `rr:spec_only` でつけた形式仕様に要求されるsidecondisionに関して調査する
+    ** Rustによるビット操作の検証のより複雑な例示
     ** 各ビット幅を取るモジュールで証明を整理する
     ** count leading/trailing zerosの形式仕様
         *** trailing zerosの定義

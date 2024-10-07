@@ -1,6 +1,7 @@
 Require Import ZArith.
 From stdpp Require Import base numbers finite decidable gmap.
 From QuickChick Require Import QuickChick.
+From refinedrust Require Import typing.
 
 (** * Formalization of index calculation in TLSF
  *)
@@ -74,11 +75,10 @@ End index.
 
 (** * System state *)
 Section system_state.
-  (* TODO: consider which we should use there,
-           maybe location types used in RefinedRust *)
-  Variable loc : Type.
-  Variable loc_add: loc -> Z -> loc.
 
+  (** Representation of block
+     - loc is RefinedRust a construct
+   *)
   Record block := Block {
     start : loc;
     size : positive;
@@ -90,17 +90,45 @@ Section system_state.
    *)
   Context `{Countable block} `{EqDecision block}.
 
+  Global Instance block_eq_dec: EqDecision block.
+  Proof. solve_decision. Qed.
+
+  Check prov_countable.(encode).
+  Check prov_countable.(decode).
+
+  Check prod_countable (A:=prov) (B:=Z).
+  Global Instance loc_countable: Countable loc := prod_countable (A:=prov) (B:=Z).
+
+  Global Instance block_countable: Countable block.
+  Proof.
+    refine (inj_countable' (λ b, (start b, size b))
+      (λ b, Block b.1 b.2)
+      _
+    ).
+    intros.
+    simpl.
+    destruct x.
+    reflexivity.
+  Qed.
+
   Record tlsf := Tlsf {
     allocated_block : list block;
     free_blocks : list (list block);
   }.
-  Definition end_addr b: loc := loc_add (start b) (Z.pos $ size b).
+  Definition end_addr b: loc := (start b) +ₗ (Z.pos $ size b).
 
   (** * Abstract freelist
      correspinds to `self.first_free` in rlsf.
-    TODO: there would be more sophisticated way using stdpp constructs.
    *)
-  Definition block_matrix :=  nat -> nat -> gset block.
+  Definition block_matrix :=  gmap (nat * nat) $ gset block.
+
+
+  Context `{!refinedrustGS Σ}.
+
+  (** Representation of abstract [block_matrix] in physical memory.
+   *)
+  Fixpoint free_list_repr (m: block_matrix): iProp Σ.
+  Admitted.
 
 End system_state.
 
