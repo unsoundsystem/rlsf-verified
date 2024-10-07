@@ -1,7 +1,7 @@
 Require Import ZArith.
 From stdpp Require Import base numbers finite decidable gmap.
-From QuickChick Require Import QuickChick.
 From refinedrust Require Import typing.
+From QuickChick Require Import QuickChick.
 
 (** * Formalization of index calculation in TLSF
  *)

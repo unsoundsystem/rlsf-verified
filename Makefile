@@ -8,7 +8,7 @@ SRCS := prop2verif.adoc \
 HTMLS := $(addprefix $(OUTDIR)/, index.html $(subst .adoc,.html,$(SRCS)))
 
 all: $(HTMLS)
-	dune build --root=rr-ex coq/extras.html
+	-dune build --root=rr-ex coq/extras.html
 	cp -rf ./rr-ex/_build/default/coq/extras.html $(OUTDIR)/coqdoc
 
 $(OUTDIR)/index.html: README.adoc
