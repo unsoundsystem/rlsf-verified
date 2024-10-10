@@ -24,5 +24,14 @@
 
 === Allocator APIの形式化
 
-* `shim.v` に定義がある
+* `shims.v` に `alloc` / `dealloc` の関数・仕様定義がある
 * alloc: 事後条件として `freeable` ghost stateを作り、開放可能な領域をマークする
+* `caesium/ghost_state.v` に `freeable` / `alloc_*` などのアロケーションの状態を表す述語が定義されている
+* RustのAllocator APIやGlobalAllocの形式化ではなく、mallocっぽいAPIのアロケータの定義(`alloc_alloc`)について `caesium/ghost_state.v` の述語で与えた仕様を証明している
+    ** `alloc::Layout` を取るように改造すれば、rlsfのアロケータについて同様なことを示すのも有用かもしれない
+
+
+=== tupleの扱い
+
+* `shims.v` / `tuple{n}_{ty|rt}`
+* refinementの推論について詳しくなる必要がありそう

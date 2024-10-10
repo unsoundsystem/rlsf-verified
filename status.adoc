@@ -122,3 +122,13 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 * Q: `rotate_right` のシフト幅が負の場合の扱い
     ** 厄介な点: `u32` を符号付きとして暗黙的に扱っている(`assert_eq!(2, 1usize.rotate_right(u32::MAX))`)
     ** Coq側で `i32` として解釈した分シフトするようにして、事後条件も `usize` の取る値の範囲でシフト幅の正負が変わることを明示する
+
+== 2024/10/10
+
+* RefinedRustのAllocator APIに関する形式化を調査した
+    ref. xref:./refinedrust.adoc[refinedrustに関するメモ]
+* 簡略化した `map_floor` の検証
+    ** template tacticが失敗するのでデバッグしていた
+    ** RefinedRustのspecでタプルを扱う方法がわからない
+* Q: タプルの扱い/どんな型でrefineできるのか
+* `block_size_range_not_overwrap` の証明を進めた

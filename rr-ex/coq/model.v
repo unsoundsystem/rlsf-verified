@@ -1,7 +1,8 @@
 Require Import ZArith.
 From stdpp Require Import base numbers finite decidable gmap.
-From refinedrust Require Import typing.
+From refinedrust Require Import typing shims.
 From QuickChick Require Import QuickChick.
+Require Import Psatz. 
 
 (** * Formalization of index calculation in TLSF
  *)
@@ -30,6 +31,10 @@ Section index.
 
 
   Definition size_of_flb (i : Z) := 2^i `div` 2^SLLEN.
+
+  (** Calculating the size range of block allowed for given freelist index
+      - will be used in spec of `Tlsf::map_floor` / `Tlsf::map_ceil`
+   *)
   Definition block_size_range x blk_sz :=
     let '(i, j) := x in
       2^i + size_of_flb i * j ≤  blk_sz < 2^i + size_of_flb i * (j + 1)
@@ -59,15 +64,22 @@ Section index.
     block_index_valid x
     -> block_index_valid y
     -> block_index_gt x y
-    -> forall z, ~(block_size_range x z /\ block_size_range y z).
+    -> forall z,
+      2^GRANULARITY_LOG2 ≤  z ->
+      ~(block_size_range x z /\ block_size_range y z).
   Proof.
-    intros (i, j) (k, l) Hvalid_x Hvalid_y H z.
+    intros (i, j) (k, l) Hvalid_x Hvalid_y H z Hz.
     unfold block_size_range, size_of_flb.
     destruct Hvalid_x as [Hx_fl Hx_sl].
     destruct Hvalid_y as [Hy_fl Hy_sl].
     destruct H as [Higtk | [Hieqk Hjgtl]].
-    (* First Level Index is different *)
-    - admit.
+    (* First Level Index is different i > k *)
+    - Search (_≤ _ -> _ - _ ≤  _ - _ ). 
+      Search (_^_ `div` _^_).
+      Check Z.sub_le_mono.
+      Check Z.sub_lt_mono.
+      rewrite <- (Z.pow_sub_r 2 i SLLEN).
+
     (* Second Level Index is different *)
     -
   Admitted.
@@ -127,8 +139,13 @@ Section system_state.
 
   (** Representation of abstract [block_matrix] in physical memory.
    *)
-  Fixpoint free_list_repr (m: block_matrix): iProp Σ.
+  Fixpoint free_list_repr (m: block_matrix) (freelist_p: loc) : iProp Σ.
   Admitted.
+
+
+  Check _ :tuple2_rt Z Z.
+  About type .
+  Check tuple2_ty (int USize) (int USize) : type $ tuple2_rt Z Z.
 
 End system_state.
 

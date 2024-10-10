@@ -1,5 +1,6 @@
 #![rr::import("extras", "bitops")]
 #![rr::import("caesium", "int_type")]
+#![rr::include("option")]
 
 // TODO: How to handle *negative* usize?
 #[rr::only_spec]
@@ -31,6 +32,14 @@ pub fn saturating_sub(lhs: usize, rhs: usize) -> usize {
 #[rr::args("x" @ "int usize_t", "y" @ "int usize_t")]
 #[rr::returns("if decide (x > y) then x - y else int_modulus usize_t + (x - y)")]
 pub fn wrapping_sub(lhs: usize, rhs: usize) -> usize {
+    lhs.wrapping_sub(rhs)
+}
+
+#[rr::only_spec]
+#[rr::params("x" : "Z", "y" : "Z")]
+#[rr::args("x" @ "int u32", "y" @ "int u32")]
+#[rr::returns("if decide (x > y) then x - y else int_modulus u32 + (x - y)")]
+pub fn wrapping_sub_u32(lhs: u32, rhs: u32) -> u32 {
     lhs.wrapping_sub(rhs)
 }
 
@@ -90,4 +99,60 @@ pub fn trailing_zeros(u: usize) -> u32 {
      fn clz_2() -> u32 {
          leading_zeros(2)
      }
+
+     //#[rr::returns("-[1;1]" @ "tuple2_ty (int USize) (int USize)")]
+     //fn silly() -> (usize, usize) {
+         //(1, 1)
+     //}
+     //
+     //#[rr::params("x" : "Z", "y" : "Z")]
+     //#[rr::args("x" @ "usize_t", "y" @ "usize_t")]
+     //#[rr::returns("-[#x;#y]" @ "tuple2_ty (int USize) (int USize)")]
+     //fn silly3(x: usize, y: usize) -> (usize, usize) {
+         //(x, y)
+     //}
+
+     //#[rr::returns("[1;1]")]
+     //fn silly2() -> [usize; 2] {
+         //[1, 1]
+     //}
+
+     const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
+     const GRANULARITY_LOG2: u32 = GRANULARITY.trailing_zeros();
+     const SLLEN: usize = 4usize;
+     const FLLEN: usize = 8usize;
+     const SLI: u32 = SLLEN.trailing_zeros();
+
+    // > Find the free block list to store a free block of the specified size.
+    // ensures("block_size_range res size")
+    #[rr::returns("None")]
+    fn map_floor(size: usize) -> Option<(usize, usize)> {
+        //debug_assert!(size >= GRANULARITY);
+        //debug_assert!(size % GRANULARITY == 0);
+        let fl = usize::BITS - GRANULARITY_LOG2 - 1 - leading_zeros(size);
+
+        // The shift amount can be negative, and rotation lets us handle both
+        // cases without branching. Underflowed digits can be simply masked out
+        // in `map_floor`.
+        let sl = rotate_right(size, wrapping_sub_u32((fl + GRANULARITY_LOG2), SLI));
+
+        // The most significant one of `size` should be now at `sl[SLI]`
+        //debug_assert!(((sl >> SLI) & 1) == 1);
+
+        // `fl` must be in a valid range
+        if fl as usize >= FLLEN {
+            return None;
+        }
+
+        Some((fl as usize, sl & (SLLEN - 1))); None
+    }
+
+     //fn index_calc() -> usize {
+         //let granularity = core::mem::size_of::<usize>() * 4;
+         //let granularity_log2 = granularity.trailing_zeros();
+         //let size: usize = granularity_log2 + 1;
+         //let fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+         //let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+         //unimplemented!()
+     //}
  }
