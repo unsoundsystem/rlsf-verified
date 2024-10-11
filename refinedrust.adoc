@@ -34,4 +34,4 @@
 === tupleの扱い
 
 * `shims.v` / `tuple{n}_{ty|rt}`
-* refinementの推論について詳しくなる必要がありそう
+* `hlist` に `place_rfn {Coqの型}` とすれば良いことがわかった

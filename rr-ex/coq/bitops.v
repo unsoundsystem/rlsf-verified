@@ -280,3 +280,31 @@ Proof.
     + unfold msb_enabled. Z.bitwise.
 
   Admitted.
+
+Fixpoint lsb_enabled (ws msb_idx: nat) (n: Z) : Z :=
+  match msb_idx with
+  | O => if Z.testbit n 0 then 1 else 0
+  | S x => if Z.testbit n (ws - msb_idx)
+           then msb_idx + 1 (* convert to 1-indexed result *)
+           else msb_enabled x n
+  end.
+
+Definition lsb_enabled_0 ws := forall idx, lsb_enabled ws idx 0 = 0.
+
+Lemma lsb_enabled_0_64: lsb_enabled_0 64.
+Proof.
+  unfold lsb_enabled_0.
+  intros.
+  induction idx.
+  - reflexivity.
+  - unfold lsb_enabled.
+    rewrite Z.bits_0.
+    fold msb_enabled.
+    apply msb_enabled_0.
+Qed.
+
+Definition ctz_itP (n m: Z) : bool := 
+  orb (negb (bool_decide (0 < n < 2^m)%Z)) $
+  bool_decide (Z.log2 n = msb_enabled (Z.to_nat m) n - 1).
+
+QuickChick clz_itP.

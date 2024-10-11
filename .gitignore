@@ -1,4 +1,5 @@
 build
 .lia.cache
+.nia.cache
 node_modules
 .wrangler

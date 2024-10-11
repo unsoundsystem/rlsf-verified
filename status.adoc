@@ -130,5 +130,14 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 * 簡略化した `map_floor` の検証
     ** template tacticが失敗するのでデバッグしていた
     ** RefinedRustのspecでタプルを扱う方法がわからない
-* Q: タプルの扱い/どんな型でrefineできるのか
+* [[tuple_treatment]] Q: タプルの扱い/どんな型でrefineできるのか
 * `block_size_range_not_overwrap` の証明を進めた
+
+== 2024/10/11
+
+* A: xref:tuple_treatment[タプルの扱い]についてCoqの項 `hlist (place_rfn {Coqの型})` でrefineできることがわかった
+* 簡略化した `map_floor` の検証: RefinedRust側の問題は概ね解決した
+* `block_size_range_not_overwrap` の証明を進めた( `SLI` が `SLLEN` と混同されていた)
+* 抽象仕様の検討
+* Q: 割当済みブロックの追跡
+    ** 他の検証プロジェクトを調査する

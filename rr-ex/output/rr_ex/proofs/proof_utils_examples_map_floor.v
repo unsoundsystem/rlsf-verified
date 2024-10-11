@@ -20,7 +20,7 @@ Proof.
   start_function "utils_examples_map_floor" ( [] ) ( [] ) ( ? );
   set (loop_map := BB_INV_MAP (PolyNil)).
   (* FIXME: Fails to intro *)
-  intros arg_size local___0 local___2 local___3 local___4 local___5 local___6 local___7 local___8 local___9 local___10 local___11 local___12 local___13 local___14 local___15 local_fl local___17 local___18 local___19 local___20 local___21 local___22 local___23 local_sl local___25 local___26 local___27  .
+  intros arg_size local___0 local___2 local___3 local___4 local___5 local___6 local___7 local___8 local___9 local___10 local___11 local___12 local___13 local___14 local___15 local_fl local___17 local___18 local___19 local___20 local___21 local___22 local___23 local_sl local___25 local___26.
   prepare_parameters ( );
   init_lfts (∅ );
   init_tyvars ( ∅ ).
@@ -33,5 +33,5 @@ Proof.
   Unshelve. all: sidecond_solver.
   Unshelve. all: sidecond_hammer.
   Unshelve. all: print_remaining_sidecond.
-Qed.
+  Abort.
 End proof.

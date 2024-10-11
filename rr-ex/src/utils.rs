@@ -1,4 +1,5 @@
 #![rr::import("extras", "bitops")]
+#![rr::import("extras", "model")]
 #![rr::import("caesium", "int_type")]
 #![rr::include("option")]
 
@@ -117,7 +118,9 @@ pub fn trailing_zeros(u: usize) -> u32 {
          //[1, 1]
      //}
 
+     #[rr::refined_by("Z")]
      const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
+     #[rr::refined_by("Z")]
      const GRANULARITY_LOG2: u32 = GRANULARITY.trailing_zeros();
      const SLLEN: usize = 4usize;
      const FLLEN: usize = 8usize;
@@ -125,7 +128,16 @@ pub fn trailing_zeros(u: usize) -> u32 {
 
     // > Find the free block list to store a free block of the specified size.
     // ensures("block_size_range res size")
-    #[rr::returns("None")]
+    //  TODO: use conditional compilation or something to avoid hardcoding `GRANULARITY`.
+    #[rr::params("size" : "Z", "fl" : "Z", "sl" : "Z")]
+    #[rr::args("size" @ "int usize_t")]
+    //#[rr::requires("fl" @ "Z", "sl" : "Z")]
+    #[rr::requires("(Z.ge size 32) (* GRANULARITY *)")]
+    #[rr::requires("(size `mod` 32 = 0)%Z (* GRANULARITY = 32 *)")]
+    #[rr::returns("if decide (Z.ge (fl - (Z.log2 size) - 5 (* GRANULARITY_LOG2 *)) 8)%Z then None else Some #(-[#fl; #sl])%Z")]
+    #[rr::ensures("block_size_range 4 (* SLLEN *) (fl, sl) size")]
+    #[rr::ensures("block_index_valid 8 (* FLLEN *) 4 (* SLLEN *) (fl, sl)")]
+    // false due to the mask #[rr::ensures("Z.testbit (sl >> Z.log2 SLLEN) 0")]
     fn map_floor(size: usize) -> Option<(usize, usize)> {
         //debug_assert!(size >= GRANULARITY);
         //debug_assert!(size % GRANULARITY == 0);
@@ -144,7 +156,24 @@ pub fn trailing_zeros(u: usize) -> u32 {
             return None;
         }
 
-        Some((fl as usize, sl & (SLLEN - 1))); None
+        Some((fl as usize, sl & (SLLEN - 1)))
+    }
+
+    #[rr::params("b" : "bool")]
+    #[rr::args("b" @ "bool_t")]
+    #[rr::returns("if b then Some #b else None")]
+    fn silly_option(b: bool) -> Option<bool> {
+        if b {
+            Some(true)
+        } else {
+            None
+        }
+    }
+
+    // OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOhKey
+    #[rr::returns("-[#1; #1]")]
+    fn silly_tuple() -> (usize, usize) {
+        (1, 1)
     }
 
      //fn index_calc() -> usize {

@@ -30,14 +30,15 @@ Section index.
     0 ≤ i < FLLEN /\ 0 ≤ j < SLLEN. 
 
 
-  Definition size_of_flb (i : Z) := 2^i `div` 2^SLLEN.
+  (* NOTE: SLLEN is not SLI!!! SLLEN = 2^SLI *)
+  Definition size_of_slb (i : Z) := 2^i `div` SLLEN.
 
   (** Calculating the size range of block allowed for given freelist index
       - will be used in spec of `Tlsf::map_floor` / `Tlsf::map_ceil`
    *)
   Definition block_size_range x blk_sz :=
     let '(i, j) := x in
-      2^i + size_of_flb i * j ≤  blk_sz < 2^i + size_of_flb i * (j + 1)
+      2^i + size_of_slb i * j ≤  blk_sz < 2^i + size_of_slb i * (j + 1)
       .
  
   Definition block_index_gt (x y: block_index) : Prop := 
@@ -57,29 +58,54 @@ Section index.
       || negb (bool_decide (block_size_range x z)
         && bool_decide (block_size_range y z)).
 
+  Lemma silly: forall x y x' y' z,
+    y < x' ->
+   ¬( x ≤ z < y ∧ x' ≤ z <y').
+  Proof.
+    intros x y x' y' z Hyx'.
+    unfold not. intros [[Hxz Hzy] [Hx'z Hzy']]. nia.
+  Qed.
+  Lemma fl_range_not_overwrap: forall x y,
+    block_index_valid x
+    -> block_index_valid y
+    -> x.1 > y.1
+    -> forall z: Z, ¬(block_size_range x z ∧  block_size_range y z).
+  Proof.
+    intros (i, j) (k, l) [Hvalid_x Hvalid_x'] [Hvalid_y Hvalid_y'] Hik z.
+    simpl in Hik.
+    unfold block_size_range, size_of_slb, not.
+    assert (2 ^ i + 2 ^ i `div` SLLEN * (j + 1)
+      < 2 ^ k + 2 ^ k `div` SLLEN * l). {
+        (* TODO *)
+        admit.
+    }
+    intros [[? ?] [? ?]]. 
+    nia.
+
+    Admitted.
+
   (** This states all free block managed by TSLF allocator
       falls into exactly one free list. (`self.first_free[fl][sl]` in rlsf)
   *)
-  Lemma block_size_range_not_overwrap: forall x y,
-    block_index_valid x
-    -> block_index_valid y
+  Lemma block_size_range_not_overwrap: forall x y, block_index_valid x -> block_index_valid y
     -> block_index_gt x y
     -> forall z,
       2^GRANULARITY_LOG2 ≤  z ->
       ~(block_size_range x z /\ block_size_range y z).
   Proof.
     intros (i, j) (k, l) Hvalid_x Hvalid_y H z Hz.
-    unfold block_size_range, size_of_flb.
+    unfold block_size_range, size_of_slb.
     destruct Hvalid_x as [Hx_fl Hx_sl].
     destruct Hvalid_y as [Hy_fl Hy_sl].
     destruct H as [Higtk | [Hieqk Hjgtl]].
     (* First Level Index is different i > k *)
-    - Search (_≤ _ -> _ - _ ≤  _ - _ ). 
+    -
+      Search (_≤ _ -> _ - _ ≤  _ - _ ). 
       Search (_^_ `div` _^_).
       Check Z.sub_le_mono.
       Check Z.sub_lt_mono.
-      rewrite <- (Z.pow_sub_r 2 i SLLEN).
-
+      (*rewrite <- (Z.pow_sub_r 2 i SLLEN).*)
+      admit.
     (* Second Level Index is different *)
     -
   Admitted.
@@ -95,12 +121,6 @@ Section system_state.
     start : loc;
     size : positive;
   }.
-
-  (* this assumptions are needed to use gmap/gset
-   TODO: Once we decide how to treat about locations
-         there be actual instance
-   *)
-  Context `{Countable block} `{EqDecision block}.
 
   Global Instance block_eq_dec: EqDecision block.
   Proof. solve_decision. Qed.
