@@ -93,7 +93,19 @@ ref. `model.v` / `Section index.`
 * `Tlsf::map_ceil`: 要求サイズ以上のブロックしか存在しないリストを計算,割当時に使う
 * `allocated_block` と `free_blocks` は非交和
 * `allocated_block` / `free_blocks` 内の任意の `block` の取る領域は非交和
-*
+
+== 他のアロケータ検証プロジェクトにおける割当済みブロックの扱い
+
+=== DeepSpecDB/binlist malloc/VST
+
+* VSTのVSUというC言語ライブラリの検証単位をとして規格準拠のmalloc仕様が形式化されており、アロケータ実装・検証者も利用できる
+* malloc時に内部構造のブロックヘッダに相当するロケーションに関する述語 `malloc_token` を発行(事後条件として `P ∗ malloc_token ...` のように出てくる)
+* これを持ち回って開放時に `free` 関数の事前条件に渡すことでリソースの開放が証明できる
+
+=== Verusによるmimallocの検証
+
+* アロケータのインタフェースを変更して、割当時にPhantom typeを発行する
+    ** VSTとアイデアが似ているように見える
 
 == references
 

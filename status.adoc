@@ -112,11 +112,11 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 * [[bitop_min_ex]]ビット操作を扱うRustコードの検証のminimal exampleを作った→上手く動かない
     ** `rr::spec_only` でつけた形式仕様がRefinedRustの生成するsidecondisionを満たせていない
 * 抽象仕様(`rr-ex/coq/models.v`)のドキュメントを少し書いた
-* Q: `rr:spec_only` でつけた形式仕様に要求されるsidecondisionに関して調査する
+* [[spec_only_sidecond]]Q: `rr:spec_only` でつけた形式仕様に要求されるsidecondisionに関して調査する
 
 == 2024/10/07
 
-* xref:bitop_min_ex[ビット操作を扱うコードの検証例]を直した
+* A: xref:bitop_min_ex[ビット操作を扱うコードの検証例]を直した(xref:spec_only_sidecond[これ]は勘違い)
     ** 原因: アノテーションの使い方が間違っていた
         *** 関数の引数に関する事前条件の指定には `rr::args` を使うべき
 * Q: `rotate_right` のシフト幅が負の場合の扱い
@@ -141,3 +141,13 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
 * 抽象仕様の検討
 * Q: 割当済みブロックの追跡
     ** 他の検証プロジェクトを調査する
+
+== 2024/10/17
+
+* `BlockHdr` / `FreeBlockHdr` / `Tlsf` のアノテーション・変換fix
+    ** `rr_frontend` が未対応な部分は `sed` の力を借りている
+* ビットマップとfreelistの整合性に関する不変条件を追加
+* Q: const parametersの扱い
+    ** refinedrustでも単純なジェネリクスが扱えるが、const parametersが扱えるかの検証
+* Q: 再帰的な構造に対する述語の書き方
+    ** `first_free[fl][sl].next_free` に関する言明

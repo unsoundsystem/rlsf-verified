@@ -1,22 +1,25 @@
 Require Import ZArith.
-From stdpp Require Import base numbers finite decidable gmap.
+From stdpp Require Import base numbers finite decidable gmap list.
 From refinedrust Require Import typing shims.
 From QuickChick Require Import QuickChick.
 Require Import Psatz. 
 
+Section abstract_spec.
+
+Open Scope Z.
+(** NOTE: We don't think about 2^0 granularity allocation
+   [GRANULARITY_LOG2] corresponds to `GRANULARITY_LOG2` in rlsf codebase.
+ *)
+Variable FLLEN SLLEN GRANULARITY_LOG2: Z.
+Hypothesis FLLEN_pos: FLLEN > 0.
+Hypothesis SLLEN_pos: SLLEN > 0.
+Hypothesis GRANULARITY_LOG2_pos: GRANULARITY_LOG2 > 0.
+Hypothesis valid_freelist_size: FLLEN > GRANULARITY_LOG2.
+
+
 (** * Formalization of index calculation in TLSF
  *)
 Section index.
-  Open Scope Z.
-  (** NOTE: We don't think about 2^0 granularity allocation
-     [GRANULARITY_LOG2] corresponds to `GRANULARITY_LOG2` in rlsf codebase.
-   *)
-  Variable FLLEN SLLEN GRANULARITY_LOG2: Z.
-  Hypothesis FLLEN_pos: FLLEN > 0.
-  Hypothesis SLLEN_pos: SLLEN > 0.
-  Hypothesis GRANULARITY_LOG2_pos: GRANULARITY_LOG2 > 0.
-  Hypothesis valid_freelist_size: FLLEN > GRANULARITY_LOG2.
-
   (** * Block index
      Following Zhang et.al., we formalize bitmap index by tuple of positive
      integer (restriction on [Z]).
@@ -116,6 +119,10 @@ Section system_state.
 
   (** Representation of block
      - loc is RefinedRust a construct
+     - [block] doesn't directly correspoinds to `BlockHdr`
+        `BlockHdr` embedded at the start of the managed region,
+        thus [start] is the pointer to that header and [size] is
+        the field [BlockHdr::size] of the header.
    *)
   Record block := Block {
     start : loc;
@@ -137,9 +144,7 @@ Section system_state.
       (λ b, Block b.1 b.2)
       _
     ).
-    intros.
-    simpl.
-    destruct x.
+    intros [].
     reflexivity.
   Qed.
 
@@ -151,22 +156,29 @@ Section system_state.
 
   (** * Abstract freelist
      correspinds to `self.first_free` in rlsf.
+
+     - here developing lemmas about operations on this list.
+     - lemmas proved here will used in the annotations on rlsf and proofs under `./output/proofs`.
    *)
-  Definition block_matrix :=  gmap (nat * nat) $ gset block.
+  Definition block_matrix :=  list $ list $ option (place_rfn loc).
 
-
-  Context `{!refinedrustGS Σ}.
-
-  (** Representation of abstract [block_matrix] in physical memory.
-   *)
-  Fixpoint free_list_repr (m: block_matrix) (freelist_p: loc) : iProp Σ.
-  Admitted.
-
-
-  Check _ :tuple2_rt Z Z.
-  About type .
-  Check tuple2_ty (int USize) (int USize) : type $ tuple2_rt Z Z.
+  (** Consistency bitween bitmaps and freelist
+     - [fl_bitmap]/[sl_bitmap] are correspind to the same names in rlsf.
+        - `fl_bitmap`/`sl_bitmap` in rlsf will refined by same types.
+     - leaving this as function due to the convinience for positioning quantifiers.
+  *)
+  Definition block_matrix_inv (m: block_matrix) (fl_bitmap: Z) (sl_bitmap: list Z) :=
+    λ (fl_idx sl_idx: Z) sl_ls fb,
+      block_index_valid (fl_idx, sl_idx) ->
+      m !! (Z.to_nat fl_idx) = Some sl_ls
+      ∧ sl_ls !! (Z.to_nat sl_idx) = Some (Some fb)
+      ↔  exists slb, Z.testbit fl_bitmap fl_idx = true ∧
+          sl_bitmap !! (Z.to_nat fl_idx) = Some slb
+          ∧ Z.testbit slb sl_idx
+  .
 
 End system_state.
+
+End abstract_spec.
 
 QuickChick (block_size_range_not_overwrapP 8 4).

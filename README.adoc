@@ -12,16 +12,19 @@ ifdef::env-name[:relfilesuffix: .adoc]
         *** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
 
 
+image::verif-arch.drawio.svg[Embedded,800,opts=inline]
+
 == TODO
 
 * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
 * 抽象仕様周り
     ** `allocated_block` の表現あるいは代替
         *** 割当済みブロックの追跡についてメモリアロケータの形式検証プロジェクトをあたってみる
-    ** bitmapの形式化の検討
     ** インデックス計算の形式化
+        *** `block_size_range_not_overwrap` の証明
     ** zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
     ** 実際の実装へのrefinementのステートメントを考える
+        *** `free_list_repr`
 * ビット操作周り
     ** 各ビット幅を取るモジュールで証明を整理する
     ** count leading/trailing zerosの形式仕様

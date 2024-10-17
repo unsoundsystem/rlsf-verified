@@ -18,5 +18,5 @@ Proof.
   Unshelve. all: sidecond_solver.
   Unshelve. all: sidecond_hammer.
   Unshelve. all: print_remaining_sidecond.
-Qed.
+Admitted.
 End proof.

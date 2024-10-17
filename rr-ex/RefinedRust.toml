@@ -4,3 +4,4 @@ output_dir="./output"
 generate_dune_project = true
 lib_load_paths = ["../../refinedrust-dev/stdlib" ]
 external_coq_libs = ["extras"]
+post_generation_hook = "/bin/sh /home/shinaikakishita/projects/tlsf-verif/tlsf-allocator-verification-progress-report/rr-ex"
