@@ -3,3 +3,5 @@ build
 .nia.cache
 node_modules
 .wrangler
+_build
+target

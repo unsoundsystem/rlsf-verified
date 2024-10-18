@@ -16,6 +16,9 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 
 == TODO
 
+* raw pointerを使ったプログラムの検証方法の実験
+    ** linked list
+* Radiumへの手動変換の方法調査（主にNotation周り）
 * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
 * 抽象仕様周り
     ** `allocated_block` の表現あるいは代替
@@ -24,7 +27,7 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
         *** `block_size_range_not_overwrap` の証明
     ** zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
     ** 実際の実装へのrefinementのステートメントを考える
-        *** `free_list_repr`
+        *** Rustコードベース中のアノテーションに依存するので `model.v` 内では完結しない
 * ビット操作周り
     ** 各ビット幅を取るモジュールで証明を整理する
     ** count leading/trailing zerosの形式仕様

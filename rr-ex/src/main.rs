@@ -41,9 +41,9 @@ struct FreeBlockHdr {
     #[rr::field("b")]
     common: BlockHdr,
     #[rr::field("nf")]
-    next_free: Option<*const FreeBlockHdr>,
+    next_free: Option<NonNull<FreeBlockHdr>>,
     #[rr::field("pf")]
-    prev_free: Option<*const FreeBlockHdr>,
+    prev_free: Option<NonNull<FreeBlockHdr>>,
 }
 
 #[rr::trust_me]
@@ -56,35 +56,65 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     sl_bitmap: [usize; FLLEN],
     #[rr::field("freelist")]
-    first_free: [[Option<*const FreeBlockHdr>; SLLEN]; FLLEN],
+    first_free: [[Option<NonNull<FreeBlockHdr>>; SLLEN]; FLLEN],
     #[rr::field("tt")]
     _phantom: PhantomData<&'pool ()>,
 }
 
 // FIXME
-//#[rr::trust_me]
-//#[rr::refined_by("(x, n)": "(Z * loc)")]
-//struct Silly {
-    //#[rr::field("x")]
-    //x: usize,
-    //#[rr::field("n" @ "alias_ptr_t")]
-    //n: *const Silly
-//}
-//#[rr::params("z" : "Z")]
-//#[rr::args("z" @ "int usize_t")]
-//#[rr::returns("z")]
-//fn silly(u: usize) -> usize {
-    //let a = Box::new(Silly {
-        //x: u,
-        //n: rrptr::dangling(),
-    //});
+#[rr::refined_by("(n, x)": "(loc * Z)")]
+//#[rr::invariant(#own "freeable n (size_of_st Silly_st) 1 HeapAlloc")]
+pub struct Silly {
+    #[rr::field("n")]
+    n: *const Silly,
+    #[rr::field("x")]
+    x: usize
+}
+#[rr::params("z" : "Z")]
+#[rr::args("z" @ "int usize_t")]
+//#[rr::exists("l")]
+//#[rr::returns("(l, z)")]
+#[rr::returns("z" @ "int usize_t")]
+pub fn silly(u: usize) -> usize {
+    let a = Silly {
+        x: u,
+        n: rrptr::dangling(),
+    };
 
-    //let b = Silly {
-        //x: 0x5e14,
-        //n: &*a
-    //};
-    //return unsafe { (&*b.n).x };
-//}
+    let b = Silly {
+        x: u,
+        n: &a
+    };
+    return unsafe { (&*b.n).x };
+    //return b;
+}
+
+
+#[rr::exists("l")]
+#[rr::returns("(l, 1)")]
+pub fn sill() -> Silly {
+    Silly {
+        x: 1,
+        n: rrptr::dangling()
+    }
+}
+
+#[rr::shim("box_new", "type_of_box_new")]
+fn box_new<T>(x: T) -> Box<T> {
+    Box::new(x)
+}
+
+
+unsafe fn link_free_block(mut list: Option<NonNull<FreeBlockHdr>>, mut block: NonNull<FreeBlockHdr>, size: usize) {
+    let first_free = &mut list;
+    let next_free = core::mem::replace(first_free, Some(block));
+    block.as_mut().next_free = next_free;
+    block.as_mut().prev_free = None;
+    if let Some(mut next_free) = next_free {
+        next_free.as_mut().prev_free = Some(block);
+    }
+}
+
 
 #[rr::returns("()")]
 fn main() {

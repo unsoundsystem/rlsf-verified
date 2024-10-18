@@ -1,0 +1,5 @@
+(install
+ (files 
+   (glob_files_rec *.rrlib))
+ (section share)
+ (package refinedrust-stdlib-contrib))

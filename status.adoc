@@ -151,3 +151,22 @@ Coqのproperty-based testingができるQuickChickを導入。証明に入る前
     ** refinedrustでも単純なジェネリクスが扱えるが、const parametersが扱えるかの検証
 * Q: 再帰的な構造に対する述語の書き方
     ** `first_free[fl][sl].next_free` に関する言明
+
+== 2024/10/18
+
+* ビット操作周りはなんとかなりそう
+    footnote:[もう少し形式化を成熟させて証明を完了させる必要はあるがRefinedRustで検証を続けるために本質的な制約は無さそうの意]
+  なので、先にraw pointerを多用するコードが実際に検証できることを確かめたい
+* rawポインタを扱うプログラムの検証の実験,リンクリストの結合で `&T` から `*const T` に変換する部分の推論が上手く行かない
+    ** ローカル変数にアノテーションが出来ないためsideconditionが残ったと思われる cf. `rr_ex::silly`
+* `NonNull` APIの形式仕様
+* `core::mem::replace` の形式仕様
+* 単純化した `Tlsf::link_free_block` をつかってリンクリストの検証方法を確かめる(wip)
+    ** link listは以下のような形で実現できそう？
+        `l ↦ v` の `v` はただのバイト列で、layoutやrefinementの条件を足すことで構造体が格納されていることを言えそう
+        footnote:[余談: VSTだと直感的に `l ↦ struct t { ... fields }` に近い書き方ができるのでハマってしまった]
+[quote]
+----
+l ↦ v * v @ struct_t ... field ...
+   * l' ↦ v' * to_val_or_somthing l' @ field
+----

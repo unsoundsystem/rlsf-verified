@@ -1,7 +1,7 @@
 output_dir="./output"
 #extra_specs = "./coq/extra_specs.v"
-#shims = "./rr_shims.json"
+shims = "./rr_shims.json"
 generate_dune_project = true
-lib_load_paths = ["../../refinedrust-dev/stdlib" ]
+lib_load_paths = ["../stdlib" ]
 external_coq_libs = ["extras"]
 post_generation_hook = "/bin/sh /home/shinaikakishita/projects/tlsf-verif/tlsf-allocator-verification-progress-report/rr-ex"

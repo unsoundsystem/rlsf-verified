@@ -177,6 +177,18 @@ Section system_state.
           ∧ Z.testbit slb sl_idx
   .
 
+  Context `{refinedrustGS Σ}. 
+
+  Check (_ ↦ _)%I. 
+  Check val_to_bytes.
+  Check _ `has_layout_val` _.
+  Check struct_t.
+  (* list rep possibly ...
+
+    l ↦ v * v @ struct_t ... field ...
+       * l' ↦ v' * to_val_or_somthing l' @ field
+  *)
+
 End system_state.
 
 End abstract_spec.
