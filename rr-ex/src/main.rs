@@ -2,8 +2,10 @@
 #![register_tool(rr)]
 #![feature(custom_inner_attributes)]
 #![feature(core_intrinsics)]
+//#![rr::import("extras.shims")]
 
 mod utils;
+use std::ptr;
 use std::ptr::NonNull;
 
 const SIZE_USED: usize = 1;
@@ -70,24 +72,24 @@ pub struct Silly {
     #[rr::field("x")]
     x: usize
 }
-#[rr::params("z" : "Z")]
-#[rr::args("z" @ "int usize_t")]
-//#[rr::exists("l")]
-//#[rr::returns("(l, z)")]
-#[rr::returns("z" @ "int usize_t")]
-pub fn silly(u: usize) -> usize {
-    let a = Silly {
-        x: u,
-        n: rrptr::dangling(),
-    };
+//#[rr::params("z" : "Z")]
+//#[rr::args("z" @ "int usize_t")]
+////#[rr::exists("l")]
+////#[rr::returns("(l, z)")]
+//#[rr::returns("z" @ "int usize_t")]
+//pub fn silly(u: usize) -> usize {
+    //let a = Silly {
+        //x: u,
+        //n: rrptr::dangling(),
+    //};
 
-    let b = Silly {
-        x: u,
-        n: &a
-    };
-    return unsafe { (&*b.n).x };
-    //return b;
-}
+    //let b = Silly {
+        //x: u,
+        //n: &a
+    //};
+    //return unsafe { (&*b.n).x };
+    ////return b;
+//}
 
 
 #[rr::exists("l")]
@@ -115,6 +117,13 @@ unsafe fn link_free_block(mut list: Option<NonNull<FreeBlockHdr>>, mut block: No
     }
 }
 
+//#[rr::params("u", "l")]
+//#[rr::args("u" @ "int usize_t", "l" @ "alias_ptr_t")]
+//#[rr::returns("u")]
+unsafe fn ptr_rw(u: usize, l: *mut usize) -> usize {
+    ptr::write(l, u);
+    rrptr::read::<usize>(l)
+}
 
 #[rr::returns("()")]
 fn main() {
@@ -192,5 +201,12 @@ mod rrptr {
     #[rr::shim("ptr_add", "type_of_ptr_add")]
     pub unsafe fn const_add<T>(ptr: *const T, count: usize) -> *const T {
         ptr.add(count)
+    }
+
+    // FIXME: This possibly cause inconsistency, we must specialize to some struct. cf.
+    // `type_of_ptr_read`
+    //#[rr::shim("ptr_read_ax", "type_of_ptr_read_ax")]
+    pub unsafe fn read<T>(ptr: *mut T) -> T {
+        ptr.read()
     }
 }

@@ -183,6 +183,10 @@ Section system_state.
   Check val_to_bytes.
   Check _ `has_layout_val` _.
   Check struct_t.
+  About type.
+  Check mem_cast_compat_loc.
+  About typed_place.
+  (*Check (λ l node np, l ↦ node )%I.*)
   (* list rep possibly ...
 
     l ↦ v * v @ struct_t ... field ...

@@ -4,3 +4,4 @@ sed -i \
     -e 's/Definition Silly_ty.*/Definition Silly_ty : type (plist place_rfn [loc : Type; Z : Type])./' \
     /home/shinaikakishita/projects/tlsf-verif/tlsf-allocator-verification-progress-report/rr-ex/output/rr_ex/generated/generated_specs_rr_ex.v
 
+#cp ./shims.v output/rr_ex/generated/shims.v
