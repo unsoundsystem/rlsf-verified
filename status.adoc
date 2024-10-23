@@ -187,3 +187,7 @@ l ↦ v * v @ struct_t ... field ...
 * 特定の構造体について同様の関数を用意して証明する
     ** `refinedrust.examples.rr_ex.generated` と `extras` のtheoryが循環参照になる
         *** `post_generation_hook` で `coq/shims.v` を `generated/` にコピーする
+
+== 2024/10/11
+
+* `mem::replace` の検証

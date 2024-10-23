@@ -1,0 +1,14 @@
+[
+    { 
+      "path": ["core", "ptr", "read"],
+      "kind": "function",
+      "name": "std_ptr_read",
+      "spec": "type_of_ptr_read"
+    },
+    { 
+        "path": ["core", "ptr", "write"],
+        "kind": "function",
+        "name": "std_ptr_write",
+        "spec": "type_of_ptr_write"
+    }
+]

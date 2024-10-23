@@ -1,1 +1,2 @@
 generate_dune_project = false
+shims = "./rr_shims.json"
