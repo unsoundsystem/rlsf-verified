@@ -35,3 +35,8 @@
 
 * `shims.v` / `tuple{n}_{ty|rt}`
 * `hlist` に `place_rfn {Coqの型}` とすれば良いことがわかった
+
+== array workaround
+
+* `op_type` に要素アクセスを追加するには
+    ** `type.v` / `_ty_has_op_type` で操作後のメモリ表現の変化を表現

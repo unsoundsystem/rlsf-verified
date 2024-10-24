@@ -160,7 +160,36 @@ Section system_state.
      - here developing lemmas about operations on this list.
      - lemmas proved here will used in the annotations on rlsf and proofs under `./output/proofs`.
    *)
+  (* TODO: Lookup instance to ease access? e.g. m !! (fl, sl) *)
   Definition block_matrix :=  list $ list $ option (place_rfn loc).
+
+  Definition f := 
+    fun (idx: (Z * Z)%type) (m: block_matrix) =>
+      x ←  m !! Z.to_nat idx.1;
+      y ←  x !! Z.to_nat idx.2;
+      y : option (place_rfn loc) .
+
+  Check NULL_loc.
+  Check PlaceIn NULL_loc.
+  Compute f (0,0) [[ Some (PlaceIn NULL_loc) ]; [None;None]; []].
+
+  (** This lookup instance allows access to [block_matrix] with [block_index].
+     The implemetation doesn't distinguish between out of bounds aceess and
+     access to empty list.
+     The client must ensure the validity of the [block_index] to identify empty freeslist.
+   *)
+  Global Instance block_matrix_lookup :
+    Lookup (Z * Z)%type (place_rfn loc) block_matrix :=
+    fix f (idx: (Z * Z)%type) (m: block_matrix)
+      : option (place_rfn loc) := let _ : Lookup _ _ _ := @f  in
+      x ←  m !! Z.to_nat idx.1;
+      y ←  x !! Z.to_nat idx.2;
+      y : option (place_rfn loc).
+
+  Example silly_ac : option (place_rfn loc) :=
+    let m := [[ Some (PlaceIn NULL_loc) ]; [None;None]; []] in
+      m !! (0, 0).
+  Compute silly_ac.
 
   (** Consistency bitween bitmaps and freelist
      - [fl_bitmap]/[sl_bitmap] are correspind to the same names in rlsf.
@@ -168,10 +197,9 @@ Section system_state.
      - leaving this as function due to the convinience for positioning quantifiers.
   *)
   Definition block_matrix_inv (m: block_matrix) (fl_bitmap: Z) (sl_bitmap: list Z) :=
-    λ (fl_idx sl_idx: Z) sl_ls fb,
+    λ (fl_idx sl_idx: Z) fb,
       block_index_valid (fl_idx, sl_idx) ->
-      m !! (Z.to_nat fl_idx) = Some sl_ls
-      ∧ sl_ls !! (Z.to_nat sl_idx) = Some (Some fb)
+      m !! (fl_idx, sl_idx) = Some fb
       ↔  exists slb, Z.testbit fl_bitmap fl_idx = true ∧
           sl_bitmap !! (Z.to_nat fl_idx) = Some slb
           ∧ Z.testbit slb sl_idx
@@ -185,7 +213,7 @@ Section system_state.
   Check struct_t.
   About type.
   Check mem_cast_compat_loc.
-  About typed_place.
+  About _ty_has_op_type.
   (*Check (λ l node np, l ↦ node )%I.*)
   (* list rep possibly ...
 

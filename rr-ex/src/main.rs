@@ -2,11 +2,16 @@
 #![register_tool(rr)]
 #![feature(custom_inner_attributes)]
 #![feature(core_intrinsics)]
+#![feature(const_mut_refs)]
+#![feature(const_ptr_write)]
 //#![rr::import("extras.shims")]
+//#![rr::include("ptr")]
+//#![rr::include("mem")]
 
 mod utils;
 use std::ptr;
 use std::ptr::NonNull;
+use rrptr::RNonNull;
 
 const SIZE_USED: usize = 1;
 
@@ -26,7 +31,9 @@ fn bitop(x: usize) -> bool {
 //}
 
 use core::marker::PhantomData;
-#[rr::trust_me]
+
+
+//#[rr::trust_me]
 #[rr::refined_by("(s, ppb)" : "(Z * option (place_rfn loc))%type")]
 #[rr::invariant("s >= 32 (* GRANULARITY *)")] 
 struct BlockHdr {
@@ -37,18 +44,50 @@ struct BlockHdr {
 }
 
 
-#[rr::trust_me]
+#[rr::refined_by("l" : "loc")]
+#[rr::invariant("l ≠  NULL_loc")]
+struct NonNullFBH {
+    #[rr::field("l")]
+    x: *const FreeBlockHdr
+}
+
+// Copied from ptr::NonNull
+impl NonNullFBH {
+    pub const unsafe fn new(ptr: *mut FreeBlockHdr) -> NonNullFBH {
+        NonNullFBH { x: ptr as _ }
+    }
+
+    pub const fn as_ptr(self) -> *mut FreeBlockHdr {
+        self.x as *mut FreeBlockHdr
+    }
+
+    pub const unsafe fn as_mut<'a>(&mut self) -> &'a mut FreeBlockHdr {
+           unsafe { &mut *self.as_ptr() }
+    }
+}
+
+impl Clone for NonNullFBH {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl Copy for NonNullFBH {}
+
+//#[rr::trust_me]
+// FIXME: why `*const FreeBlockHdr` works but `NonNull<FreeBlockHdr>` doesn't?
 #[rr::refined_by("(b, nf, pf)" : "((Z * option (place_rfn loc)) * option (place_rfn loc) * option (place_rfn loc))")]
 struct FreeBlockHdr {
     #[rr::field("b")]
     common: BlockHdr,
     #[rr::field("nf")]
-    next_free: Option<NonNull<FreeBlockHdr>>,
+    next_free: Option<NonNullFBH>,
     #[rr::field("pf")]
-    prev_free: Option<NonNull<FreeBlockHdr>>,
+    prev_free: Option<NonNullFBH>,
 }
 
-#[rr::trust_me]
+//#[rr::trust_me]
 #[rr::refined_by("(flbm, slbm, freelist)": "(Z * list Z * list (list (option (place_rfn loc))))")]
 #[rr::invariant("freelist" @ "array_t (array_t (option (place_rfn loc)) 4 (* SLLEN *)) 8 (* FLLEN *)")]
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
@@ -58,20 +97,32 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     sl_bitmap: [usize; FLLEN],
     #[rr::field("freelist")]
-    first_free: [[Option<NonNull<FreeBlockHdr>>; SLLEN]; FLLEN],
+    first_free: [[Option<NonNullFBH>; SLLEN]; FLLEN],
     #[rr::field("tt")]
     _phantom: PhantomData<&'pool ()>,
 }
 
-// FIXME
-#[rr::refined_by("(n, x)": "(loc * Z)")]
-//#[rr::invariant(#own "freeable n (size_of_st Silly_st) 1 HeapAlloc")]
-pub struct Silly {
-    #[rr::field("n")]
-    n: *const Silly,
-    #[rr::field("x")]
-    x: usize
+#[rr::only_spec]
+impl Tlsf<'_, 8usize, 4usize> {
+    #[rr::params("m" : "block_matrix", "fl", "sl")]
+    #[rr::args("#(_, _, m)", "fl", "sl")]
+    #[rr::requires("0 ≤ fl < 8 (* FLLEN *)")]
+    #[rr::requires("0 ≤ sl < 4 (* SLLEN *)")]
+    #[rr::returns("#(m !! (fl, sl))")]
+    const fn get_first_free<'a>(&'a mut self, fl: usize, sl: usize) -> &'a mut Option<NonNullFBH> {
+        &mut self.first_free[fl][sl]
+    }
 }
+
+// FIXME
+//#[rr::refined_by("(n, x)": "(loc * Z)")]
+////#[rr::invariant(#own "freeable n (size_of_st Silly_st) 1 HeapAlloc")]
+//pub struct Silly {
+//    #[rr::field("n")]
+//    n: *const Silly,
+//    #[rr::field("x")]
+//    x: usize
+//}
 //#[rr::params("z" : "Z")]
 //#[rr::args("z" @ "int usize_t")]
 ////#[rr::exists("l")]
@@ -92,24 +143,26 @@ pub struct Silly {
 //}
 
 
-#[rr::exists("l")]
-#[rr::returns("(l, 1)")]
-pub fn sill() -> Silly {
-    Silly {
-        x: 1,
-        n: rrptr::dangling()
-    }
-}
+//#[rr::exists("l")]
+//#[rr::returns("(l, 1)")]
+//pub fn sill() -> Silly {
+    //Silly {
+        //x: 1,
+        //n: rrptr::dangling()
+    //}
+//}
 
 #[rr::shim("box_new", "type_of_box_new")]
 fn box_new<T>(x: T) -> Box<T> {
     Box::new(x)
 }
 
-
-unsafe fn link_free_block(mut list: Option<NonNull<FreeBlockHdr>>, mut block: NonNull<FreeBlockHdr>, size: usize) {
-    let first_free = &mut list;
-    let next_free = core::mem::replace(first_free, Some(block));
+//#[rr::trust_me]
+#[rr::params("flbm", "slbm", "freelist", "ls" : "option loc", "α", "blk" : "option loc", "β", "sz")]
+#[rr::args("(#(flbm, slbm, freelist), γ)", "(#blk, β)", "sz" @ "int usize_t")]
+unsafe fn link_free_block(tlsf: &mut Tlsf<8,4>, mut block: NonNullFBH, size: usize) {
+    let first_free = tlsf.get_first_free(1, 1);
+    let next_free = rrptr::replace(first_free, Some(block));
     block.as_mut().next_free = next_free;
     block.as_mut().prev_free = None;
     if let Some(mut next_free) = next_free {
@@ -208,5 +261,47 @@ mod rrptr {
     //#[rr::shim("ptr_read_ax", "type_of_ptr_read_ax")]
     pub unsafe fn read<T>(ptr: *mut T) -> T {
         ptr.read()
+    }
+
+
+    #[rr::refined_by("l" : "loc")]
+    #[rr::invariant("l ≠  NULL_loc")]
+    pub struct RNonNull<T: ?Sized> {
+        #[rr::field("l")]
+        pointer: *const T,
+    }
+
+
+    //#[rr::export_as(core::ptr::NonNull)]
+    //#[rr::only_spec]
+    //impl<T> NonNull<T> {
+
+        //#[rr::params("l" : "loc")]
+        //#[rr::args("l" @ "alias_ptr_t")]
+        //#[rr::requires("l ≠  NULL_loc")]
+        //#[rr::ensures("l ≠  NULL_loc")]
+        //#[rr::returns("l")]
+        //pub const unsafe fn new_unchecked(ptr: *mut T) -> Self {
+            //unimplemented!()
+        //}
+
+        //#[rr::params("l" : "loc")]
+        //#[rr::args("l" @ "alias_ptr_t")]
+        //#[rr::returns("if decide (l ≠ NULL_loc) then Some #l else None")]
+        //pub const fn new(ptr: *mut T) -> Option<Self> {
+            //unimplemented!()
+        //}
+    //}
+
+    #[rr::params("d", "γ", "s")]
+    #[rr::args("(#d, γ)", "s")]
+    #[rr::returns("d")]
+    #[rr::observe("γ" : "s")]
+    pub const fn replace<T>(dest: &mut T, src: T) -> T {
+        unsafe {
+            let result = core::ptr::read(dest);
+            core::ptr::write(dest, src);
+            result
+        }
     }
 }

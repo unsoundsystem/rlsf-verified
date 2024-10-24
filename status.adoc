@@ -175,7 +175,7 @@ l ↦ v * v @ struct_t ... field ...
 
 * `ptr::write` 後 `ptr::read` する関数の検証が出来ない原因の調査
     ** rlsfでは `mem::replace` を使っているが中身が `ptr::read` / `ptr::write` なのでこれは問題
-* Q: `type_of_ptr_read` ( `theories/rust_typing/shims.v` )が弱すぎる
+* Q: [[weak_ptr_read_spec]] `type_of_ptr_read` ( `theories/rust_typing/shims.v` )が弱すぎる
     ** `ptr::read` の仕様に該当するものだが、事後条件で読み出した値の `uninit` が返ることになっている
         *** `ptr::write` の事後条件から情報が減っている
     ** enumの初期化周りの都合らしい
@@ -184,10 +184,21 @@ l ↦ v * v @ struct_t ... field ...
         *** 特定の構造体について同様の関数を用意してよりつよい条件を証明する→この方針で進める
         *** `value_t` (バイト列として解釈するための型)を使ったインタフェースをラップして使えないか
         *** `mem::replace` を使っている限り `&mut` を持っているので大丈夫な可能性...
-* 特定の構造体について同様の関数を用意して証明する
+* [.line-through]#特定の構造体について同様の関数を用意して証明する#
     ** `refinedrust.examples.rr_ex.generated` と `extras` のtheoryが循環参照になる
         *** `post_generation_hook` で `coq/shims.v` を `generated/` にコピーする
 
-== 2024/10/11
+== 2024/10/24
 
+* A: xref:weak_ptr_read_spec[ `ptr::read` の仕様が弱い問題 ] についてrlsfでは
+  `mem::replace` が用いられており、 `&mut` が引数なので所有権に関する仮定が使え
+  るので問題にならない
 * `mem::replace` の検証
+* Q: `NonNull` を使った検証でフロントエンドがパニックする
+    ** A: フロントエンドの制約で再帰的な出現が扱えない
+    ( `*const T` が許されているので `NonNull<T>` も大丈夫かと思ったが違った)
+* Q: 静的な配列アクセスがサポートされていない？
+    ** `case_studies/minivec` では `*mut T` へ明示的にアドレス計算をして要素にアクセスしている
+    ** workaround: [.line-through]#const fn で要素アクセスをラップして、only_spec#
+    ** 配列のリテラルを含むコードを自動的にスキップするのか上手く行かなかった。
+    ** `*mut T` に変換して扱うか、RefindeRust側で配列の要素アクセスを扱えるようにする必要がある
