@@ -38,5 +38,11 @@
 
 == array workaround
 
+* option 1: フロントエンドで `array_t` の表現に変換する
+* option 2: Radiumにarrayに関する型付要素アクセス操作を追加する
+    ** `*mut T` ベースの配列(`array_t`)に関する型付要素アクセスはできそう
+    cf. `typed_array_access` ( `rust_typing/arrays.v` )
 * `op_type` に要素アクセスを追加するには
     ** `type.v` / `_ty_has_op_type` で操作後のメモリ表現の変化を表現
+    ** syntactic type: `ArraySynType`
+* MIRにおけるarray https://rustc-dev-guide.rust-lang.org/mir/index.html#valtrees

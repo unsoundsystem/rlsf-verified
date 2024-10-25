@@ -36,13 +36,14 @@ TLSFではビット演算を多用するため、Rustによるビット演算の
 Rustのプリミティブ整数型では、TLSFで扱う `wrapping_add` / `saturating_add`
 / `rotate_right` のような関数はllvm intrinsicsへコンパイルされ、
 footnote:[llvm_fshr, https://llvm.org/docs/LangRef.html#llvm-fshr-intrinsic]
-Rustの意味論を使って検証することができないため、RefinedRustの `spec_only` アノ
-テーションで形式仕様のみ記述する。
+Rustの意味論を使って検証することができないため、RefinedRustの `only_spec` アノ
+テーションで形式仕様のみ記述する。 `only_spec` がついたオブジェクトはradiumコー
+ドが生成されず、仕様のみ生成される。
 
 また、Rustのコンパイラプラグインの事情でプリミティブ型へのメソッドを扱うことが
 難しそうだったため、footnote:[rustc_plug, rustc_hirでdef_idを取得できないように見える]
 プリミティブへのメソッド呼び出しを通常の関数でラップした上で、
-`rr::spec_only` アノテーションをしている。
+`rr::only_spec` アノテーションをしている。
 
 RefinedRust/Radiumでは、Rustの整数型はCoqの(無限長の)整数型 `Z` 上の制限と
 して形式化されている。Coqの `Z` は正の数をバイナリ表現で形式化した
@@ -197,8 +198,14 @@ l ↦ v * v @ struct_t ... field ...
 * Q: `NonNull` を使った検証でフロントエンドがパニックする
     ** A: フロントエンドの制約で再帰的な出現が扱えない
     ( `*const T` が許されているので `NonNull<T>` も大丈夫かと思ったが違った)
-* Q: 静的な配列アクセスがサポートされていない？
+* [[arrays_unsupported]] Q: 静的な配列アクセスがサポートされていない？
     ** `case_studies/minivec` では `*mut T` へ明示的にアドレス計算をして要素にアクセスしている
     ** workaround: [.line-through]#const fn で要素アクセスをラップして、only_spec#
     ** 配列のリテラルを含むコードを自動的にスキップするのか上手く行かなかった。
     ** `*mut T` に変換して扱うか、RefindeRust側で配列の要素アクセスを扱えるようにする必要がある
+
+== 2024/10/25
+
+* xref:arrays_unsupported[静的な配列アクセスが扱えない問題]のworkaroundの調査
+    ** A: refinedrust側の拡張を考えつつ、 `*mut T` で代替する
+* 配列の `*mut T` への書き換えとアノテーション(wip)

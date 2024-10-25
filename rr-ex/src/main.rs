@@ -47,8 +47,10 @@ struct BlockHdr {
 #[rr::refined_by("l" : "loc")]
 #[rr::invariant("l ≠  NULL_loc")]
 struct NonNullFBH {
+    // NOTE: mutability of raw pointer differs from the original NonNull
+    //      this is just for simplicity.
     #[rr::field("l")]
-    x: *const FreeBlockHdr
+    x: *mut FreeBlockHdr
 }
 
 // Copied from ptr::NonNull
@@ -57,12 +59,12 @@ impl NonNullFBH {
         NonNullFBH { x: ptr as _ }
     }
 
-    pub const fn as_ptr(self) -> *mut FreeBlockHdr {
-        self.x as *mut FreeBlockHdr
-    }
-
+    #[rr::params("l" : "loc", "v", "α")]
+    #[rr::args("l")]
+    #[rr::requires("l ↦ v ∗ ⌜ l `has_layout_loc` {ly_of FreeBlockHdr_ty} ⌝ ∗ ⌜ v `has_layout_val` {ly_of FreeBlockHdr_ty} ⌝")]
+    #[rr::returns("(#v, α)" @ "shr_ref NoNullFBH_ty {'a} ")]
     pub const unsafe fn as_mut<'a>(&mut self) -> &'a mut FreeBlockHdr {
-           unsafe { &mut *self.as_ptr() }
+           unsafe { &mut *self.x }
     }
 }
 
@@ -87,30 +89,43 @@ struct FreeBlockHdr {
     prev_free: Option<NonNullFBH>,
 }
 
+const SLLEN: usize = 4usize;
+const FLLEN: usize = 8usize;
+
 //#[rr::trust_me]
-#[rr::refined_by("(flbm, slbm, freelist)": "(Z * list Z * list (list (option (place_rfn loc))))")]
-#[rr::invariant("freelist" @ "array_t (array_t (option (place_rfn loc)) 4 (* SLLEN *)) 8 (* FLLEN *)")]
-pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
+#[rr::refined_by("(flbm, slbm, freelist)" : "(Z * loc * loc)")]
+pub struct Tlsf
+//<'pool, const FLLEN: usize, const SLLEN: usize>
+{
     #[rr::field("flbm")]
     fl_bitmap: usize,
     #[rr::field("slbm")]
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
-    sl_bitmap: [usize; FLLEN],
-    #[rr::field("freelist")]
-    first_free: [[Option<NonNullFBH>; SLLEN]; FLLEN],
-    #[rr::field("tt")]
-    _phantom: PhantomData<&'pool ()>,
+    // [usize; FLLEN]
+    sl_bitmap: *mut usize,
+    // TODO: find way work with static arrays
+    #[rr::field("freelist" @ "array_t (array_t (std_option_Option_ty (place_rfn loc)) 4 (* SLLEN *)) 8 (* FLLEN *)")]
+    first_free: *mut (*mut Option<NonNullFBH>),
+    //#[rr::field("tt")]
+    //_phantom: PhantomData<&'pool ()>,
 }
 
-#[rr::only_spec]
-impl Tlsf<'_, 8usize, 4usize> {
+impl Tlsf
+//<'_, 8usize, 4usize>
+{
+//impl<const FLLEN: usize, const SLLEN: usize> Tlsf<'_, FLLEN, SLLEN> {
     #[rr::params("m" : "block_matrix", "fl", "sl")]
     #[rr::args("#(_, _, m)", "fl", "sl")]
     #[rr::requires("0 ≤ fl < 8 (* FLLEN *)")]
     #[rr::requires("0 ≤ sl < 4 (* SLLEN *)")]
     #[rr::returns("#(m !! (fl, sl))")]
-    const fn get_first_free<'a>(&'a mut self, fl: usize, sl: usize) -> &'a mut Option<NonNullFBH> {
-        &mut self.first_free[fl][sl]
+    #[inline]
+    unsafe fn get_first_free<'a>(&'a mut self, fl: usize, sl: usize) -> &'a mut Option<NonNullFBH> {
+        //debug_assert!(fl < FLLEN);
+        //debug_assert!(sl < SLLEN);
+        //self.first_free[fl][sl]
+        let sl_list: *mut Option<NonNullFBH> = *rrptr::mut_add(self.first_free, fl); // self.first_free[fl]
+        &mut *rrptr::mut_add(sl_list, sl)
     }
 }
 
@@ -160,7 +175,7 @@ fn box_new<T>(x: T) -> Box<T> {
 //#[rr::trust_me]
 #[rr::params("flbm", "slbm", "freelist", "ls" : "option loc", "α", "blk" : "option loc", "β", "sz")]
 #[rr::args("(#(flbm, slbm, freelist), γ)", "(#blk, β)", "sz" @ "int usize_t")]
-unsafe fn link_free_block(tlsf: &mut Tlsf<8,4>, mut block: NonNullFBH, size: usize) {
+unsafe fn link_free_block(tlsf: &mut Tlsf, mut block: NonNullFBH, size: usize) {
     let first_free = tlsf.get_first_free(1, 1);
     let next_free = rrptr::replace(first_free, Some(block));
     block.as_mut().next_free = next_free;
