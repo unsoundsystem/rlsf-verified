@@ -1,4 +1,4 @@
-STDLIB = ptr mem
+STDLIB = option ptr mem
 
 RUST_TARGET ?= $(shell rustc -vV | sed -n 's|host: ||p')
 RUST_PATH ?=	target/$(RUST_TARGET)/release

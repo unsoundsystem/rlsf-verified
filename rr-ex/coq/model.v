@@ -161,17 +161,30 @@ Section system_state.
      - lemmas proved here will used in the annotations on rlsf and proofs under `./output/proofs`.
    *)
   (* TODO: Lookup instance to ease access? e.g. m !! (fl, sl) *)
-  Definition block_matrix :=  list $ list $ option (place_rfn loc).
+  (* TODO: conversion between idealistic block_matrix & block_matrix use for refinement?
+     e.g. without place_rfn
+   *)
+  Definition block_matrix :=  list $ place_rfn $ list $ place_rfn (option (place_rfn loc)).
+  (*Definition block_matrix :=  list $ list $ option (place_rfn loc).*)
+  Print place_rfn.
 
   Definition f := 
     fun (idx: (Z * Z)%type) (m: block_matrix) =>
       x ←  m !! Z.to_nat idx.1;
-      y ←  x !! Z.to_nat idx.2;
-      y : option (place_rfn loc) .
+      x' ←  (match x with PlaceIn xs => Some xs | _ => None end);
+      y ←  x' !! Z.to_nat idx.2;
+      y' ←  (match y with PlaceIn xs => Some xs | _ => None end);
+
+      y'.
+  Check f.
+      (*y ←  x' !! Z.to_nat idx.2;*)
+      (*y' ←  (match y with PlaceIn xs => Some xs | _ => None end);*)
+      (*y : option (place_rfn loc) .*)
 
   Check NULL_loc.
   Check PlaceIn NULL_loc.
-  Compute f (0,0) [[ Some (PlaceIn NULL_loc) ]; [None;None]; []].
+  (*Compute f (0,0) [[ Some (PlaceIn NULL_loc) ]; [None;None]; []].*)
+  (*Check list $ place_rfn $ list $ place_rfn (option (place_rfn loc));*)
 
   (** This lookup instance allows access to [block_matrix] with [block_index].
      The implemetation doesn't distinguish between out of bounds aceess and
@@ -183,11 +196,14 @@ Section system_state.
     fix f (idx: (Z * Z)%type) (m: block_matrix)
       : option (place_rfn loc) := let _ : Lookup _ _ _ := @f  in
       x ←  m !! Z.to_nat idx.1;
-      y ←  x !! Z.to_nat idx.2;
-      y : option (place_rfn loc).
+      x' ←  (match x with PlaceIn xs => Some xs | _ => None end);
+      y ←  x' !! Z.to_nat idx.2;
+      y' ←  (match y with PlaceIn xs => Some xs | _ => None end);
+
+      y' : option (place_rfn loc).
 
   Example silly_ac : option (place_rfn loc) :=
-    let m := [[ Some (PlaceIn NULL_loc) ]; [None;None]; []] in
+    let m : block_matrix := [PlaceIn [ PlaceIn $ Some (PlaceIn NULL_loc) ]; PlaceIn [PlaceIn $ None;PlaceIn $ None]; PlaceIn []] in
       m !! (0, 0).
   Compute silly_ac.
 

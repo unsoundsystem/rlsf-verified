@@ -9,6 +9,8 @@
     ** フロントエンドが変換できない部分を手動で変換した〜
     ** `refinedrust-dev/rust_typing/shims.v` にある手動で形式化されたRustの機能に関する形式仕様
 * ビット操作などRust以外(e.g. llvm intrinsics)で実装されている部分
+* Coqライブラリが仮定している公理 `theories/rust_typing/axioms.v`
+    ** proof irrelevance
 
 == 証明すると良さそうな性質
 

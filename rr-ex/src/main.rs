@@ -6,7 +6,8 @@
 #![feature(const_ptr_write)]
 //#![rr::import("extras.shims")]
 //#![rr::include("ptr")]
-//#![rr::include("mem")]
+#![rr::include("mem")]
+#![rr::include("option")]
 
 mod utils;
 use std::ptr;
@@ -93,7 +94,7 @@ const SLLEN: usize = 4usize;
 const FLLEN: usize = 8usize;
 
 //#[rr::trust_me]
-#[rr::refined_by("(flbm, slbm, freelist)" : "(Z * loc * loc)")]
+#[rr::refined_by("(flbm, slbm, freelist)" : "(Z * loc * block_matrix)")]
 pub struct Tlsf
 //<'pool, const FLLEN: usize, const SLLEN: usize>
 {
@@ -104,8 +105,24 @@ pub struct Tlsf
     // [usize; FLLEN]
     sl_bitmap: *mut usize,
     // TODO: find way work with static arrays
-    #[rr::field("freelist" @ "array_t (array_t (std_option_Option_ty (place_rfn loc)) 4 (* SLLEN *)) 8 (* FLLEN *)")]
+    // FIXME: Option doesn't translated to std_option_Option_ty because it behind the pointer
+    #[rr::field("freelist" @ "array_t (array_t (Option_ty alias_ptr_t) 4 (* SLLEN *)) 8 (* FLLEN *)")]
     first_free: *mut (*mut Option<NonNullFBH>),
+    // FIXME: Throwing away safety guarantees by Rust (maybe temporally) 
+    //      -> require ptr::read & dead end
+    // problem 1: No arrays support (freelist is a 2d array)
+    //      possible solution 1: workaround with *mut so RR treat it as array_t
+    //          -> going with this for now
+    //      possible solution 2: extend RR
+    // problem 2: Option doesn't translated to std_option_Option_ty because it behind the pointer
+    //            This problem arise because we adopting above workaround using *mut. 
+    //            Using *mut loses type infomation in RR land so the rr_frontend doesn't aware for
+    //            the use of the Option.
+    //      tried solution: Just use raw pointer as in C code.
+    //          -> this requires use of ptr::read & we again encounter with
+    //             the problem that the precondition of ptr::read is too weak.
+    //#[rr::field("freelist" @ "array_t (array_t alias_ptr_t 4 (* SLLEN *)) 8 (* FLLEN *)")]
+    //first_free: *mut (*mut (*mut FreeBlockHdr)),
     //#[rr::field("tt")]
     //_phantom: PhantomData<&'pool ()>,
 }
@@ -178,6 +195,7 @@ fn box_new<T>(x: T) -> Box<T> {
 unsafe fn link_free_block(tlsf: &mut Tlsf, mut block: NonNullFBH, size: usize) {
     let first_free = tlsf.get_first_free(1, 1);
     let next_free = rrptr::replace(first_free, Some(block));
+    // TODO: justify: clearify precondition for getting &mut from NonNull
     block.as_mut().next_free = next_free;
     block.as_mut().prev_free = None;
     if let Some(mut next_free) = next_free {

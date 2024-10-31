@@ -1,7 +1,7 @@
 #![rr::import("extras", "bitops")]
 #![rr::import("extras", "model")]
 #![rr::import("caesium", "int_type")]
-#![rr::include("option")]
+//#![rr::include("option")]
 
 // TODO: How to handle *negative* usize?
 #[rr::only_spec]
