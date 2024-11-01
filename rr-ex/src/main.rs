@@ -45,38 +45,40 @@ struct BlockHdr {
 }
 
 
-#[rr::refined_by("l" : "loc")]
-#[rr::invariant("l ≠  NULL_loc")]
-struct NonNullFBH {
-    // NOTE: mutability of raw pointer differs from the original NonNull
-    //      this is just for simplicity.
-    #[rr::field("l")]
-    x: *mut FreeBlockHdr
-}
+// #[rr::refined_by("l" : "loc")]
+// #[rr::invariant("l ≠  NULL_loc")]
+// struct NonNullFBH {
+//     // NOTE: mutability of raw pointer differs from the original NonNull
+//     //      this is just for simplicity.
+//     #[rr::field("l")]
+//     x: *mut FreeBlockHdr
+// }
+// 
+// // Copied from ptr::NonNull
+// impl NonNullFBH {
+//     pub const unsafe fn new(ptr: *mut FreeBlockHdr) -> NonNullFBH {
+//         NonNullFBH { x: ptr as _ }
+//     }
+// 
+//     #[rr::params("l" : "loc", "v", "α", "FBH_ly")]
+//     #[rr::args("l")]
+//     #[rr::requires("l ≠  NULL_loc")]
+//     #[rr::requires("use_layout_alg FreeBlockHdr_ty = Some FBH_ly -∗ l ↦ v ∗ ⌜ l `has_layout_loc` FBH_ly ⌝ ∗ ⌜ v `has_layout_val` FBH_ly ⌝")]
+//     #[rr::ensures("l ≠  NULL_loc")]
+//     #[rr::returns("(#v, α)")]
+//     pub const unsafe fn as_mut<'a>(&mut self) -> &'a mut FreeBlockHdr {
+//            unsafe { &mut *self.x }
+//     }
+// }
 
-// Copied from ptr::NonNull
-impl NonNullFBH {
-    pub const unsafe fn new(ptr: *mut FreeBlockHdr) -> NonNullFBH {
-        NonNullFBH { x: ptr as _ }
-    }
+// impl Clone for NonNullFBH {
+//     #[inline(always)]
+//     fn clone(&self) -> Self {
+//         *self
+//     }
+// }
 
-    #[rr::params("l" : "loc", "v", "α")]
-    #[rr::args("l")]
-    #[rr::requires("l ↦ v ∗ ⌜ l `has_layout_loc` {ly_of FreeBlockHdr_ty} ⌝ ∗ ⌜ v `has_layout_val` {ly_of FreeBlockHdr_ty} ⌝")]
-    #[rr::returns("(#v, α)" @ "shr_ref NoNullFBH_ty {'a} ")]
-    pub const unsafe fn as_mut<'a>(&mut self) -> &'a mut FreeBlockHdr {
-           unsafe { &mut *self.x }
-    }
-}
-
-impl Clone for NonNullFBH {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl Copy for NonNullFBH {}
+//impl Copy for NonNullFBH {}
 
 //#[rr::trust_me]
 // FIXME: why `*const FreeBlockHdr` works but `NonNull<FreeBlockHdr>` doesn't?
@@ -85,9 +87,9 @@ struct FreeBlockHdr {
     #[rr::field("b")]
     common: BlockHdr,
     #[rr::field("nf")]
-    next_free: Option<NonNullFBH>,
+    next_free: Option<*mut FreeBlockHdr>,
     #[rr::field("pf")]
-    prev_free: Option<NonNullFBH>,
+    prev_free: Option<*mut FreeBlockHdr>,
 }
 
 const SLLEN: usize = 4usize;
@@ -106,8 +108,8 @@ pub struct Tlsf
     sl_bitmap: *mut usize,
     // TODO: find way work with static arrays
     // FIXME: Option doesn't translated to std_option_Option_ty because it behind the pointer
-    #[rr::field("freelist" @ "array_t (array_t (Option_ty alias_ptr_t) 4 (* SLLEN *)) 8 (* FLLEN *)")]
-    first_free: *mut (*mut Option<NonNullFBH>),
+    #[rr::field("freelist" @ "array_t (array_t (std_option_Option_ty alias_ptr_t) 4 (* SLLEN *)) 8 (* FLLEN *)")]
+    first_free: *mut (*mut Option<*mut FreeBlockHdr>),
     // FIXME: Throwing away safety guarantees by Rust (maybe temporally) 
     //      -> require ptr::read & dead end
     // problem 1: No arrays support (freelist is a 2d array)
@@ -121,12 +123,37 @@ pub struct Tlsf
     //      tried solution: Just use raw pointer as in C code.
     //          -> this requires use of ptr::read & we again encounter with
     //             the problem that the precondition of ptr::read is too weak.
+    //      worked solution: tweak the position of the section for std_option_Option_ty
+    //          (it copied & pasted in the generated spec file)
+    //          TODO: this now done manually but once the annotation frozen, i'll create a patch file
     //#[rr::field("freelist" @ "array_t (array_t alias_ptr_t 4 (* SLLEN *)) 8 (* FLLEN *)")]
     //first_free: *mut (*mut (*mut FreeBlockHdr)),
     //#[rr::field("tt")]
     //_phantom: PhantomData<&'pool ()>,
 }
 
+// #[rr::params("x" : "loc", "vs", "fbh", "γ", "l", "FBH_ly")]
+// #[rr::args("x" @ "alias_ptr_t")]
+// //(l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of FreeBlockHdr_ty)))
+// #[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of FreeBlockHdr_ty))")]
+// 
+//     //vs @ value_t (st_of FreeBlockHdr_ty); λ π,
+//       //(l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of FreeBlockHdr_ty))) ∗ vs ◁ᵥ{π} fbh @ FreeBlockHdr_ty
+// #[rr::ensures(#iris "(l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of FreeBlockHdr_ty))) ∗ vs ◁ᵥ{π} fbh @ FreeBlockHdr_ty⌝")]
+// #[rr::returns("(#fbh, γ)")] 
+// unsafe fn as_mut<'a>(x: *mut FreeBlockHdr) -> &'a mut FreeBlockHdr {
+//     &mut *x
+// }
+
+#[rr::params("l" : "loc", "vs", "z" : "Z")]
+#[rr::args("l" @ "alias_ptr_t")]
+#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of (int usize_t))) ∗ vs ◁ᵥ{π} z @ (int usize_t)")]
+#[rr::returns("z")]
+unsafe fn silly_deref(x: *mut usize) -> usize {
+    *x
+}
+
+#[rr::skip]
 impl Tlsf
 //<'_, 8usize, 4usize>
 {
@@ -137,12 +164,12 @@ impl Tlsf
     #[rr::requires("0 ≤ sl < 4 (* SLLEN *)")]
     #[rr::returns("#(m !! (fl, sl))")]
     #[inline]
-    unsafe fn get_first_free<'a>(&'a mut self, fl: usize, sl: usize) -> &'a mut Option<NonNullFBH> {
+    unsafe fn get_first_free<'a>(&'a mut self, fl: usize, sl: usize) -> &'a mut Option<*mut FreeBlockHdr> {
         //debug_assert!(fl < FLLEN);
         //debug_assert!(sl < SLLEN);
         //self.first_free[fl][sl]
-        let sl_list: *mut Option<NonNullFBH> = *rrptr::mut_add(self.first_free, fl); // self.first_free[fl]
-        &mut *rrptr::mut_add(sl_list, sl)
+        let sl_list: *mut Option<*mut FreeBlockHdr> = *rrptr::mut_add(self.first_free, fl); // self.first_free[fl]
+        &mut *rrptr::mut_add(sl_list, sl) //self.first_free[fl][sl]
     }
 }
 
@@ -189,17 +216,18 @@ fn box_new<T>(x: T) -> Box<T> {
     Box::new(x)
 }
 
-//#[rr::trust_me]
-#[rr::params("flbm", "slbm", "freelist", "ls" : "option loc", "α", "blk" : "option loc", "β", "sz")]
-#[rr::args("(#(flbm, slbm, freelist), γ)", "(#blk, β)", "sz" @ "int usize_t")]
-unsafe fn link_free_block(tlsf: &mut Tlsf, mut block: NonNullFBH, size: usize) {
+#[rr::skip]
+#[rr::params("flbm", "slbm", "freelist", "ls" : "option loc", "α", "blk_ptr" : "loc", "β", "sz")]
+#[rr::args("(#(flbm, slbm, freelist), α)", "(#blk_ptr, β)", "sz" @ "int usize_t")]
+#[rr::requires("")]
+unsafe fn link_free_block(tlsf: &mut Tlsf, mut block: *mut FreeBlockHdr, size: usize) {
     let first_free = tlsf.get_first_free(1, 1);
     let next_free = rrptr::replace(first_free, Some(block));
-    // TODO: justify: clearify precondition for getting &mut from NonNull
-    block.as_mut().next_free = next_free;
-    block.as_mut().prev_free = None;
+    // TODO: justify: clearify precondition representation in refinedrust for dereference *mut
+    (*block).next_free = next_free;
+    (*block).prev_free = None;
     if let Some(mut next_free) = next_free {
-        next_free.as_mut().prev_free = Some(block);
+        (*next_free).prev_free = Some(block);
     }
 }
 

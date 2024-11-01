@@ -225,7 +225,7 @@ Section system_state.
 
   Check (_ ↦ _)%I. 
   Check val_to_bytes.
-  Check _ `has_layout_val` _.
+  Check (_ `has_layout_val` _).
   Check struct_t.
   About type.
   Check mem_cast_compat_loc.
@@ -236,6 +236,7 @@ Section system_state.
     l ↦ v * v @ struct_t ... field ...
        * l' ↦ v' * to_val_or_somthing l' @ field
   *)
+About name_hint.
 
 End system_state.
 

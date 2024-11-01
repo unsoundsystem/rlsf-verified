@@ -46,3 +46,22 @@
     ** `type.v` / `_ty_has_op_type` で操作後のメモリ表現の変化を表現
     ** syntactic type: `ArraySynType`
 * MIRにおけるarray https://rustc-dev-guide.rust-lang.org/mir/index.html#valtrees
+
+== raw pointer dereferenceのための事前条件
+
+* `ptr::read` では(コメントアウトされている強い条件)
+    ** `(l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of T_ty)) ∗ vs ◁ᵥ{π} r @ T_ty`
+
+[source,coq]
+----
+Definition type_of_ptr_read `{!typeGS Σ} (T_rt : Type) (T_st : syn_type) :=
+  fn(∀ () : 0 | ( *[T_ty]) : [(T_rt, T_st)] | (l, r) : (loc * T_rt), (λ ϝ, []);
+      l :@: alias_ptr_t; λ π,
+      (l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (T_ty.(ty_syn_type)))) ∗
+      vs ◁ᵥ{π} r @ T_ty
+  )
+    → ∃ vs : val, vs @ value_t (T_ty.(ty_syn_type)); λ π,
+      (l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (T_ty.(ty_syn_type)))) ∗
+      vs ◁ᵥ{π} r @ T_ty
+.
+----

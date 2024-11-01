@@ -18,6 +18,8 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 
 * const generics/lifetime parameterが使えない問題のworkaround
 * raw pointerを使ったプログラムの検証方法の実験
+    ** raw pointer dereferenceの事前条件
+        *** struct fieldの更新をするのに十分な
     ** linked list
 * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
 * 抽象仕様周り

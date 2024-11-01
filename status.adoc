@@ -218,3 +218,16 @@ l ↦ v * v @ struct_t ... field ...
         rr_frontendがTに関連する定義を解析してくれず、手動でshimなどをインポートする必要がある
     **  TODO: 生成されたスペック中の `std_option_Option_ty` の定義をファイルの上の方に持ってくる
 * `self.first_free` をrefineするCoqの型 `block_matrix` を修正
+
+== 2024/11/01
+
+* raw pointer dereferenceの事前条件に関する調査
+    ** かなり単純な例(`silly_deref`)についても自動化が働かず、手動で証明する方法を調査している
+        *** 適切な事前条件をRefinedRustの語彙で表す方法を調査している(アノテーションは `main.rs` を参照)
+[source,coq]
+----
+unsafe fn silly_deref(x: *mut usize) -> usize {
+    *x
+}
+----
+    ** `typed_place` が残るので関連する補題などを調査中
