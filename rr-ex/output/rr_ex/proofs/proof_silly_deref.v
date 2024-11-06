@@ -23,10 +23,9 @@ Proof.
   init_lfts (∅ );
   init_tyvars ( ∅ ).
 
-  About typed_place.
+  (*About typed_place.*)
   repeat liRStep; liShow.
-  Check arg_x.
-  Search typed_place.
+  (*Search typed_place.*)
   Check typed_place.
   all: print_remaining_goal.
   Unshelve. all: sidecond_solver.

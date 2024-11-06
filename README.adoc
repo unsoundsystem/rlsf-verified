@@ -20,6 +20,7 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 * raw pointerを使ったプログラムの検証方法の実験
     ** raw pointer dereferenceの事前条件
         *** struct fieldの更新をするのに十分な
+        *** `&mut` の存在なしに事前条件としてraw pointerの読み出しが安全であることを述べたい(RefinedRustでこれを実現する方法が非自明)
     ** linked list
 * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
 * 抽象仕様周り

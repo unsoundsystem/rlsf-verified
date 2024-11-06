@@ -221,13 +221,32 @@ l ↦ v * v @ struct_t ... field ...
 
 == 2024/11/01
 
-* raw pointer dereferenceの事前条件に関する調査
+* [[raw_deref]] Q: raw pointer dereferenceの事前条件に関する調査
     ** かなり単純な例(`silly_deref`)についても自動化が働かず、手動で証明する方法を調査している
         *** 適切な事前条件をRefinedRustの語彙で表す方法を調査している(アノテーションは `main.rs` を参照)
-[source,coq]
+[source,rust]
 ----
 unsafe fn silly_deref(x: *mut usize) -> usize {
     *x
 }
 ----
     ** `typed_place` が残るので関連する補題などを調査中
+
+== 2024/11/06
+
+* A: xref:raw_deref[raw poitner dereferenceの事前条件について]
+  `silly_deref` の事前条件として `ptr::read` の強めた仕様を指定したらほぼ自動で証明してくれた
+  ** 空虚かもしれない
+
+[source,rust]
+----
+#[rr::params("l" : "loc", "vs", "z" : "Z")]
+#[rr::args("l" @ "alias_ptr_t")]
+#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t (st_of (int usize_t))) ∗ vs ◁ᵥ{π} z @ (int usize_t)")]
+#[rr::returns("z")]
+unsafe fn silly_deref(x: *mut usize) -> usize {
+    *x
+}
+----
+
+

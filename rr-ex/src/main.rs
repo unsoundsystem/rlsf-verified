@@ -9,7 +9,7 @@
 #![rr::include("mem")]
 #![rr::include("option")]
 
-mod utils;
+//mod utils;
 use std::ptr;
 use std::ptr::NonNull;
 use rrptr::RNonNull;
@@ -151,6 +151,15 @@ pub struct Tlsf
 #[rr::returns("z")]
 unsafe fn silly_deref(x: *mut usize) -> usize {
     *x
+}
+
+#[rr::params("l" : "loc", "vs_old" : "val", "vs" : "val",
+    "pf" : "option (place_rfn loc)")]
+#[rr::args("l" @ "alias_ptr_t")]
+#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn vs_old @ (◁ value_t FreeBlockHdr_st) ∗ (vs_old ◁ᵥ{π} (_::_::pf) @ FreeBlockHdr_ty)")]
+#[rr::ensures(#iris "l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t FreeBlockHdr_st)")] // ∗ vs ◁ᵥ{π} (-[_; _; #None]) @ FreeBlockHdr_ty")]
+unsafe fn mutate_struct(x: *mut FreeBlockHdr) {
+    (*x).prev_free = None;
 }
 
 #[rr::skip]
