@@ -153,11 +153,51 @@ unsafe fn silly_deref(x: *mut usize) -> usize {
     *x
 }
 
-#[rr::params("l" : "loc", "vs_old" : "val", "vs" : "val",
-    "pf" : "option (place_rfn loc)")]
+
+//#[rr::params("γ1", "γ2", "i", "j")]
+//#[rr::args("(
+            //#(
+                //-[#(#i, γ1); #j]
+            //),
+            //γ2)")]
+//#[rr::observe("γ2": "(-[#(#i, γ1); #j] : plist place_rfn _)")]
+//#[rr::returns("i")]
+//fn mut_ref_test2(x: &mut (&mut i32, i32)) -> i32 {
+    //*((*x).0)
+//}
+
+
+#[rr::params("x1", "x2", "γ")]
+#[rr::args("(#(-[#x1; #x2]), γ)")]
+#[rr::observe("γ":  "(-[#1; #1] : plist place_rfn _)")]
+fn silly_tuple(x: &mut (usize, usize)) {
+    *x = (1, 1);
+}
+
+#[rr::params(
+    "(b, nf, pf)" : "((Z * option (place_rfn loc)) * option (place_rfn loc) * option (place_rfn loc))"
+)]
+#[rr::returns("(b, nf, pf)")]
+fn fbh_id() -> FreeBlockHdr {
+    FreeBlockHdr {
+        common: BlockHdr { size: 0, prev_phys_block: None },
+        next_free: None,
+        prev_free: None
+    }
+}
+
+#[rr::params("l" : "loc",
+    //"vs_old" : "val", "vs" : "val",
+    "(b, nf, pf)" : "((Z * option (place_rfn loc)) * option (place_rfn loc) * option (place_rfn loc))"
+)]
 #[rr::args("l" @ "alias_ptr_t")]
-#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn vs_old @ (◁ value_t FreeBlockHdr_st) ∗ (vs_old ◁ᵥ{π} (_::_::pf) @ FreeBlockHdr_ty)")]
-#[rr::ensures(#iris "l ◁ₗ[π, Owned false] PlaceIn vs @ (◁ value_t FreeBlockHdr_st)")] // ∗ vs ◁ᵥ{π} (-[_; _; #None]) @ FreeBlockHdr_ty")]
+//#[rr::requires(#iris "l ◁ₗ[π, Owned false] .@ (◁ uninit FreeBlockHdr_st)")]
+#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn -[#b; #nf; #pf] @ (◁ FreeBlockHdr_ty)")]
+//#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn vs_old @ (◁ value_t FreeBlockHdr_st)")]
+//#[rr::requires(#iris "vs_old ◁ᵥ{π} (-[#b; #nf; #pf] : plist place_rfn _) @ FreeBlockHdr_ty")]
+//#[rr::requires(#iris "vs ◁ᵥ{π} (-[#b; #nf; #None] : plist place_rfn _) @ FreeBlockHdr_ty")]
+#[rr::ensures(#iris "l ◁ₗ[π, Owned false] PlaceIn -[#b; #nf; #None] @ (◁ FreeBlockHdr_ty)")]
+//#[rr::ensures(#iris "vs ◁ᵥ{π} (-[#b; #nf; #None] : plist place_rfn _) @ FreeBlockHdr_ty")]
 unsafe fn mutate_struct(x: *mut FreeBlockHdr) {
     (*x).prev_free = None;
 }

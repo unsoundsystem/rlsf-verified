@@ -46,7 +46,7 @@
 
 == Rustコード断片に対するインフォーマルな抽象仕様の検討
 
-Zhang et.al. に習ってrlsfに合った抽象仕様を考えてみる。
+Zhang et.al. に習ってrlsfに合った抽象仕様を考え、分離論理の語彙に翻訳してみる。
 (cf. `./rr-ex/coq/model.v`, `/coqdoc` にホストしてあるcoqdoc)
 
 === Configuration
@@ -64,6 +64,7 @@ TLSFがメモリ領域を管理する単位。開始アドレスとサイズの�
 * `block.start` で開始アドレスを表す
 * `block.size` でサイズを表す
 * `end_addr block := start block + size block`
+* これは `FreeBlockHdr` あるいは `UsedBlockHdr` に相当する
 
 === TLSFの設定
 
@@ -79,8 +80,11 @@ TLSFがメモリ領域を管理する単位。開始アドレスとサイズの�
         second level bitmapには `sl_bitmap[fl].get_bit(sl)` のようにアクセスする
 * `allocated_block`: 割当済みブロックのリスト
     ** rlsfでは明示的に対応する構造体があるわけではない
+    ** 本プロジェクトではalloc関数の事後条件でVSTスタイルのトークンを発行する
+       refinedrust内にも開放可能な領域を示すトークンが定義されている(`freeable`)
 * `free_blocks`: 未割り当てブロックのリスト
     ** rlsfでは `Tlsf::first_free` から未割り当てブロックの双方向リンクリストがある
+    ** 対応するブロックのリスト `list block` から再帰的な述語でメモリ上の表現に変換する
 
 === indexの計算
 
@@ -94,8 +98,11 @@ ref. `model.v` / `Section index.`
   の範囲のサイズを持つ未割り当てブロックリスト(i.e. `self.first_free[n]`)が非空
 * `Tlsf::map_floor`: free blockを挿入するべきリストを計算
 * `Tlsf::map_ceil`: 要求サイズ以上のブロックしか存在しないリストを計算,割当時に使う
-* `allocated_block` と `free_blocks` は非交和
+* [.line-through]#`allocated_block` と `free_blocks` は非交和#
+    ** alloc関数の事後条件として分離連言で繋がれたトークン(ヘッダに相当する)を発行することで、
+       割当済みブロックのヘッダと同じアドレスから始まるブロックはfreelistに含まれないことが保証できる
 * `allocated_block` / `free_blocks` 内の任意の `block` の取る領域は非交和
+    ** alloc/free関数の事後条件で割り当てるブロックの担当する範囲がfreelistのブロック内にないことをメンテナンスする
 
 == 他のアロケータ検証プロジェクトにおける割当済みブロックの扱い
 

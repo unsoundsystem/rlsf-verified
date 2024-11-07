@@ -17,7 +17,7 @@ Radiumの表現力は十分に見えるが､フロントエンド・Coqによ�
 
 ==== Radiumの表現力
 
-元論文ではunsafeな実装やreborrowなどが扱えるとされおり、rlsfの実装を検証す
+元論文ではunsafeな実装やreborrowなどが扱えるとされており、rlsfの実装を検証す
 るのに十分な表現力があるように見える。
 
 ==== 標準ライブラリの形式化状況
@@ -236,7 +236,7 @@ unsafe fn silly_deref(x: *mut usize) -> usize {
 
 * A: xref:raw_deref[raw poitner dereferenceの事前条件について]
   `silly_deref` の事前条件として `ptr::read` の強めた仕様を指定したらほぼ自動で証明してくれた
-  ** 空虚かもしれない
+  ** [.line-through]#空虚かもしれない#
 
 [source,rust]
 ----
@@ -249,4 +249,13 @@ unsafe fn silly_deref(x: *mut usize) -> usize {
 }
 ----
 
+== 2024/11/07
+
+* 構造体のフィールドのraw poitner dereferenceについて調査中
+    ** `l ◁ₗ[π, Owned false] -[b; pf; nf] @ (◁ FreeBlockHdr_ty)` のようにして仕様はかけた
+    ** `(*x).next_free = None;` の事後条件として `l ◁ₗ[π, Owned false] -[b; pf; #None] @ (◁ FreeBlockHdr_ty)`
+        を証明したい
+        *** `ptr::write` のshimを見ても事前条件は十分に見えるので、手動で証明する方法を探している
+* Q: raw pointer越しのフィールド更新の事後条件の証明方法
+* 抽象仕様の分離論理へのエンコードに関するメモを書いた
 
