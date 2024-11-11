@@ -1,0 +1,80 @@
+= Verusによるmimallocの検証
+
+* https://github.com/verus-lang/verified-memory-allocator
+
+== Verus
+
+Verusは、Rustに仕様記述言語とその証明のための言語を加えたRustコードベースの形式検証のための言語です。
+
+* メモリ操作に関する低レイヤのプラクティスを扱える
+    ** メモリ操作に関する推論は主にRustの型検査器によって行われる
+* SMTによって証明の大部分が自動化される設計
+
+=== TCB
+
+* SMTLIBへの変換器
+* Rustの型検査器
+
+== mimallocの概観
+
+=== データ構造
+
+各スレッドごとに以下のような構造が関連付けられる
+(こちらのFig. 1がわかりやすいhttps://www.microsoft.com/en-us/research/uploads/prod/2019/06/mimalloc-tr-v1.pdf)
+
+* Heap
+    ** pages_direct: 空いているPageへのポインタのリスト(1MB以下のアロケーション用のfast path)
+    ** pages: Heap内の全てのページのサイズ別リストへのポインタ
+* Page: ページ内の空きリスト
+* Block: ページ内の割当単位,ページごとに固定長
+* Segment: Page構造体のリストなどのメタデータを含む。実際のページの並びの先頭に埋め込まれる。
+
+== challenges
+
+メモリアロケータの検証を行う上で問題となりそうな点
+
+TODO: working examples
+
+=== raw pointer
+
+* verusではraw pointerのデリファレンスに際して `PointsTo<T>` というtrackedな構造体(中身はPhantomData)を要求する
+* `PointsTo<T>` は値の読み出し・書き込みに関する権限情報として振る舞う。たとえば
+
+[source,rust]
+----
+let mut t: PointsTo<T> = ...;
+ptr_mut_write(ptr, Tracked(&mut t), ...);
+ptr_mut_write(ptr, Tracked(&mut t), ...); // borrow fails
+----
+
+* `PointsTo<T>` はアロケーションの際に発行される
+
+=== linked list
+
+* メモリアロケータで扱うようなアロケーションヘッダに埋め込まれたリンクリストに関する性質を議論するには、
+  実装外の何らかの手段でポインタの先に格納されている情報とその所有権に関する情報を追跡する必要がある。
+* 既存の実装ではリストの先頭を保持する構造体にGhostとして、リスト上にあるすべてのノードへのポインタと
+  その権限情報を保持しておくという方針が取られている
+
+[source,rust]
+----
+struct Node { next: *mut Node }
+struct LL {
+    first: *mut Node,
+    tracked perms: Tracked<Map<nat,PointsTo<Node>>
+}
+----
+
+
+=== axiomization
+
+* メモリアロケータはOSなどに割り当てられたメモリプールからメモリを分割していく
+* このメモリプールの正当性は最初に認める必要がある
+* またこのメモリプールの正当性から分割された各メモリ領域の正当性を演繹できる仕組みが必要
+*  cf. `verified-memory-allocator/verus-mimalloc/os_mem.rs`
+* Verusではアロケータからしか `PPtr` を作れないためアロケータのメモリプールをブートストラップ出来ないが、
+  先行研究では配列から作れるようなworkaroundがされている(cf. atmosphere kernel)
+
+== limitations
+
+* raw pointer越しに構造体のフィールドを部分的に更新できない

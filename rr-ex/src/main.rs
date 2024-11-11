@@ -187,8 +187,22 @@ fn fbh_id() -> FreeBlockHdr {
 }
 
 #[rr::params("l" : "loc",
+    "b" : "(Z * option (place_rfn loc))",
+    "nf" : "option (place_rfn loc)",
+    "pf" : "option (place_rfn loc)"
+)]
+#[rr::args("l" @ "alias_ptr_t")]
+#[rr::requires(#iris "l ◁ₗ[π, Owned false] PlaceIn (-[#(-[#b.1;#b.2]); #nf; #pf] : plist place_rfn _) @ (◁ FreeBlockHdr_ty)")]
+#[rr::returns("(b, nf, pf)")]
+unsafe fn read_raw_struct(x: *mut FreeBlockHdr) -> FreeBlockHdr {
+    std::ptr::read(x)
+}
+
+#[rr::params("l" : "loc",
     //"vs_old" : "val", "vs" : "val",
-    "(b, nf, pf)" : "((Z * option (place_rfn loc)) * option (place_rfn loc) * option (place_rfn loc))"
+    "b" : "(Z * option (place_rfn loc))",
+    "nf" : "option (place_rfn loc)",
+    "pf" : "option (place_rfn loc)"
 )]
 #[rr::args("l" @ "alias_ptr_t")]
 //#[rr::requires(#iris "l ◁ₗ[π, Owned false] .@ (◁ uninit FreeBlockHdr_st)")]

@@ -16,6 +16,8 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 
 == TODO
 
+* Verusのmimalloc検証に関する調査記事
+* RefinedRustの記法に関するインフォーマルな説明を xref:./refinedrust.adoc[追加する]
 * const generics/lifetime parameterが使えない問題のworkaround
 * raw pointerを使ったプログラムの検証方法の実験
     ** raw pointer dereferenceの事前条件
@@ -24,13 +26,10 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
     ** linked list
 * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
 * 抽象仕様周り
-    ** `allocated_block` の表現あるいは代替
-        *** 割当済みブロックの追跡についてメモリアロケータの形式検証プロジェクトをあたってみる
+    ** 割当済みブロックを表すトークンの表現
+        *** `freeable` の作り方に関する調査
     ** インデックス計算の形式化
         *** `block_size_range_not_overwrap` の証明
-    ** zhang et.al.の不変条件をrlsfの実装に合うように翻訳してみる
-    ** 実際の実装へのrefinementのステートメントを考える
-        *** Rustコードベース中のアノテーションに依存するので `model.v` 内では完結しない
 * ビット操作周り
     ** 各ビット幅を取るモジュールで証明を整理する
     ** count leading/trailing zerosの形式仕様
@@ -42,13 +41,8 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
     ** Rustのアロケータとして要求される仕様について検討する
     ** メモリプールの扱い(固定長/動的に拡張可能？)
 * `Tlsf::allocate` / `Tlsf::deallocate` に絞って正当性を考えて・スペックを書き始める
-    ** インフォーマルに検証の対象とする仕様などに関することをまとめる
-* rlsfの実装を読む
-    ** `crates/rlsf/src/tlsf.rs` を中心にインフォーマルに正当性を考えてみる
 * `crates/rlsf/src/tlsf.rs` を現在のフロントエンドで扱える範囲に、書き換える
-* RefinedRustに関する調査
-    ** 論文を精読/Coqの形式化を読む
-    ** 文書にまとめる
+* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
 
 == references
 

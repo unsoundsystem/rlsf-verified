@@ -65,3 +65,8 @@ Definition type_of_ptr_read `{!typeGS Σ} (T_rt : Type) (T_st : syn_type) :=
       vs ◁ᵥ{π} r @ T_ty
 .
 ----
+
+== 記法
+
+* `l ◁ₗ[π, Owned false] v @ (◁ T_ty)`
+* `vs ◁ᵥ{π} r @ T_ty`
