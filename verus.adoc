@@ -1,4 +1,5 @@
 = Verusによるmimallocの検証
+:source-highlighter: pygments
 
 * https://github.com/verus-lang/verified-memory-allocator
 
@@ -12,8 +13,19 @@ Verusは、Rustに仕様記述言語とその証明のための言語を加え�
 
 === TCB
 
-* SMTLIBへの変換器
-* Rustの型検査器
+Verusによって検証されたコードの正当性は、以下を仮定した上でのものとなる。
+
+* SMTLIBへの変換の適切さ
+* Rustの型検査器の正当性
+
+== 検証ツールの導入
+
+https://github.com/verus-lang/verus/blob/main/INSTALL.md
+playground: https://play.verus-lang.org/?version=stable&mode=basic&edition=2021
+
+== 検証フローの例: 単方向リンクリスト
+
+* raw pointerを用いた
 
 == mimallocの概観
 
@@ -31,7 +43,8 @@ Verusは、Rustに仕様記述言語とその証明のための言語を加え�
 
 == challenges
 
-メモリアロケータの検証を行う上で問題となりそうな点
+verusをメモリアロケータの検証に用いる際に問題となりそうな部分について、
+mimallocの検証コードベースがどのような対応をしているかについて検討する。
 
 TODO: working examples
 

@@ -267,3 +267,8 @@ unsafe fn silly_deref(x: *mut usize) -> usize {
     ** 候補2: C言語実装をVSTで検証する
         *** VSTを使った検証プロジェクトは多く、アロケータについても先行研究がある
 * verusによるmimallocの検証コードを読んでいた
+
+== 2024/11/11
+
+* Verusのmimalloc検証コード読みつづき
+* verusによるリンクリストの検証例を作っていた
