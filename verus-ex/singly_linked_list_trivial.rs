@@ -1,102 +1,98 @@
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
-use vstd::assert_by_contradiction;
 
 verus! {
     #[derive(Clone, Copy)]
-    struct Node {
+    pub struct Node {
         next: Option<PPtr<Node>>,
         x: usize
     }
 
-    impl Node {
-
+    pub struct LList {
+        first: Option<PPtr<Node>>,
+        gs: Tracked<GhostState>
     }
 
-    struct LList {
-        first: Option<PPtr<Node>>,
-        perms: Tracked<Map<nat, PointsTo<Node>>>,
-        ptrs: Ghost<Seq<PPtr<Node>>>
+    pub struct GhostState {
+        tracked perms: Map<nat, PointsTo<Node>>,
+        ghost ptrs: Seq<PPtr<Node>>
     }
 
     impl LList {
         pub closed spec fn view(&self) -> Seq<usize> {
             Seq::<usize>::new(
-                self.ptrs@.len(),
-                |i: int| { self.perms@[i as nat].value().x },
+                self.gs@.ptrs.len(),
+                |i: int| { self.gs@.perms[i as nat].value().x },
             )
         }
 
-        spec fn next_of(&self, i: nat) -> Option<PPtr<Node>> {
-            if i + 1 == self.ptrs@.len() {
+        pub closed spec fn next_of(&self, i: nat) -> Option<PPtr<Node>> {
+            if i == 0 {
                 None
             } else {
-                Some(self.ptrs@[i as int + 1])
+                Some(self.gs@.ptrs[i as int - 1])
             }
         }
 
-        spec fn wf_node(&self, i: nat) -> bool {
-            &&& self.perms@.dom().contains(i)
-            &&& self.perms@[i].pptr() == self.ptrs@[i as int]
-            &&& self.perms@[i].mem_contents() matches MemContents::Init(node)
+        pub closed spec fn wf_node(&self, i: nat) -> bool {
+            &&& self.gs@.perms.dom().contains(i)
+            &&& self.gs@.perms[i].pptr() == self.gs@.ptrs[i as int]
+            &&& self.gs@.perms[i].mem_contents() matches MemContents::Init(node)
                   && node.next == self.next_of(i)
         }
 
-        spec fn wf(&self) -> bool {
-            &&& forall|i: nat| 0 <= i && i < self.ptrs@.len() ==> self.wf_node(i)
-            &&& if self.ptrs@.len() == 0 {
+        pub closed spec fn wf(&self) -> bool {
+            &&& forall|i: nat| 0 <= i && i < self.gs@.ptrs.len() ==> self.wf_node(i)
+            &&& if self.gs@.ptrs.len() == 0 {
                 self.first.is_none()
             } else {
-                self.first == Some(self.ptrs@[self.ptrs@.len() - 1])
+                self.first == Some(self.gs@.ptrs[self.gs@.ptrs.len() - 1])
             }
         }
 
-        fn push_front(&mut self, v: usize)
+        pub fn push_front(&mut self, v: usize)
             requires old(self).wf(),
             ensures
                 self.wf(),
-                //self@ == old(self)@.push(v),
+                self@ =~= seq![v].add(old(self)@)
         {
-            let (node, Tracked(mut perm)) = PPtr::<Node>::empty();
             if let Some(old_first) = self.first {
-                assert(self.wf_node((self.ptrs@.len() - 1) as nat));
-                node.write(Tracked(&mut perm),
-                    Node { next: Some(old_first.clone()) , x: v});
+                assert(self.wf_node((self.gs@.ptrs.len() - 1) as nat));
+                let (node, Tracked(mut perm)) = PPtr::<Node>::new(Node { next: Some(old_first.clone()) , x: v});
+                self.first = Some(node);
+
+                proof {
+                    assert(self.gs@.ptrs.len() != 0);
+                    self.gs.borrow_mut().perms.tracked_insert(self.gs@.ptrs.len(), perm);
+                    self.gs@.ptrs = self.gs@.ptrs.push(node);
+                    assert(self.first == Some(self.gs@.ptrs[self.gs@.ptrs.len() - 1]));
+
+                    assert(self.wf_node((self.gs@.ptrs.len() - 2) as nat));
+                    assert(self.wf_node((self.gs@.ptrs.len() - 1) as nat));
+                    assert(forall|i: nat| i < self.gs@.ptrs.len() && old(self).wf_node(i)
+                        ==> self.wf_node(i));
+                    assert(self@ =~= seq![v].add(old(self)@));
+
+                    //assume(!(self.gs@.ptrs.len() == 0) ==> self.first == Some(self.gs@.ptrs.index(self.gs@.ptrs.len() - 1)));
+                    //assert(self.wf());
+                }
             } else {
                 proof {
-                    assert_by_contradiction!(self.ptrs@.len() == 0,
-                        {
-                            assert(self.wf_node((self.ptrs@.len() - 1) as nat)); // trigger
-                        });
+                    assert(self.gs@.ptrs.len() == 0);
+                    assert(old(self)@ =~= Seq::empty());
                 }
-                node.write(Tracked(&mut perm), Node { next: None, x: v });
+                let (node, Tracked(mut perm)) = PPtr::<Node>::new(Node { next: None, x: v });
                 self.first = Some(node);
                 proof {
-                    self.ptrs@ = self.ptrs@.push(node);
-                    self.perms.borrow_mut().tracked_insert(
-                        0,
+                    self.gs.borrow_mut().perms.tracked_insert(
+                        self.gs@.ptrs.len(),
                         perm,
                     );
+                    self.gs@.ptrs = self.gs@.ptrs.push(node);
+                    assert(self.wf_node((self.gs@.ptrs.len() - 1) as nat));
+                    assert(self.wf());
+                    assert(self@ =~= seq![v].add(old(self)@));
                 }
-            }
-            proof {
-                self.perms.borrow_mut().tracked_insert(self.ptrs@.len(), perm);
-                self.ptrs@ = self.ptrs@.push(node);
-            }
-
-            proof {
-                assert(self.wf_node((self.ptrs@.len() - 2) as nat));
-                assert(self.wf_node((self.ptrs@.len() - 1) as nat));
-                assert(forall|i: nat| i < self.ptrs@.len() && old(self).wf_node(i)
-                    ==> self.wf_node(i));
-                assert forall|i: int| 0 <= i && i < self.ptrs@.len() as int - 1
-                    implies old(self)@[i] == self@[i]
-                by {
-                    assert(old(self).wf_node(i as nat));  // trigger
-                }
-                assert(self@ =~= old(self)@.push(v));
-
-                assert(self.wf());
             }
         }
     }
