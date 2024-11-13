@@ -272,3 +272,23 @@ unsafe fn silly_deref(x: *mut usize) -> usize {
 
 * Verusのmimalloc検証コード読みつづき
 * verusによるリンクリストの検証例を作っていた
+
+== 2024/11/13
+
+* verusによる単方向リンクリストの検証例を作った
+* ハマった点: 以下のエラメッセージがわかりにくかった
+    ** 実際には以下のスペックは間違っていて、正しくは `... =~= old(self)@.push(v)` だった点の修正
+    `self@` と `old(self)@` の同じ要素を含んでいる部分に関するアサーションを追加すれば解決した
+    ** `struct` の修飾子や `spec` の `open` / `closed` が関係しているかと思ってしまった
+[rust,source]
+----
+error: assertion failed
+  --> ./singly_linked_list_trivial.rs:77:28
+   |
+77 |                     assert(self@ =~= seq![v].add(old(self)@));
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ assertion failed
+
+note: diagnostics via expansion:
+      self.view() =~= empty().push(v).add(old(self).view()) 
+          datatype is opaque here
+----
