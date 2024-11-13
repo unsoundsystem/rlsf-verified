@@ -5,7 +5,7 @@ use vstd::raw_ptr::ptr_mut_write;
 verus! {
     #[derive(Clone, Copy)]
     struct Node {
-        next: Option<PPtr<Node>>,
+        next: Option<*mut Node>,
     }
 
     struct LList {
@@ -24,6 +24,4 @@ verus! {
             }
         }
     }
-
-    fn main() {}
 }

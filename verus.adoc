@@ -21,22 +21,71 @@ Verusによって検証されたコードの正当性は、以下を仮定した
 
 == 検証ツールの導入
 
+オンラインでVerusを試すことができるplaygroundがある｡ https://play.verus-lang.org/?version=stable&mode=basic&edition=2021
+
+検査器のバイナリをビルドするには以下に従う｡Windows/macOS/Linuxに対応している｡
+
 https://github.com/verus-lang/verus/blob/main/INSTALL.md
-playground: https://play.verus-lang.org/?version=stable&mode=basic&edition=2021
+
+
+==== Rustのコード内での利用
+
+VerusのコードをRustのコード内に埋め込むには `verus!` マクロを用いる｡
+
+[source,rust]
+----
+use vstd::prelude::*;
+
+verus! {
+...
+}
+----
+
+Cargoプロジェクトの場合､以下を追記することで通常のRustコードと同様にビルド・実行できる｡
+[source,toml]
+----
+[dependencies]
+vstd = { git = "https://github.com/verus-lang/verus.git" }
+----
+
+コマンドラインオプションについて `--crate-type=lib` と指定すれば､ `main` 関数を要求されない｡
+また､ `--expand-errors` とすると詳細なエラーの説明が得られる｡ footnote:[証明のデバッグ時は､これをつけないと何もわからない]
 
 == Verusの基礎
 
 Verusを使った検証は大まかに次の仕事からなる、まず(1)保証したい性質を表す述語を定義し、
 (2)その性質を満たしてほしいRustのオブジェクト(e.g. 関数, `struct`)に対してアノテーションする、
 最後に検査器を実行し、制約が満たされていない場合は(3)証明が成功するように検査器にヒントを与える。
-これらを実現するにはRustの言語仕様以上の語彙・構文が必要になるが、Verusは静的保証を提供するためRustコードに変換する際にこうした要素を全て取り除く。
-従ってVerusの構文にはモードとして以下のような区別・役割が存在する。
+これらはコンパイル時に消去される"ghost code"によって実現されるため､Verusの構文にはモードとして以下のような区別・役割が存在する。
 
 * spec: プログラムに関する性質を表すためのコード
 * proof: 検査器にヒントを与え、コードが与えた仕様を満たしていることを証明するためのコード
 * exec: 実際に実行されるコード
 
-これらのコードは必ず別々に書かれる訳ではなく、以下のような制約のもとで書くことが許されている。
+以下にspecコードの例と目新しい構文の意味を示す｡
+
+* `forall|t: T| ...tを使った言明...` という構文で任意のT型の変数tに関して成り立つべき性質を記述できる
+* `b1 ==> b2` で含意を表現できる｡(i.e. `!b1 || b2`)
+* `Seq`,`int`: Verusは仕様記述のために無限長の数(`int`, `nat`)やコレクション(`Seq`, `Map`, `Set`)といった_数学的な_対象を表現する型を提供している
+* `seq!`: `Seq` 型の値を生成するためのマクロ(`vec!` 相当)
+* `assert`: SMTソルバに挿入された時点の環境下でアサーションを証明するように要請する｡ Rustの `assert!` とは異なり､静的に解決される｡
+
+[source,rust]
+----
+spec fn gt_any(x: nat, ls: Seq<nat>) -> bool
+{ 
+    forall|i: int| 0 <= i && i < ls.len() ==> x >= ls[i]
+}
+
+
+fn main() {
+    assert(!gt_any(1, seq![1, 2, 3]));
+    assert(gt_any(3, seq![1, 2, 3]));
+}
+----
+
+上で `main` はexecモードの関数だが､specモードの関数 `gt_any` を呼び出している｡
+このように各モードは必ず別々に書かれる訳ではなく、以下のような制約のもとで混ぜて書くことが許されている。
 
 [width="50%",frame="topbot"]
 |====
@@ -45,7 +94,6 @@ Verusを使った検証は大まかに次の仕事からなる、まず(1)保証
 |proof内に存在可   |o       |o      |x
 |exec内に存在可    |o       |o      |o
 |====
-
 
 * mode: exec/spec/proof
 * コンパイル時に消える証明用コードを書きながらassertでソルバにヒントを与えて事後条件を証明していく
@@ -58,7 +106,163 @@ Verusを使った検証は大まかに次の仕事からなる、まず(1)保証
 
 Verusによって低レイヤのプラクティスを扱えることを示すために、raw pointerを用いた単方向リンクリストの実装と検証の例を取り上げる。
 
-* 単純なユースケース向けのraw pointerをラップした型である `PPtr` を用いた単方向リンクリストの実装・検証
+Verusでヒープ内に領域を確保された値を指すraw pointerを扱うための仕組みである `PPtr` について説明する｡
+`PPtr<V>` は `*mut u8` と同様の意味で値の格納されているアドレスを示す以上の意味はない｡
+しかし､ `PPtr<V>` はデリファレンスの際に_トークン_(`PointsTo<V>`)を要求する｡
+このトークン `PointsTo<V>` は､ trackedオブジェクトでありコンパイル時に消去されるがRustのボローチェッカには検査されるため､メモリセーフなアクセスが強制される｡
+
+[source,rust]
+----
+// allocation
+let (p, Tracked(mut points_to)) = PPtr::<u64>::empty();
+// free
+p.free(Tracked(points_to)); // points_to moved here
+// use after free
+p.write(Tracked(&mut points_to), 5); // fails because points_to moved above
+----
+
+このようにraw pointerの読み書きに関する権限情報を分離して追跡することが以下に示す､
+リンクリストのようなraw pointerを多用するコードをVerusで検証する際の基本的なアイデアになる｡
+
+以下に単方向リンクリストの実装と検証の例を示す｡ 
+footnote:[このコードは証明が通る最小限のアサーションに削ってある(9個)が､試行錯誤中はアサーションが40個程度あった]
+
+[source,rust]
+----
+use vstd::prelude::*;
+use vstd::simple_pptr::*;
+#[derive(Clone, Copy)]
+pub struct Node {
+    next: Option<PPtr<Node>>,
+    x: usize
+}
+
+pub struct LList {
+    first: Option<PPtr<Node>>,
+    // すべてのノードへのポインタとトークンを追跡
+    gs: Tracked<GhostState>
+}
+
+pub struct GhostState {
+    // 追加時のリストの長さをキーにして各ノードへのポインタのトークンを格納している
+    tracked perms: Map<nat, PointsTo<Node>>,
+    // 追加された順に各ノードへのポインタが格納されている
+    ghost ptrs: Seq<PPtr<Node>>
+}
+
+impl LList {
+    // リンクリストのノードをself.firstから辿っていったときの要素のリストを*逆順にしたもの*
+    pub closed spec fn view(&self) -> Seq<usize> {
+        // Seqを添字を引数に取るクロージャで生成する
+        Seq::<usize>::new(
+            self.gs@.ptrs.len(), // 長さ
+            // permsはノードの追加時のリストの長さがキーなため､最後に追加した要素が先頭になる
+            |i: int| { self.gs@.perms[i as nat].value().x },
+        )
+    }
+
+    // ノードへのポインタを追跡しているSeqで､与えられた添字から次のノードを返す
+    pub closed spec fn next_of(&self, i: nat) -> Option<PPtr<Node>> {
+        if i == 0 {
+            None
+        } else {
+            Some(self.gs@.ptrs[i as int - 1])
+        }
+    }
+
+    // 与えられた添字に対して対応するノードのGhostState内の状態とメモリ上の表現が
+    // 整合していることを示す
+    pub closed spec fn wf_node(&self, i: nat) -> bool {
+        &&& self.gs@.perms.dom().contains(i)
+            &&& self.gs@.perms[i].pptr() == self.gs@.ptrs[i as int]
+            &&& self.gs@.perms[i].mem_contents() matches MemContents::Init(node)
+            && node.next == self.next_of(i)
+    }
+
+    pub closed spec fn wf(&self) -> bool {
+        &&& forall|i: nat| 0 <= i && i < self.gs@.ptrs.len() ==> self.wf_node(i)
+            &&& if self.gs@.ptrs.len() == 0 {
+                self.first.is_none()
+            } else {
+                self.first == Some(self.gs@.ptrs[self.gs@.ptrs.len() - 1])
+            }
+    }
+
+    pub fn push_front(&mut self, v: usize)
+        // 実行の前後で内部構造の整合性が保たれること､
+        // viewによる表現が期待通り更新されることを保証する
+        requires old(self).wf(),
+        ensures
+            self.wf(),
+            self@ =~= old(self)@.push(v)
+    {
+        if let Some(old_first) = self.first {
+            proof {
+                assert(self.wf_node((self.gs@.ptrs.len() - 1) as nat));
+            }
+            let (node, Tracked(mut perm)) = PPtr::<Node>::new(Node { next: Some(old_first.clone()) , x: v});
+            self.first = Some(node);
+
+            proof {
+                self.gs@.ptrs = self.gs@.ptrs.push(node);
+                self.gs.borrow_mut().perms.tracked_insert((self.gs@.ptrs.len() - 1) as nat, perm);
+                assert(forall|i: nat| i < self.gs@.ptrs.len() && old(self).wf_node(i)
+                    ==> self.wf_node(i));
+                assert forall|i: int| 0 <= i && i  < old(self)@.len()
+                    implies old(self)@[i] == self@[i]
+                by {
+                    assert(old(self).wf_node(i as nat));
+                }
+                assert(self@ =~= old(self)@.push(v));
+            }
+        } else {
+            let (node, Tracked(mut perm)) = PPtr::<Node>::new(Node { next: None, x: v });
+            self.first = Some(node);
+            proof {
+                self.gs@.ptrs = self.gs@.ptrs.push(node);
+                self.gs.borrow_mut().perms.tracked_insert(
+                    (self.gs@.ptrs.len() - 1) as nat,
+                    perm,
+                );
+            }
+        }
+    }
+
+
+    pub fn pop_front(&mut self) -> (r: Option<usize>)
+        requires
+            old(self).wf()
+        ensures
+            self.wf(),
+            old(self)@.len() == 0 ==> r == None::<usize>,
+            old(self)@.len() > 0 ==> r == Some(old(self)@.last())
+                && self@ =~= old(self)@.drop_last()
+    {
+        if let Some(old_first) = self.first {
+            assert(self.wf_node((self.gs@.ptrs.len() - 1) as nat));
+            let tracked old_first_perm = self.gs.borrow_mut()
+                .perms.tracked_remove((self.gs@.ptrs.len() - 1) as nat);
+            let old_first_node = old_first.into_inner(Tracked(old_first_perm));
+            self.first = old_first_node.next;
+            proof {
+                self.gs@.ptrs = self.gs@.ptrs.drop_last();
+                assert(forall|i: nat|
+                    i < self@.len() && old(self).wf_node(i) ==> self.wf_node(i));
+
+                assert forall|i: int| 0 <= i && i  < self@.len()
+                    implies old(self)@[i] == self@[i]
+                by {
+                    assert(old(self).wf_node(i as nat));
+                }
+            }
+            Some(old_first_node.x)
+        } else {
+            None
+        }
+    }
+}
+
+----
 
 == mimallocの概観
 
@@ -83,17 +287,8 @@ TODO: working examples
 
 === raw pointer
 
+* `PPtr` より一般の(ヒープ以外に割り当てられた領域を扱える)ポインタのための仕組みがある
 * verusではraw pointerのデリファレンスに際して `PointsTo<T>` というtrackedな構造体(中身はPhantomData)を要求する
-* `PointsTo<T>` は値の読み出し・書き込みに関する権限情報として振る舞う。たとえば
-
-[source,rust]
-----
-let mut t: PointsTo<T> = ...;
-ptr_mut_write(ptr, Tracked(&mut t), ...);
-ptr_mut_write(ptr, Tracked(&mut t), ...); // borrow fails
-----
-
-* `PointsTo<T>` はアロケーションの際に発行される
 
 === linked list
 
@@ -115,11 +310,13 @@ struct LL {
 === axiomization
 
 * メモリアロケータはOSなどに割り当てられたメモリプールからメモリを分割していく
-* このメモリプールの正当性は最初に認める必要がある
-* またこのメモリプールの正当性から分割された各メモリ領域の正当性を演繹できる仕組みが必要
+* このメモリプールの正当性は最初に認める必要がある(`verifier::external_body`)
+* またこのメモリプールの正当性から分割された各メモリ領域の正当性を演繹できる仕組みが必要(`PointsToRaw`)
 *  cf. `verified-memory-allocator/verus-mimalloc/os_mem.rs`
 * Verusではアロケータからしか `PPtr` を作れないためアロケータのメモリプールをブートストラップ出来ないが、
   先行研究では配列から作れるようなworkaroundがされている(cf. atmosphere kernel)
+
+=== concurrency
 
 == limitations
 
