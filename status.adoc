@@ -292,3 +292,13 @@ note: diagnostics via expansion:
       self.view() =~= empty().push(v).add(old(self).view()) 
           datatype is opaque here
 ----
+
+== 2024/11/14
+
+* Verusのtokenized state machineに関する調査
+    ** 状態器械の定義とRustのコードがそれを満たしていることを保証する機能
+    ** 並行プログラムも検証できる
+* 使用例がマクロを多用しているのでminimal working exampleを作っている
+    ** cf. `verus/source/rust_verify/state_machines/top_sort_dfs`
+    ** Q: `struct_with_invariant!` マクロなしで `Instance` と実装を適切に関連付ける方法がわからない
+        *** `verus-ex/tsm_silly.rs`
