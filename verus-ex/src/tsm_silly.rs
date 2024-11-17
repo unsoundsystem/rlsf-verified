@@ -1,12 +1,7 @@
 use vstd::prelude::*;
 
 verus! {
-use builtin::*;
-use builtin_macros::*;
 use state_machines_macros::tokenized_state_machine;
-use std::sync::Arc;
-use vstd::modes::*;
-use vstd::prelude::*;
 use vstd::atomic_ghost::*;
 
 tokenized_state_machine! {
@@ -54,23 +49,43 @@ tokenized_state_machine! {
     }
 }
 
-struct C {
-    pub count: usize,
-    pub count_tok: Tracked<CountOne::count>,
-    pub instance: Tracked<CountOne::Instance>,
+struct_with_invariants!{
+    struct C {
+        pub count: AtomicU32<_, CountOne::count, _>,
+        pub instance: Tracked<CountOne::Instance>,
+    }
+
+    spec fn wf(&self) -> bool {
+        invariant on count with (instance) is (v: u32, g: CountOne::count) {
+            g@.instance == instance@
+            && g@.value == v as int
+        }
+    }
 }
 
 fn main() {
-    let tracked (Tracked(instance), Tracked(count_token)) =
-        CountOne::Instance::initialize();
-    let mut c = C { count: 0, instance: Tracked(instance), count_tok: Tracked(count_token) };
-    assert(c.count == c.count_tok@@.value);
-    c.count = c.count + 1;
-    proof {
-        c.instance.borrow_mut().inc_one(c.count_tok.borrow_mut());
-        assert(c.count == c.count_tok@@.value);
-        assert(c.count == 1);
-        c.instance.borrow().finalize(c.count_tok.borrow());
-    }
+    let tracked (Tracked(instance), Tracked(count_token)) = CountOne::Instance::initialize();
+    let c = C {
+        count: AtomicU32::new(Ghost(Tracked(instance.clone())), 0, Tracked(count_token)),
+        instance: Tracked(instance.clone())
+    };
+    let x = atomic_with_ghost!(&c.count => fetch_add(1);
+        ghost cnt => {
+            assert(cnt@.instance === c.instance@);
+            c.instance.borrow().increment_will_not_overflow_u32(&cnt);
+            assert(cnt@.value == 0);
+            c.instance.borrow().inc_one(&mut cnt);
+        }
+    );
+    assert(x == 0);
+    let y =
+        atomic_with_ghost!(&c.count => load();
+        ghost cnt => {
+            assert(cnt@.instance === c.instance@);
+            instance.finalize(&cnt);
+        }
+    );
+    assert(y == 1);
 }
+
 }
