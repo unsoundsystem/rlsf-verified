@@ -1,0 +1,11 @@
+= VerusのTokenized State Machineについて
+
+* 分離論理とは
+* Iris/RA
+    ** 資源の概念の抽象化
+* Leaf/Guard operator/Storage Protocols
+    ** 共有可変な資源への一時的な不変参照の取得→元の権限への復帰を扱うための枠組み
+    ** Storage Protocols: Guard operatorを用いた推論を簡単にするための体系
+* VerusSync
+    ** Storage Protocolsを利用したRustコードベースの検証を容易にする
+    ** 状態遷移器械を定義するための言語
