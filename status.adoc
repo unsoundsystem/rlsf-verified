@@ -300,5 +300,10 @@ note: diagnostics via expansion:
     ** 並行プログラムも検証できる
 * 使用例がマクロを多用しているのでminimal working exampleを作っている
     ** cf. `verus/source/rust_verify/state_machines/top_sort_dfs`
-    ** Q: `struct_with_invariant!` マクロなしで `Instance` と実装を適切に関連付ける方法がわからない
+    ** [[atomic_inv]] Q: `struct_with_invariant!` マクロなしで `Instance` と実装を適切に関連付ける方法がわからない
         *** `verus-ex/tsm_silly.rs`
+
+== 2024/11/18
+
+* xref:atomic_inv[アトミック型でラップされてないとInvariantが開けない]
+* Verusの基礎について書き進めたxref:./verus.adoc[verus.adoc]

@@ -27,6 +27,28 @@ mod X {
     {}
 }
 
+fn max(x: usize, y: usize) -> (r: usize)
+    ensures
+        r == x || r == y,
+        r >= x && r >= y
+{
+    if x <= y {
+        y
+    } else {
+        x
+    }
+}
+
+struct S { x: usize }
+
+impl S {
+    fn safe_inc(&mut self) -> (r: usize)
+        requires 0 <= old(self).x, old(self).x < usize::MAX
+        ensures r == self.x == old(self).x + 1
+    {
+        self.x = self.x + 1; self.x
+    }
+}
 fn main() {
     assert(!gt_any(1, seq![1, 2, 3]));
     assert(gt_any(3, seq![1, 2, 3]));

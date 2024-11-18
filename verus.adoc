@@ -1,23 +1,16 @@
 = Verusによるmimallocの検証
 :source-highlighter: pygments
 
-* https://github.com/verus-lang/verified-memory-allocator
-
 == Verus
 
-Verusは、Rustに仕様記述言語とその証明のための言語を加えたRustコードベースの形式検証のための言語です。
-
-* Rustのコードベースに対する静的な保証の拡大
-* メモリ操作に関する低レイヤのプラクティスを扱える
-    ** メモリ操作に関する推論は主にRustの型検査器によって行われる
-* SMTによって証明の大部分が自動化される設計
-
-=== TCB
-
-Verusによって検証されたコードの正当性は、以下を仮定した上でのものとなる。
-
-* SMTLIBへの変換の適切さ
-* Rustの型検査器の正当性
+Verusは、Rustを仕様記述言語とその証明のための言語で拡張した形式検証のための言語である。
+Verusで実装したコードは最終的に同等のRustコードとしてコンパイルされるため、
+Rustコードベースに対する静的な保証を拡大するために利用できる。
+低レイヤのシステムプログラムに関する機能的正当性の検証を目標としており、
+メモリ操作に関する低レイヤのプラクティスを扱える他、SMTによって証明の大部分が自動化される設計となっており、
+証明にかかる工数を重視しているという特長がある。
+システムプログラムの形式検証に関する実績が多く、
+OS<<atmosphere>><<nros>>/メモリアロケータ<<verus_mimalloc>>/分散KVS<<verified_ironkv>>/シリアライザ<<vest>>などの検証に利用されている。
 
 == 検証ツールの導入
 
@@ -28,7 +21,7 @@ Verusによって検証されたコードの正当性は、以下を仮定した
 https://github.com/verus-lang/verus/blob/main/INSTALL.md
 
 
-==== Rustのコード内での利用
+=== Rustのコード内での利用
 
 VerusのコードをRustのコード内に埋め込むには `verus!` マクロを用いる｡
 
@@ -48,7 +41,8 @@ Cargoプロジェクトの場合､以下を追記することで通常のRust�
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 ----
 
-コマンドラインオプションについて `--crate-type=lib` と指定すれば､ `main` 関数を要求されない｡
+検証機のバイナリ(`verus/source/target-verus/release/verus`)のコマンドラインオプションについて
+`--crate-type=lib` と指定すれば､ `main` 関数を要求されない｡
 また､ `--expand-errors` とすると詳細なエラーの説明が得られる｡ footnote:[証明のデバッグ時は､これをつけないと何もわからない]
 
 == Verusの基礎
@@ -64,9 +58,9 @@ Verusを使った検証は大まかに次の仕事からなる、まず(1)保証
 
 以下にspecコードの例と目新しい構文の意味を示す｡
 
-* `forall|t: T| ...tを使った言明...` という構文で任意のT型の変数tに関して成り立つべき性質を記述できる
+* `forall|t: T| ...tを使ったbool式...` という構文で任意のT型の変数tに関して成り立つべき性質を記述できる
 * `b1 ==> b2` で含意を表現できる｡(i.e. `!b1 || b2`)
-* `Seq`,`int`: Verusは仕様記述のために無限長の数(`int`, `nat`)やコレクション(`Seq`, `Map`, `Set`)といった_数学的な_対象を表現する型を提供している
+* `Seq`,`int`: Verusは仕様記述のために無限長の数(`int`, `nat`)やコレクション(`Seq`, `Map`, `Set`)といった _数学的な_ 対象を表現する型を提供している
 * `seq!`: `Seq` 型の値を生成するためのマクロ(`vec!` 相当)
 * `assert`: SMTソルバに挿入された時点の環境下でアサーションを証明するように要請する｡ Rustの `assert!` とは異なり､静的に解決される｡
 
@@ -76,7 +70,6 @@ spec fn gt_any(x: nat, ls: Seq<nat>) -> bool
 { 
     forall|i: int| 0 <= i && i < ls.len() ==> x >= ls[i]
 }
-
 
 fn main() {
     assert(!gt_any(1, seq![1, 2, 3]));
@@ -95,21 +88,67 @@ fn main() {
 |exec内に存在可    |o       |o      |o
 |====
 
-* mode: exec/spec/proof
-* コンパイル時に消える証明用コードを書きながらassertでソルバにヒントを与えて事後条件を証明していく
-* memory safetyに関する注意
-    ** Verusは自動的にUBが無いことを保証したりはしない
-    ** Verusは言語としてRustのスーパーセットであり、当然unsafe blockが書ける
-    ** memory safetyは仕様記述と関数呼び出し時の事前条件の充足を保証することで実現される
+各モードに対応して、変数定義にも `let tracked x = ...;` のようにしてモードを指定できる。
+tracked(ghost)な変数は、Verusの標準ライブラリにある `Tracked<T>`(`Ghost<T>`)でも表現できる。
+
+[width="50%",frame="topbot"]
+|====
+|各mode内のコードに依存できるか |ghost   |tracked|exec
+|spec                           |o       |x      |x
+|proof                          |o       |o      |x
+|exec                           |o       |o      |o
+|====
+
+
+以下は、メソッドにアノテーションする例である。
+
+* `requires ...` によって関数を呼び出す前に成り立っていて欲しい条件(事前条件)を記述する
+* `ensures ...` によって関数を呼び出したあとの状態について成り立っていて欲しい条件(事後条件)を記述する
+* `old(self)` によってメソッド呼び出し前の `self` に言及できる
+* 事後条件で返り値に言及したい場合は、返り値に名前をつけることができる e.g. `fn f() -> (r: bool)`
+
+[source,rust]
+----
+struct S { x: usize }
+
+impl S {
+    // 古いself.xがインクリメントしてもオーバフローしない範囲ならば、
+    // self.inc()の呼び出し後には、正しくインクリメントされて返り値もその値になっている
+    fn safe_inc(&mut self) -> (r: usize)
+        requires
+            0 <= old(self).x, // カンマ区切りで並べることができる(.. && .. 相当)
+            old(self).x < usize::MAX
+        ensures r == self.x == old(self).x + 1
+    {
+        self.x = self.x + 1; self.x
+    }
+}
+----
+
+Verusを使った検証では度々、データ構造に対応する数学的な表現を使うことがある。(e.g. リンクリストを要素の列として考える)
+こうした場合には、viewメソッドを定義する。上記の例に対しては例えばこのように定義できる。
+
+[rust,source]
+----
+impl S {
+    spec fn view(&self) -> int {
+        self.x as int
+    }
+}
+----
+
+viewメソッドはspecモード内で `variable_name@` のようにして呼び出せる。
 
 == 検証フローの例: 単方向リンクリスト
 
-Verusによって低レイヤのプラクティスを扱えることを示すために、raw pointerを用いた単方向リンクリストの実装と検証の例を取り上げる。
+Verusによって低レイヤのプラクティスを扱えることを示すために、
+(ヒープ内のデータへの)raw pointerを用いた単方向リンクリストの実装と検証の例を取り上げる。
 
 Verusでヒープ内に領域を確保された値を指すraw pointerを扱うための仕組みである `PPtr` について説明する｡
 `PPtr<V>` は `*mut u8` と同様の意味で値の格納されているアドレスを示す以上の意味はない｡
-しかし､ `PPtr<V>` はデリファレンスの際に_トークン_(`PointsTo<V>`)を要求する｡
-このトークン `PointsTo<V>` は､ trackedオブジェクトでありコンパイル時に消去されるがRustのボローチェッカには検査されるため､メモリセーフなアクセスが強制される｡
+しかし､ `PPtr<V>` はデリファレンスの際に _トークン_ (`PointsTo<V>`)を要求する｡
+このトークン `PointsTo<V>` はtrackedオブジェクトでありコンパイル時に消去されるが、
+Rustのボローチェッカには検査されるためメモリセーフなアクセスが強制される｡
 
 [source,rust]
 ----
@@ -121,8 +160,8 @@ p.free(Tracked(points_to)); // points_to moved here
 p.write(Tracked(&mut points_to), 5); // fails because points_to moved above
 ----
 
-このようにraw pointerの読み書きに関する権限情報を分離して追跡することが以下に示す､
-リンクリストのようなraw pointerを多用するコードをVerusで検証する際の基本的なアイデアになる｡
+このようにraw pointerの読み書きに関する権限情報を分離して追跡することが､
+以下に示すリンクリストのようなraw pointerを多用するコードをVerusで検証する際の基本的なアイデアになる｡
 
 以下に単方向リンクリストの実装と検証の例を示す｡ 
 footnote:[このコードは証明が通る最小限のアサーションに削ってある(9個)が､試行錯誤中はアサーションが40個程度あった]
@@ -151,9 +190,10 @@ pub struct GhostState {
 }
 
 impl LList {
-    // リンクリストのノードをself.firstから辿っていったときの要素のリストを*逆順にしたもの*
+    // リンクリストのノードを追加順に並べたもの
+    // (self.firstから辿っていったときの要素のリストを*逆順にしたもの*)
     pub closed spec fn view(&self) -> Seq<usize> {
-        // Seqを添字を引数に取るクロージャで生成する
+        // 添字を引数に取るクロージャでSeqを生成する
         Seq::<usize>::new(
             self.gs@.ptrs.len(), // 長さ
             // permsはノードの追加時のリストの長さがキーなため､最後に追加した要素が先頭になる
@@ -161,11 +201,12 @@ impl LList {
         )
     }
 
-    // ノードへのポインタを追跡しているSeqで､与えられた添字から次のノードを返す
+    // ノードへのポインタを追跡しているSeqを使って､与えられた添字から次のノードを返す
     pub closed spec fn next_of(&self, i: nat) -> Option<PPtr<Node>> {
         if i == 0 {
             None
         } else {
+            // 添字が若いほど追加した時点が古い(i.e. リストの後の方にある)ためi-1が次のノードとなる
             Some(self.gs@.ptrs[i as int - 1])
         }
     }
@@ -264,34 +305,37 @@ impl LList {
 
 ----
 
-== mimallocの概観
+== mimallocの検証
 
-=== データ構造
+=== mimallocの概観
 
-各スレッドごとに以下のような構造が関連付けられる
-(こちらのFig. 1がわかりやすいhttps://www.microsoft.com/en-us/research/uploads/prod/2019/06/mimalloc-tr-v1.pdf)
+各スレッドごとに複数の _Segment_ からなる _Heap_ という構造が対応する。
+_Segment_ は複数の _Page_ を管理しており、各Pageのメタデータの列がSegmentヘッダに格納されている。
+各Pageは、 _Block_ に分割されており、これがアロケーションの単位となる。
+BlockのサイズはPage内で固定されており、Pageごとに異なることができる。
+(こちらのFig. 1がわかりやすい<<mimalloc>>)
 
-* Heap
-    ** pages_direct: 空いているPageへのポインタのリスト(1MB以下のアロケーション用のfast path)
-    ** pages: Heap内の全てのページのサイズ別リストへのポインタ
-* Page: ページ内の空きリスト
-* Block: ページ内の割当単位,ページごとに固定長
-* Segment: Page構造体のリストなどのメタデータを含む。実際のページの並びの先頭に埋め込まれる。
+未割り当てなBlockはサイズ別にリンクリストになっているため、
+割当処理は要求サイズに対して適切なリストから取り出す処理、解放時は適切なリストへ挿入する処理となる。
+割当処理はthread localだが、解放処理は他スレッドで割り当てられたBlockを解放することができる。
 
-== challenges
+//* Heap
+    //** pages_direct: 空いているPageへのポインタのリスト(1MB以下のアロケーション用のfast path)
+    //** pages: Heap内の全てのページのサイズ別リストへのポインタ
+//* Page: ページ内の空きリスト
+//* Block: ページ内の割当単位,ページごとに固定長
+//* Segment: Page構造体のリストなどのメタデータを含む。実際のページの並びの先頭に埋め込まれる。
 
-verusをメモリアロケータの検証に用いる際に問題となりそうな部分について、
-mimallocの検証コードベースがどのような対応をしているかについて検討する。
+=== challenges
 
-TODO: working examples
+mimallocの検証コードベースのうち、特に挑戦的な目標に絞って紹介する。
+//verusをメモリアロケータの検証に用いる際に問題となりそうな部分について、
+//mimallocの検証コードベースがどのような対応をしているかについて検討する。
 
-=== raw pointer
+==== raw pointer
 
 * `PPtr` より一般の(ヒープ以外に割り当てられた領域を扱える)ポインタのための仕組みがある
 * verusではraw pointerのデリファレンスに際して `PointsTo<T>` というtrackedな構造体(中身はPhantomData)を要求する
-
-=== linked list
-
 * メモリアロケータで扱うようなアロケーションヘッダに埋め込まれたリンクリストに関する性質を議論するには、
   実装外の何らかの手段でポインタの先に格納されている情報とその所有権に関する情報を追跡する必要がある。
 * 既存の実装ではリストの先頭を保持する構造体にGhostとして、リスト上にあるすべてのノードへのポインタと
@@ -307,7 +351,7 @@ struct LL {
 ----
 
 
-=== axiomization
+==== axiomization
 
 * メモリアロケータはOSなどに割り当てられたメモリプールからメモリを分割していく
 * このメモリプールの正当性は最初に認める必要がある(`verifier::external_body`)
@@ -316,8 +360,63 @@ struct LL {
 * Verusではアロケータからしか `PPtr` を作れないためアロケータのメモリプールをブートストラップ出来ないが、
   先行研究では配列から作れるようなworkaroundがされている(cf. atmosphere kernel)
 
-=== concurrency
+==== concurrency
+
+* mimallocでは他のスレッドに対して割り当てられたブロックを別のスレッドで開放できる仕組みがある
+* VerusSync/`tokenized_state_machine!`
+* storage protocol/Resource Algebra
+
+== TCBと検証済みコードの保証について
+
+Verusによって検証されたコードの正当性は、以下を仮定した上でのものとなる。
+
+* rustcの型検査・ライフタイム検査器・コード生成の正当性 footnote:[verusはrustcのIRのうちHIRからRustコードの情報を抽出している https://github.com/verus-lang/verus/blob/main/source/CODE.md]
+* SMTLIBへのエンコードの適切さ
+* SMTソルバと追加のソルバ(e.g. Singular)の正当性
+* Verusのプリミティブの形式仕様と実装の適切さ
+
+=== メモリセーフティに関する注意
+
+通常のRustコードでは、メモリセーフでない可能性がある操作はunsafeブロックで囲み、
+適切にバリデーションを行って十分なドキュメンテーションをした上でユーザーに責任を委譲する。
+一方、Verusでメモリセーフティをrequire/ensuresなどを使って仕様を記述・証明することで保証している。
+例えば、以下はverusからRustの検証されていないコードを呼び出している。<<verus_guide>>
+このような場合Rustのコードでは境界チェックが必要になるがVerusでは呼び出し前に事前条件の成立が保証されるため省略できる。
+
+[source,rust]
+----
+impl<A> Vec<A> {
+    #[verifier::external_body]
+    pub fn index(&self, i: usize) -> (r: &A)
+        requires
+            i < self.len(),
+        ensures
+            *r === self[i as int],
+    {
+        unsafe { self.vec.get_unchecked(i) }
+    }
+}
+----
+
+つまり、Verusではメモリセーフティは _事前条件が満たされている限り_ 保証されていることになる。
+これはRustの未検証なコードからVerusの検証済みコードを呼び出す際に、
+事前条件の成立を別の方法で保証しない限りメモリセーフティ(勿論そのほかの性質も)が成立しないことを意味するため、
+こうした場合には注意が必要である。
 
 == limitations
 
 * raw pointer越しに構造体のフィールドを部分的に更新できない
+
+[bibliography]
+== 参考文献
+
+* [[[verus_mimalloc]]] https://github.com/verus-lang/verified-memory-allocator
+* [[[travis_thesis]]] https://www.andrew.cmu.edu/user/bparno/papers/hance_thesis.pdf
+* [[[verus_gh]]] https://github.com/verus-lang/verus
+* [[[verus_guide]]] https://verus-lang.github.io/verus/guide/overview.html
+* [[[verus_guide_st]]] https://verus-lang.github.io/verus/state_machines/intro.html
+* [[[atmosphere]]] https://doi.org/10.1145/3625275.3625401
+* [[[nros]]] https://github.com/utaal/verified-nrkernel
+* [[[vest]]] https://github.com/secure-foundations/vest
+* [[[verified_ironkv]]] https://github.com/verus-lang/verified-ironkv
+* [[[mimalloc]]] https://www.microsoft.com/en-us/research/uploads/prod/2019/06/mimalloc-tr-v1.pdf
