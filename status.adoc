@@ -307,3 +307,7 @@ note: diagnostics via expansion:
 
 * xref:atomic_inv[アトミック型でラップされてないとInvariantが開けない]
 * Verusの基礎について書き進めたxref:./verus.adoc[verus.adoc]
+
+== 2024/11/21
+
+* Verusのraw pointerサポートについて書いた

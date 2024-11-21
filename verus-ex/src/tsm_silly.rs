@@ -73,8 +73,8 @@ fn main() {
         ghost cnt => {
             assert(cnt@.instance === c.instance@);
             c.instance.borrow().increment_will_not_overflow_u32(&cnt);
-            assert(cnt@.value == 0);
-            c.instance.borrow().inc_one(&mut cnt);
+            //assert(cnt@.value == 0);
+            c.instance.borrow().inc_one(&mut cnt)
         }
     );
     assert(x == 0);

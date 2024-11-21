@@ -1,5 +1,6 @@
 = Verusによるmimallocの検証
 :source-highlighter: pygments
+:toc:
 
 == Verus
 
@@ -128,7 +129,7 @@ impl S {
 Verusを使った検証では度々、データ構造に対応する数学的な表現を使うことがある。(e.g. リンクリストを要素の列として考える)
 こうした場合には、viewメソッドを定義する。上記の例に対しては例えばこのように定義できる。
 
-[rust,source]
+[source,rust]
 ----
 impl S {
     spec fn view(&self) -> int {
@@ -235,7 +236,8 @@ impl LList {
         requires old(self).wf(),
         ensures
             self.wf(),
-            self@ =~= old(self)@.push(v)
+            // リストに要素が追加される
+            self@ =~= old(self)@.push(v) // =~= はコンテナのための等号
     {
         if let Some(old_first) = self.first {
             proof {
@@ -245,8 +247,10 @@ impl LList {
             self.first = Some(node);
 
             proof {
+                // ghost stateの更新: ノードへのポインタとその権限を追加
                 self.gs@.ptrs = self.gs@.ptrs.push(node);
                 self.gs.borrow_mut().perms.tracked_insert((self.gs@.ptrs.len() - 1) as nat, perm);
+
                 assert(forall|i: nat| i < self.gs@.ptrs.len() && old(self).wf_node(i)
                     ==> self.wf_node(i));
                 assert forall|i: int| 0 <= i && i  < old(self)@.len()
@@ -257,9 +261,11 @@ impl LList {
                 assert(self@ =~= old(self)@.push(v));
             }
         } else {
+            // まだリストが空な場合
             let (node, Tracked(mut perm)) = PPtr::<Node>::new(Node { next: None, x: v });
             self.first = Some(node);
             proof {
+                // ghost stateの更新: ノードへのポインタとその権限を追加
                 self.gs@.ptrs = self.gs@.ptrs.push(node);
                 self.gs.borrow_mut().perms.tracked_insert(
                     (self.gs@.ptrs.len() - 1) as nat,
@@ -275,17 +281,22 @@ impl LList {
             old(self).wf()
         ensures
             self.wf(),
+            // リストが空ならNone
             old(self)@.len() == 0 ==> r == None::<usize>,
+            // さもなければ先頭ノードの値を返して、リストが縮小する
             old(self)@.len() > 0 ==> r == Some(old(self)@.last())
                 && self@ =~= old(self)@.drop_last()
     {
         if let Some(old_first) = self.first {
             assert(self.wf_node((self.gs@.ptrs.len() - 1) as nat));
+            // ghost stateの更新: 一番目のノードへの権限を削除
             let tracked old_first_perm = self.gs.borrow_mut()
                 .perms.tracked_remove((self.gs@.ptrs.len() - 1) as nat);
+            // ノードへのポインタをデリファレンス、領域を解放
             let old_first_node = old_first.into_inner(Tracked(old_first_perm));
             self.first = old_first_node.next;
             proof {
+                // ghost stateの更新: ノードへのポインタを削除
                 self.gs@.ptrs = self.gs@.ptrs.drop_last();
                 assert(forall|i: nat|
                     i < self@.len() && old(self).wf_node(i) ==> self.wf_node(i));
@@ -305,6 +316,8 @@ impl LList {
 
 ----
 
+== Verusによる並行プログラムの検証
+
 == mimallocの検証
 
 === mimallocの概観
@@ -319,12 +332,12 @@ BlockのサイズはPage内で固定されており、Pageごとに異なるこ�
 割当処理は要求サイズに対して適切なリストから取り出す処理、解放時は適切なリストへ挿入する処理となる。
 割当処理はthread localだが、解放処理は他スレッドで割り当てられたBlockを解放することができる。
 
-//* Heap
-    //** pages_direct: 空いているPageへのポインタのリスト(1MB以下のアロケーション用のfast path)
-    //** pages: Heap内の全てのページのサイズ別リストへのポインタ
-//* Page: ページ内の空きリスト
-//* Block: ページ内の割当単位,ページごとに固定長
-//* Segment: Page構造体のリストなどのメタデータを含む。実際のページの並びの先頭に埋め込まれる。
+// * Heap
+//     ** pages_direct: 空いているPageへのポインタのリスト(1MB以下のアロケーション用のfast path)
+//     ** pages: Heap内の全てのページのサイズ別リストへのポインタ
+// * Page: ページ内の空きリスト
+// * Block: ページ内の割当単位,ページごとに固定長
+// * Segment: Page構造体のリストなどのメタデータを含む。実際のページの並びの先頭に埋め込まれる。
 
 === challenges
 
@@ -334,12 +347,14 @@ mimallocの検証コードベースのうち、特に挑戦的な目標に絞っ
 
 ==== raw pointer
 
-* `PPtr` より一般の(ヒープ以外に割り当てられた領域を扱える)ポインタのための仕組みがある
-* verusではraw pointerのデリファレンスに際して `PointsTo<T>` というtrackedな構造体(中身はPhantomData)を要求する
-* メモリアロケータで扱うようなアロケーションヘッダに埋め込まれたリンクリストに関する性質を議論するには、
-  実装外の何らかの手段でポインタの先に格納されている情報とその所有権に関する情報を追跡する必要がある。
-* 既存の実装ではリストの先頭を保持する構造体にGhostとして、リスト上にあるすべてのノードへのポインタと
-  その権限情報を保持しておくという方針が取られている
+先程raw pointerを扱うための仕組みとして `PPtr` を紹介したが、メモリアロケータの検証ではヒープ領域が適切に管理されていることを仮定できないため利用できない。
+このような問題領域のために、Verusは `PPtr` より一般的なポインタを扱うための道具(`vstd::raw_ptr`)を提供しており `PPtr` もこれを利用した実装になっている。<<verus_raw_ptr>>
+
+単方向リンクリストの例を一般のraw pointerに翻訳すると以下のようになる。
+<<verus_raw_ptr>>でも読み書きの際に `PointsTo<T>` を要求するため、基本的な扱いは `PPtr` と同様となる。
+大きな違いとして、 `PPtr` はアロケーション (`PPtr::<T>::new`)の際に `PointsTo` を発行するが、これに相当するインタフェースが存在しないことである。
+従って、raw pointerを読み書きするには他の手段で `PointsTo` トークンを取得しなければならない。
+
 
 [source,rust]
 ----
@@ -350,8 +365,170 @@ struct LL {
 }
 ----
 
+`vstd::raw_ptr::PointsToRaw` は、このための手段を提供している。
+`PointsToRaw` は、(未初期化な領域の)任意のアドレスの集合(`Set<int>`)に対する権限を表している。
+また、 `PointsToRaw` は対象の領域を _分割_ できる。以下に興味深いインタフェースを示す。
+
+[source,rust]
+----
+// 分割
+pub proof fn split(tracked self, range: Set<int>) -> tracked res : (Self, Self)
+requires
+    range.subset_of(self.dom()),
+ensures
+    res.0.provenance() == self.provenance(),
+    res.1.provenance() == self.provenance(),
+    res.0.dom() == range,
+    res.1.dom() == self.dom().difference(range),
+
+// 結合
+pub proof fn join(tracked self, tracked other: Self) -> tracked joined : Self
+requires
+    self.provenance() == other.provenance(),
+ensures
+    joined.provenance() == self.provenance(),
+    joined.dom() == self.dom() + other.dom(),
+
+// 型付の領域へのキャスト
+pub proof fn into_typed<V>(tracked self, start: usize) -> tracked points_to : PointsTo<V>
+requires
+    is_sized::<V>(),
+    start as int % align_of::<V>() as int == 0, // アラインメント
+    self.is_range(start as int, size_of::<V>() as int),
+ensures
+    points_to.ptr()
+        == ptr_mut_from_data::<V>(PtrData {
+            addr: start,
+            provenance: self.provenance(),
+            metadata: Metadata::Thin,
+        }),
+    points_to.is_uninit(), // キャスト後も未初期化
+----
+
+メモリアロケータの実装では、OSから提供されるなどして取得した利用可能なメモリ領域を分割して利用するため、
+メモリアロケータの機能的正当性を証明するにはこのメモリ領域から分割されたブロックの _正統性_ を追跡する必要がある。
+`PointsToRaw` はこのための道具を提供している。(e.g. `split`, `join`)
+
+<<verus_mimalloc>>の`PointsToRaw` を利用したリンクリストの実装は以下のようになっている。
+トークンを持って回っている以外は、 `PPtr` によるリンクリストと方針は同じであることがわかる。
+(`verified-memory-allocator/verus-mimalloc/linked_list.rs`)
+
+[source,rust]
+----
+pub fn insert_block(&mut self, ptr: *mut u8, Tracked(points_to_raw): Tracked<PointsToRaw>, Tracked(block_token): Tracked<Mim::block>)
+    requires old(self).wf(),
+        points_to_raw.is_range(ptr as int, block_token@.key.block_size as int),
+        points_to_raw.provenance() == ptr@.provenance,
+        block_token@.instance == old(self).instance(),
+        is_block_ptr(ptr, block_token@.key),
+        old(self).fixed_page() ==> (
+            block_token@.key.page_id == old(self).page_id()
+            && block_token@.key.block_size == old(self).block_size()
+        ),
+        old(self).heap_id().is_none(),
+    ensures
+        self.wf(),
+        self.block_size() == old(self).block_size(),
+        self.len() == old(self).len() + 1, // リストの長さ
+        self.instance() == old(self).instance(),
+        self.page_id() == old(self).page_id(),
+        self.fixed_page() == old(self).fixed_page(),
+        self.heap_id() == old(self).heap_id(),
+{
+    let tracked mut mem1;
+    let tracked mut mem2;
+    proof {
+        block_size_ge_word();
+        block_ptr_aligned_to_word();
+
+        // ノード+パディングに分割
+        let tracked (m1, m2) = points_to_raw.split(set_int_range(ptr as int, ptr as int + size_of::<Node>() as int));
+        mem1 = m1.into_typed::<Node>(ptr.addr());
+        mem2 = m2;
+    }
+
+    let ptr = ptr as *mut Node;
+    // ノードに書き込み
+    ptr_mut_write(ptr, Tracked(&mut mem1), Node { ptr: self.first });
+    self.first = ptr;
+    let Tracked(is_exposed) = expose_provenance(ptr);
+
+    proof {
+        // 証明用のデータを更新
+        let tracked tuple = (mem1, mem2, block_token, is_exposed);
+        self.perms.borrow_mut().tracked_insert(self.data@.len, tuple);
+        self.data@.len = self.data@.len + 1;
+
+        ...
+    }
+----
+
+// * `PPtr` より一般の(ヒープ以外に割り当てられた領域を扱える)ポインタのための仕組みがある
+// * verusではraw pointerのデリファレンスに際して `PointsTo<T>` というtrackedな構造体(中身はPhantomData)を要求する
+// * メモリアロケータで扱うようなアロケーションヘッダに埋め込まれたリンクリストに関する性質を議論するには、
+//   実装外の何らかの手段でポインタの先に格納されている情報とその所有権に関する情報を追跡する必要がある。
+// * 既存の実装ではリストの先頭を保持する構造体にGhostとして、リスト上にあるすべてのノードへのポインタと
+//   その権限情報を保持しておくという方針が取られている
+
 
 ==== axiomization
+
+上述のようにメモリアロケータは始めに利用可能なメモリ領域を渡され、アロケータの実装はこの領域が利用可能であると仮定する。
+こうした仮定を表現するために、未検証なコードとの相互運用のための仕組みが必要となる。
+
+Verusでは未検証のコードであることを示すための属性が用意されており、Rustのオブジェクトにアノテーションすることで未検証であることを検証器に指示する。
+
+`verifier::external_body` はexecモードの関数につけることで、実装を検証せずに関数定義の仕様を正しいと仮定するように検証器に指示する。
+通常 `external_body` を付与した関数で検証なRustコードを呼び出し実装に対して _公理的な仕様_ を記述する。
+以下に例を示す。
+
+[source,rust]
+----
+impl<A> MyVec<A> {
+    #[verifier::external_body]
+    pub fn index(&self, i: usize) -> (r: &A)
+        requires
+            i < self.len(),
+        ensures
+            *r === self[i as int],
+    {
+        // RustのVec
+        unsafe { self.vec.get_unchecked(i) }
+    }
+}
+----
+
+// これらの属性は使い方によっては、不整合を起こすため注意が必要である。
+// 
+// [source,rust]
+// ----
+// #[verifier::external_body]
+// fn f() ensures false {}
+// 
+// fn main() {
+//     f();
+//     assert(false); // must fail but not
+// }
+// ----
+
+この仕組みを使ってアロケータの与えられたメモリ領域に対する仮定を例えば以下のように表すことができる。
+
+[source,rust]
+----
+impl Allocator {
+    #[verifier::external_body]
+    fn give_me_buffer(&mut self, mem: *mut u8)
+    ensures
+        self.buf_perm@.dom() != Set::empty(),
+    {
+        ...
+    }
+}
+----
+
+上記は非常に単純化されているが、mimallocの検証コードベースではmmapを使ってメモリ領域を確保しており、
+mmapによって設定したメモリアクセスの権限に関する部分も形式化しているため、より複雑になっている。
+(<<verus_mimalloc>>, `verified-memory-allocator/verus-mimalloc/os_mem.rs`)
 
 * メモリアロケータはOSなどに割り当てられたメモリプールからメモリを分割していく
 * このメモリプールの正当性は最初に認める必要がある(`verifier::external_body`)
@@ -370,9 +547,10 @@ struct LL {
 
 Verusによって検証されたコードの正当性は、以下を仮定した上でのものとなる。
 
-* rustcの型検査・ライフタイム検査器・コード生成の正当性 footnote:[verusはrustcのIRのうちHIRからRustコードの情報を抽出している https://github.com/verus-lang/verus/blob/main/source/CODE.md]
+* rustcの型検査・ライフタイム検査器・コード生成の正当性
+footnote:[verusはrustcのIRのうちHIRからRustコードの情報を抽出している https://github.com/verus-lang/verus/blob/main/source/CODE.md]
 * SMTLIBへのエンコードの適切さ
-* SMTソルバと追加のソルバ(e.g. Singular)の正当性
+* SMTソルバと追加のソルバ(e.g. Singular<<singular>>)の正当性
 * Verusのプリミティブの形式仕様と実装の適切さ
 
 === メモリセーフティに関する注意
@@ -385,11 +563,11 @@ Verusによって検証されたコードの正当性は、以下を仮定した
 
 [source,rust]
 ----
-impl<A> Vec<A> {
+impl<A> MyVec<A> {
     #[verifier::external_body]
     pub fn index(&self, i: usize) -> (r: &A)
         requires
-            i < self.len(),
+            i < self.len(), // 境界チェック相当の条件
         ensures
             *r === self[i as int],
     {
@@ -420,3 +598,6 @@ impl<A> Vec<A> {
 * [[[vest]]] https://github.com/secure-foundations/vest
 * [[[verified_ironkv]]] https://github.com/verus-lang/verified-ironkv
 * [[[mimalloc]]] https://www.microsoft.com/en-us/research/uploads/prod/2019/06/mimalloc-tr-v1.pdf
+* [[[verus_raw_ptr]]] https://verus-lang.github.io/verus/verusdoc/vstd/raw_ptr/index.html
+* [[[singular]]] https://www.singular.uni-kl.de/
+* [[[verus_tcb]]] https://verus-lang.github.io/verus/guide/tcb.html
