@@ -3,18 +3,18 @@ use vstd::prelude::*;
 verus! {
 use vstd::raw_ptr::PointsToRaw;
 use std::marker::PhantomData;
-
-pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
-    fl_bitmap: usize,
+use vstd::std_specs::bits::{u64_trailing_zeros, u64_leading_zeros};
+pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize, Bitmap> {
+    fl_bitmap: Bitmap,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
-    sl_bitmap: [usize; FLLEN],
+    sl_bitmap: [Bitmap; FLLEN],
     first_free: [[Option<*mut FreeBlockHdr>; SLLEN]; FLLEN],
     _phantom: PhantomData<&'pool ()>,
 }
 
 pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
 
-const GRANULARITY_LOG2: u32 = GRANULARITY.trailing_zeros();
+const GRANULARITY_LOG2: u32 = u64_trailing_zeros(GRANULARITY as u64);
 
 const SIZE_USED: usize = 1;
 const SIZE_SENTINEL: usize = 2;
@@ -34,18 +34,18 @@ struct BlockHdr {
     size: usize,
     prev_phys_block: Option<*mut BlockHdr>,
 }
-impl BlockHdr {
-    /// Get the next block, assuming it exists.
-    ///
-    /// # Safety
-    ///
-    /// `self` must have a next block (it must not be the sentinel block in a
-    /// pool).
-    #[inline]
-    unsafe fn next_phys_block(&self) -> *mut BlockHdr {
-        ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
-    }
-}
+//impl BlockHdr {
+    ///// Get the next block, assuming it exists.
+    /////
+    ///// # Safety
+    /////
+    ///// `self` must have a next block (it must not be the sentinel block in a
+    ///// pool).
+    //#[inline]
+    //unsafe fn next_phys_block(&self) -> *mut BlockHdr {
+        //((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
+    //}
+//}
 
 #[repr(C)]
 struct UsedBlockHdr {
@@ -65,55 +65,58 @@ struct FreeBlockHdr {
 }
 
 
-impl UsedBlockPad {
-    #[inline]
-    fn get_for_allocation(ptr: *mut u8) -> *mut Self {
-        ptr.cast::<Self>().as_ptr().wrapping_sub(1)
-    }
-}
+//impl UsedBlockPad {
+    //#[inline]
+    //fn get_for_allocation(ptr: *mut u8) -> *mut Self {
+        //ptr.cast::<Self>().wrapping_sub(1)
+    //}
+//}
 
-const FLLEN: usize = 8;
-const SLLEN: usize = 8;
-impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
+impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN, u64> {
+    //const SLI: u32 = SLLEN.trailing_zeros();
+    const fn sli() -> u32 { u64_trailing_zeros(SLLEN as u64) }
     spec fn wf() -> bool {
-
+        true
     }
 
-    pub const fn new() {
+    pub const fn new() -> Self {
         Self {
             fl_bitmap: 0,
-            sl_bitmap: 0,
+            sl_bitmap: [0; FLLEN],
             first_free: [[None; SLLEN]; FLLEN],
             _phantom: PhantomData
         }
     }
 
-    pub fn allocate(&mut self) -> (r: *mut u8) {}
+    //pub fn allocate(&mut self) -> (r: *mut u8) { unimplemented!() }
     pub fn insert_block(x: *mut u8, size: usize, Tracked(pointsto): Tracked<PointsToRaw>)
     {}
-    pub fn map_ceil(size: usize) -> (r: Option<(usize, usize)>)
+
+    pub fn map_ceil(size: u64) -> (r: Option<(usize, usize)>)
         requires Self::valid_block_size(size),
         ensures
             r matches Some(idx) && Self::valid_block_index(idx)
             || r.is_none()
     {
-        debug_assert!(size >= GRANULARITY);
-        debug_assert!(size % GRANULARITY == 0);
-        let mut fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+        //debug_assert!(size >= GRANULARITY);
+        //debug_assert!(size % GRANULARITY == 0);
+        let mut fl = usize::BITS - GRANULARITY_LOG2 - 1 - u64_leading_zeros(size);
 
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching.
-        let mut sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+        // negative case can occur when SLLEN > core::mem::size_of::<usize>() * 4
+        // (on 64bit platform SLLEN > 32, FIXME: is this unusual case?)
+        let mut sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        debug_assert!(((sl >> Self::SLI) & 1) == 1);
+        //debug_assert!(((sl >> Self::sli()) & 1) == 1);
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
-        sl = (sl & (SLLEN - 1)) + (sl >= (1 << (Self::SLI + 1))) as usize;
+        sl = (sl & (SLLEN as u64 - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
 
         // if sl[SLI] { fl += 1; sl = 0; }
-        fl += (sl >> Self::SLI) as u32;
+        fl += (sl >> Self::sli()) as u32;
 
         // `fl` must be in a valid range
         if fl as usize >= FLLEN {
@@ -123,11 +126,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         Some((fl as usize, sl & (SLLEN - 1)))
     }
 
-    spec fn valid_block_size(size: usize) -> bool {
+    pub closed spec fn valid_block_size(size: usize) -> bool {
         GRANULARITY <= size && size < (1 << FLLEN+GRANULARITY_LOG2)
     }
 
-    spec fn valid_block_index(idx: (usize, usize)) -> bool {
+    pub closed spec fn valid_block_index(idx: (usize, usize)) -> bool {
         let (fl, sl) = idx;
         &&& 0 <= fl < FLLEN
         &&& 0 <= sl < SLLEN
@@ -135,7 +138,26 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     spec fn bitmap_wf(&self) -> bool {
         // `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
         forall|fl: usize, sl: usize|  Self::valid_block_index((fl,sl)) ==>
-            self.sl_bitmap[fl].get_bit(sl) <==> self.first_free[fl][sl].is_some()
+            get_bit(self.sl_bitmap[fl as int], sl)
+                <==> self.first_free[fl as int][sl as int].is_some()
     }
 }
+
+fn get_bit(x: u64, nth: usize) -> bool
+    requires
+        nth < usize::BITS
+{
+    x & (1 << nth) == 1
 }
+
+#[inline]
+#[verifier::external_body]
+fn bool_to_usize(b: bool) -> (r: usize)
+    ensures
+        b ==> r == 1,
+        !b ==> r == 0
+{
+    b as usize
+}
+}
+

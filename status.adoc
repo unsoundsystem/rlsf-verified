@@ -316,3 +316,7 @@ note: diagnostics via expansion:
 
 * Verusによるrlsfの検証を開始
     ** インデックス計算に関する定義を追加(wip)
+* Q: usizeに対するビット操作が一部用意されていない(leading_zeros/trailing_zeros)workaround
+    ** u64/u32などにはu64_leading_zerosとしてある
+    ** workaround: external_bodyの関数として事前事後条件でプラットフォーム毎に対応する
+        `*_leading_zeros` などと同等の結果が得られることを言う
