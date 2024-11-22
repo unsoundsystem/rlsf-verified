@@ -55,6 +55,7 @@ struct_with_invariants!{
         pub instance: Tracked<CountOne::Instance>,
     }
 
+    #[verifier::type_invariant]
     spec fn wf(&self) -> bool {
         invariant on count with (instance) is (v: u32, g: CountOne::count) {
             g@.instance == instance@
@@ -73,7 +74,6 @@ fn main() {
         ghost cnt => {
             assert(cnt@.instance === c.instance@);
             c.instance.borrow().increment_will_not_overflow_u32(&cnt);
-            //assert(cnt@.value == 0);
             c.instance.borrow().inc_one(&mut cnt)
         }
     );

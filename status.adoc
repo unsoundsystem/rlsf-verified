@@ -311,3 +311,8 @@ note: diagnostics via expansion:
 == 2024/11/21
 
 * Verusのraw pointerサポートについて書いた
+
+== 2024/11/22
+
+* Verusによるrlsfの検証を開始
+    ** インデックス計算に関する定義を追加(wip)

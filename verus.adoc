@@ -530,10 +530,10 @@ impl Allocator {
 mmapによって設定したメモリアクセスの権限に関する部分も形式化しているため、より複雑になっている。
 (<<verus_mimalloc>>, `verified-memory-allocator/verus-mimalloc/os_mem.rs`)
 
-* メモリアロケータはOSなどに割り当てられたメモリプールからメモリを分割していく
-* このメモリプールの正当性は最初に認める必要がある(`verifier::external_body`)
-* またこのメモリプールの正当性から分割された各メモリ領域の正当性を演繹できる仕組みが必要(`PointsToRaw`)
-*  cf. `verified-memory-allocator/verus-mimalloc/os_mem.rs`
+// * メモリアロケータはOSなどに割り当てられたメモリプールからメモリを分割していく
+// * このメモリプールの正当性は最初に認める必要がある(`verifier::external_body`)
+// * またこのメモリプールの正当性から分割された各メモリ領域の正当性を演繹できる仕組みが必要(`PointsToRaw`)
+// *  cf. `verified-memory-allocator/verus-mimalloc/os_mem.rs`
 * Verusではアロケータからしか `PPtr` を作れないためアロケータのメモリプールをブートストラップ出来ないが、
   先行研究では配列から作れるようなworkaroundがされている(cf. atmosphere kernel)
 
