@@ -3,22 +3,47 @@ use vstd::prelude::*;
 verus! {
 use vstd::raw_ptr::PointsToRaw;
 use std::marker::PhantomData;
-use vstd::std_specs::bits::{u64_trailing_zeros, u64_leading_zeros};
-pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize, Bitmap> {
-    fl_bitmap: Bitmap,
+use vstd::std_specs::bits::{u64_trailing_zeros, u64_leading_zeros, u32_leading_zeros, u32_trailing_zeros,
+    ex_u64_leading_zeros, ex_u64_trailing_zeros, ex_u32_leading_zeros, ex_u32_trailing_zeros};
+use vstd::{seq::*, seq_lib::*};
+use vstd::arithmetic::logarithm::log;
+
+
+// for codes being executed
+macro_rules! get_bit {
+    ($a:expr, $b:expr) => {{
+        (0x1usize & ($a >> $b)) == 1
+    }};
+}
+
+// for spec/proof codes
+macro_rules! nth_bit {
+    ($($a:tt)*) => {
+        verus_proof_macro_exprs!(get_bit!($($a)*))
+    }
+}
+
+pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
+    fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
-    sl_bitmap: [Bitmap; FLLEN],
+    sl_bitmap: [usize; FLLEN],
     first_free: [[Option<*mut FreeBlockHdr>; SLLEN]; FLLEN],
     _phantom: PhantomData<&'pool ()>,
 }
 
-pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
+//pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
 
-const GRANULARITY_LOG2: u32 = u64_trailing_zeros(GRANULARITY as u64);
+#[cfg(target_pointer_width = "64")]
+global size_of usize == 8;
 
-const SIZE_USED: usize = 1;
-const SIZE_SENTINEL: usize = 2;
-const SIZE_SIZE_MASK: usize = !((1 << GRANULARITY_LOG2) - 1);
+#[cfg(target_pointer_width = "64")]
+pub const GRANULARITY: usize = 8 * 4;
+
+//pub const GRANULARITY_LOG2: u32 = ex_usize_trailing_zeros(GRANULARITY);
+
+//const SIZE_USED: usize = 1;
+//const SIZE_SENTINEL: usize = 2;
+//const SIZE_SIZE_MASK: usize = !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1);
 
 struct BlockHdr {
     /// The size of the whole memory block, including the header.
@@ -72,9 +97,22 @@ struct FreeBlockHdr {
     //}
 //}
 
-impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN, u64> {
+impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
+    // workaround: verus doesn't support constants definitions in impl.
     //const SLI: u32 = SLLEN.trailing_zeros();
-    const fn sli() -> u32 { u64_trailing_zeros(SLLEN as u64) }
+    const fn sli() -> u32
+    { ex_usize_trailing_zeros(SLLEN) }
+
+    const fn granularity_log2() -> (r: u32)
+        ensures r == usize_trailing_zeros(GRANULARITY)
+    {
+        ex_usize_trailing_zeros(GRANULARITY)
+    }
+
+    spec fn granularity_log2_spec() -> int {
+        usize_trailing_zeros(GRANULARITY)
+    }
+
     spec fn wf() -> bool {
         true
     }
@@ -92,28 +130,31 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN, u6
     pub fn insert_block(x: *mut u8, size: usize, Tracked(pointsto): Tracked<PointsToRaw>)
     {}
 
-    pub fn map_ceil(size: u64) -> (r: Option<(usize, usize)>)
+    pub fn map_ceil(size: usize) -> (r: Option<(usize, usize)>)
         requires Self::valid_block_size(size),
         ensures
             r matches Some(idx) && Self::valid_block_index(idx)
             || r.is_none()
     {
-        //debug_assert!(size >= GRANULARITY);
-        //debug_assert!(size % GRANULARITY == 0);
-        let mut fl = usize::BITS - GRANULARITY_LOG2 - 1 - u64_leading_zeros(size);
+        assert(size >= GRANULARITY);
+        //assert(size % GRANULARITY == 0);
+        assert(usize::BITS == 64);
+        assert(GRANULARITY < usize::BITS);
+        let mut fl = usize::BITS - Self::granularity_log2() - 1 - ex_usize_leading_zeros(size);
+        assert(fl == log(2, size as int) - log(2, GRANULARITY as int)); // TODO
 
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching.
         // negative case can occur when SLLEN > core::mem::size_of::<usize>() * 4
         // (on 64bit platform SLLEN > 32, FIXME: is this unusual case?)
-        let mut sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::sli()));
+        let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
         //debug_assert!(((sl >> Self::sli()) & 1) == 1);
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
-        sl = (sl & (SLLEN as u64 - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
+        sl = (sl & (SLLEN - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
 
         // if sl[SLI] { fl += 1; sl = 0; }
         fl += (sl >> Self::sli()) as u32;
@@ -127,7 +168,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN, u6
     }
 
     pub closed spec fn valid_block_size(size: usize) -> bool {
-        GRANULARITY <= size && size < (1 << FLLEN+GRANULARITY_LOG2)
+        GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
     }
 
     pub closed spec fn valid_block_index(idx: (usize, usize)) -> bool {
@@ -138,16 +179,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN, u6
     spec fn bitmap_wf(&self) -> bool {
         // `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
         forall|fl: usize, sl: usize|  Self::valid_block_index((fl,sl)) ==>
-            get_bit(self.sl_bitmap[fl as int], sl)
+            nth_bit!(self.sl_bitmap[fl as int], sl)
                 <==> self.first_free[fl as int][sl as int].is_some()
     }
-}
-
-fn get_bit(x: u64, nth: usize) -> bool
-    requires
-        nth < usize::BITS
-{
-    x & (1 << nth) == 1
 }
 
 #[inline]
@@ -159,5 +193,119 @@ fn bool_to_usize(b: bool) -> (r: usize)
 {
     b as usize
 }
+
+// NOTE: vstd's interface returns u32 for u(64|32)_(leading|trailing)_zeros,
+//       except for u64_leading_zeros (this returns int).
+//       Thus, aligned the return type at int for spec functions here.
+
+#[cfg(target_pointer_width = "32")]
+pub open spec fn usize_leading_zeros(x: usize) -> int
+{
+    u32_leading_zeros(x as u32) as int
+}
+
+#[cfg(target_pointer_width = "64")]
+pub open spec fn usize_leading_zeros(x: usize) -> int
+{
+    u64_leading_zeros(x as u64)
+}
+
+
+#[cfg(target_pointer_width = "32")]
+pub open spec fn usize_trailing_zeros(x: usize) -> int
+{
+    u32_trailing_zeros(x as u32) as int
+}
+
+#[cfg(target_pointer_width = "64")]
+pub open spec fn usize_trailing_zeros(x: usize) -> int
+{
+    u64_trailing_zeros(x as u64) as int
+}
+
+
+#[cfg(target_pointer_width = "32")]
+pub const fn ex_usize_leading_zeros(x: usize) -> (r: u32)
+    ensures
+        0 <= r <= usize::BITS,
+        r == u32_leading_zeros(x as u32)
+{
+    ex_u32_leading_zeros(x as u32)
+}
+
+#[cfg(target_pointer_width = "64")]
+pub const fn ex_usize_leading_zeros(x: usize) -> (r: u32)
+    ensures
+        0 <= r <= usize::BITS,
+        r == u64_leading_zeros(x as u64)
+{
+    //ex_u64_leading_zeros(x as u64)
+    (x as u64).leading_zeros()
+}
+
+
+#[cfg(target_pointer_width = "32")]
+pub const fn ex_usize_trailing_zeros(x: usize) -> (r: u32)
+    ensures
+        0 <= r <= usize::BITS,
+        r == u32_trailing_zeros(x as u32)
+{
+    //ex_u32_trailing_zeros(x as u32)
+    (x as u32).trailing_zeros()
+}
+
+#[cfg(target_pointer_width = "64")]
+pub const fn ex_usize_trailing_zeros(x: usize) -> (r: u32)
+    ensures
+        0 <= r <= usize::BITS,
+        r == u64_trailing_zeros(x as u64)
+{
+    //ex_u64_trailing_zeros(x as u64)
+    (x as u64).trailing_zeros()
+}
+use core::cmp::Ordering;
+use builtin::*;
+use vstd::math::abs;
+/// TODO: External specification for usize::rotate_right
+pub open spec fn is_usize_rotate_right(x: usize, r: usize, n: int) -> bool {
+    let sa: nat = abs(n) as nat % usize::BITS as nat;
+    let sa_ctr: nat = abs(usize::BITS - sa);
+    // TODO: justification
+    &&& (n == 0) ==> (r == x)
+    &&& (n > 0) ==> r == ((x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr)))
+    &&& (n < 0) ==> r == ((x & low_mask(sa_ctr)) << sa | ((x & high_mask(sa_ctr)) >> (sa_ctr)))
+}
+use vstd::bits::low_bits_mask;
+// masks n or higher bits
+pub open spec fn high_mask(n: nat) -> usize {
+    !(low_bits_mask(n) as usize)
+}
+
+pub open spec fn low_mask(n: nat) -> usize {
+    low_bits_mask(n) as usize
+}
+
+#[verifier::external_fn_specification]
+pub fn usize_rotate_right(x: usize, n: u32) -> (r: usize)
+    ensures is_usize_rotate_right(x, r, n as int)
+{ x.rotate_right(n) }
+
+//pub open spec fn usize_view(x: usize) -> Seq<bool> {
+    //Seq::new(8*vstd::layout::size_of::<usize>(), |i: int| nth_bit!(x, i as usize))
+//}
+
+//pub open spec fn seq_rotate_right_pos(x: int, bs: Seq<bool>) -> Seq<bool>
+    //recommends x > 0
+//{
+    //let rot = x % bs.len();
+    //bs.drop_first(rot).add(bs.subrange(bs.len() - rot, bs.len()))
+//}
+
+//pub open spec fn seq_rotate_right_neg(x: int, bs: Seq<bool>) -> Seq<bool>
+    //recommends x > 0
+//{
+    //let rot = x % bs.len();
+    //bs.subrange(bs.len() - rot, bs.len()).add(bs.drop(rot))
+//}
 }
 

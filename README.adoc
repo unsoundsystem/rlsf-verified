@@ -6,43 +6,53 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == 現状の方針
 
-* RefinedRustの適用を試みる
-    ** 非技術的な動機
-        *** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
-        *** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
+* [DOING] option 1: Verusによる検証を検討中
+* option 2: Cのコードベースを検証する
+    ** VSTによる検証
+    ** Rustコードベースから使うことを想定しており、
+       FFIを通じたバグの混入を避けるためRustコードベースの検証を先に検討したい
+* [.line-through] #RefinedRustの適用を試みる# 利用したいRustの言語仕様の多くに未対応なため断念
+* 非技術的な動機
+    ** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
+    ** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
 
 
 image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 
 == TODO
 
-* Verusのmimalloc検証に関する調査記事
-* RefinedRustの記法に関するインフォーマルな説明を xref:./refinedrust.adoc[追加する]
-* const generics/lifetime parameterが使えない問題のworkaround
-* raw pointerを使ったプログラムの検証方法の実験
-    ** raw pointer dereferenceの事前条件
-        *** struct fieldの更新をするのに十分な
-        *** `&mut` の存在なしに事前条件としてraw pointerの読み出しが安全であることを述べたい(RefinedRustでこれを実現する方法が非自明)
-    ** linked list
-* 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
-* 抽象仕様周り
-    ** 割当済みブロックを表すトークンの表現
-        *** `freeable` の作り方に関する調査
-    ** インデックス計算の形式化
-        *** `block_size_range_not_overwrap` の証明
-* ビット操作周り
-    ** 各ビット幅を取るモジュールで証明を整理する
-    ** count leading/trailing zerosの形式仕様
-        *** trailing zerosの定義
-        *** `Z.log2` との対応( `count_leading_zeros_usize_spec` )
-    ** rotating shift
-        *** `Zrotate_right_usize_spec` の証明
+* Verusで `Tlsf::allocate` を検証する
+    ** インデックス計算
+        *** `map_ceil` の検証
+        *** rotate_rightの形式仕様をbitvectorで解ける形で与える
+        *** `model.v` を参考にインデックス計算に関する性質を書いていく
+// * Verusのmimalloc検証に関する調査記事
+// * RefinedRustの記法に関するインフォーマルな説明を xref:./refinedrust.adoc[追加する]
+// * const generics/lifetime parameterが使えない問題のworkaround
+// * raw pointerを使ったプログラムの検証方法の実験
+//     ** raw pointer dereferenceの事前条件
+//         *** struct fieldの更新をするのに十分な
+//         *** `&mut` の存在なしに事前条件としてraw pointerの読み出しが安全であることを述べたい(RefinedRustでこれを実現する方法が非自明)
+//     ** linked list
+// * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
+// * 抽象仕様周り
+//     ** 割当済みブロックを表すトークンの表現
+//         *** `freeable` の作り方に関する調査
+//     ** インデックス計算の形式化
+//         *** `block_size_range_not_overwrap` の証明
+// * ビット操作周り
+//     ** 各ビット幅を取るモジュールで証明を整理する
+//     ** count leading/trailing zerosの形式仕様
+//         *** trailing zerosの定義
+//         *** `Z.log2` との対応( `count_leading_zeros_usize_spec` )
+//     ** rotating shift
+//      *** `Zrotate_right_usize_spec` の証明
 * 検証の対象とする性質の検討
     ** Rustのアロケータとして要求される仕様について検討する
     ** メモリプールの扱い(固定長/動的に拡張可能？)
 * `Tlsf::allocate` / `Tlsf::deallocate` に絞って正当性を考えて・スペックを書き始める
 * `crates/rlsf/src/tlsf.rs` を現在のフロントエンドで扱える範囲に、書き換える
-* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
+//* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
 
 == references
 

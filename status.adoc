@@ -320,3 +320,22 @@ note: diagnostics via expansion:
     ** u64/u32などにはu64_leading_zerosとしてある
     ** workaround: external_bodyの関数として事前事後条件でプラットフォーム毎に対応する
         `*_leading_zeros` などと同等の結果が得られることを言う
+
+== 2024/11/25
+
+* Q: const定数の定義でconst fnが呼び出せない→仕様
+    ** A: 定数の代わりにconst fnを利用
+[source,rust]
+----
+test_verify_one_file! {
+    #[test] test1_fails5 verus_code! {
+        const fn f() -> u64 { 1 }
+        const S: u64 = 1 + f();
+    } => Err(err) => assert_vir_error_msg(err, "cannot call function `crate::f` with mode exec")
+}
+----
+
+* Verusのビット演算に関する調査・インデックス計算の検証つづき
+    ** rotate_rightの形式仕様
+    ** usizeのビット演算が未サポートな問題のworkaround
+
