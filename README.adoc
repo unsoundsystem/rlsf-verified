@@ -17,11 +17,12 @@ ifdef::env-name[:relfilesuffix: .adoc]
     ** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
 
 
-image::verif-arch.drawio.svg[Embedded,800,opts=inline]
+//image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 
 == TODO
 
 * Verusで `Tlsf::allocate` を検証する
+    ** 対象とするユースケースやTCB,証明のためのproof constractなどの設計をまとめたdesign docを作る
     ** specを具体例でテストする
     ** インデックス計算
         *** `map_ceil` の検証

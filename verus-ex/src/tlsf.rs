@@ -101,9 +101,14 @@ struct FreeBlockHdr {
 struct GhostTlsf {
     // Things we have to track
     // * all `PointsTo`s related to registered blocks
-    // * things needed to track the list views (singly linked list by prev_phys_block chain,
-    //   doubly linked list by FreeBlockHdr fields)  
-    // 
+    // * things needed to track the list views 
+    //     * singly linked list by prev_phys_block chain 
+    //      NOTE: This contains allocated blocks
+    //     * doubly linked list by FreeBlockHdr fields
+    ghost_free_list: Seq<Seq<PointsTo<FreeBlockHdr>>,
+
+    // List of all BlockHdrs ordered by their addresses.
+    all_block_headers: Seq<PointsTo<BlockHdr>>,
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -213,10 +218,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // subtile properties like dereferencing the length field of slice pointer doesn't dereference the
     // entire slice pointer (thus safe). This assumption used in `nonnull_slice_len` in rlsf.
     //
-    // TODO Because of this we going to wrapping the address based interface with slice pointer based one
-    //      with external function specifications
+    // TODO: As an option we can wrap the address based interface with slice pointer based one
+    //       `insert_free_block_ptr` out of Verus world and wrap/axiomize it with external_body annotation. 
+    //       (the postcondition would meet the precondition of `insert_free_block_ptr_aligned`)
 
 
+    // TODO: update ghost_free_list/all_block_headers in insert_free_block_ptr_aligned()
     #[verifier::external_body] // for spec debug
     unsafe fn insert_free_block_ptr_aligned(
         &mut self,
@@ -289,9 +296,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //    Allocation & Deallocation interface
     //-------------------------------------------
 
-    struct DeallocToken {}
-    pub fn allocate(&mut self, layout: Layout) -> (r: *mut u8, points_to: Tracked<PointsToRaw>, Tracked<DeallocToken>)
-    { unimplemented!() }
+    //struct DeallocToken {}
+    //pub fn allocate(&mut self, layout: Layout) -> (r: *mut u8, points_to: Tracked<PointsToRaw>, Tracked<DeallocToken>)
+    //{ unimplemented!() }
+    // TODO: update ghost_free_list in allocate()
+
+    //pub fn deallocate(&mut self, ptr: *mut u8, layout: Layout, Tracked(token): Tracked<DeallocToken>)
+    //requires tlsf.wf(), token.wf()
+    //ensures tlsf.wf()
+    //{ unimplemented!() }
+    // TODO: update ghost_free_list/all_block_headers in deallocate()
 
 }
 
