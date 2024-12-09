@@ -11,7 +11,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
     ** VSTによる検証
     ** Rustコードベースから使うことを想定しており、
        FFIを通じたバグの混入を避けるためRustコードベースの検証を先に検討したい
-* [.line-through] #RefinedRustの適用を試みる# 利用したいRustの言語仕様の多くに未対応なため断念
+* [.line-through]#RefinedRustの適用を試みる# 利用したいRustの言語仕様の多くに未対応なため断念
 * 非技術的な動機
     ** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
     ** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
@@ -22,10 +22,15 @@ image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 == TODO
 
 * Verusで `Tlsf::allocate` を検証する
+    ** specを具体例でテストする
     ** インデックス計算
         *** `map_ceil` の検証
         *** rotate_rightの形式仕様をbitvectorで解ける形で与える
         *** `model.v` を参考にインデックス計算に関する性質を書いていく
+    ** メモリ領域の正当性の公理化・伝播
+        *** Tlsf構造体内の情報に関する証明内追跡用の構造体の設計(各 `(.*)Block` によるリンクリストの情報など)
+        *** Deallocation tokenの設計
+            **** mimallocの検証コードベース内の `MimDealloc` の調査
 // * Verusのmimalloc検証に関する調査記事
 // * RefinedRustの記法に関するインフォーマルな説明を xref:./refinedrust.adoc[追加する]
 // * const generics/lifetime parameterが使えない問題のworkaround
