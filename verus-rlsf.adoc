@@ -1,0 +1,6 @@
+= Verusによるrlsfの検証
+
+* 最低限、連続した領域の追加→(割り当て→解放→...)* といったユースケースはカバーする
+* allocate/deallocateの正当性証明を目指す
+* 主に対象となる関数
+    ** insert_free_block_ptr, allocate, deallocate, deallocate_block, map_ceil, map_floor, link_free_block, unlink_free_block

@@ -344,3 +344,9 @@ test_verify_one_file! {
 * RQ: 対象のユースケースと直接関係しないが、
     複数の連続しないメモリ領域をTLSFに追加して適切に処理されるかという問題も証明の対象として良さそう
 * 証明用の状態に関する情報(`verus-ex/tlsf.rs` GhostTlsf) の定義とメモリ領域の正当性の伝播の流れを設計
+
+== 2024/12/10
+
+* alloc/deallocの仕様を追加
+* verusdocの導入を試みたが、こちらの問題に出会った https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/Verusdoc
+  内部的な利用以外の使用例も無いため、素のrustdocで一時的に代替(Verus特有の機能が消えた状態のものがドキュメント化される)

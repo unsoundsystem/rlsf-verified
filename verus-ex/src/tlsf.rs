@@ -7,7 +7,9 @@ use vstd::std_specs::bits::{u64_trailing_zeros, u64_leading_zeros, u32_leading_z
     ex_u64_leading_zeros, ex_u64_trailing_zeros, ex_u32_leading_zeros, ex_u32_trailing_zeros};
 use vstd::{seq::*, seq_lib::*};
 use vstd::arithmetic::logarithm::log;
-
+use vstd::raw_ptr::PointsTo;
+use core::alloc::Layout;
+use core::mem;
 
 // for codes being executed
 macro_rules! get_bit {
@@ -41,9 +43,9 @@ pub const GRANULARITY: usize = 8 * 4;
 
 //pub const GRANULARITY_LOG2: u32 = ex_usize_trailing_zeros(GRANULARITY);
 
-//const SIZE_USED: usize = 1;
-//const SIZE_SENTINEL: usize = 2;
-//const SIZE_SIZE_MASK: usize = !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1);
+const SIZE_USED: usize = 1;
+const SIZE_SENTINEL: usize = 2;
+const SIZE_SIZE_MASK: usize = !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1);
 
 struct BlockHdr {
     /// The size of the whole memory block, including the header.
@@ -105,10 +107,10 @@ struct GhostTlsf {
     //     * singly linked list by prev_phys_block chain 
     //      NOTE: This contains allocated blocks
     //     * doubly linked list by FreeBlockHdr fields
-    ghost_free_list: Seq<Seq<PointsTo<FreeBlockHdr>>,
+    tracked ghost_free_list: Seq<Seq<PointsTo<FreeBlockHdr>>>,
 
     // List of all BlockHdrs ordered by their addresses.
-    all_block_headers: Seq<PointsTo<BlockHdr>>,
+    tracked all_block_headers: Seq<PointsTo<BlockHdr>>,
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -131,7 +133,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // * freelist well-formedness
     //   * blocks connected to freelist ordered by start address
     // * bitmap is consistent with the freelist
-    spec fn wf() -> bool {
+    pub closed spec fn wf(&self) -> bool {
         true
     }
 
@@ -150,6 +152,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
 
+    /// TODO: state and proof more detailed property about index calculation and relate with
+    /// `map_ceil` / `map_floor`
     pub fn map_ceil(size: usize) -> (r: Option<(usize, usize)>)
         requires Self::valid_block_size(size),
         ensures
@@ -187,6 +191,30 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         Some((fl as usize, sl & (SLLEN - 1)))
     }
 
+
+    #[inline]
+    fn map_floor(size: usize) -> Option<(usize, usize)> {
+        assert(size >= GRANULARITY);
+        assert(size % GRANULARITY == 0);
+        let mut fl = usize::BITS - Self::granularity_log2() - 1 - ex_usize_leading_zeros(size);
+
+        // The shift amount can be negative, and rotation lets us handle both
+        // cases without branching. Underflowed digits can be simply masked out
+        // in `map_floor`.
+        let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
+
+        // The most significant one of `size` should be now at `sl[SLI]`
+        assert(((sl >> Self::sli()) & 1) == 1);
+
+        // `fl` must be in a valid range
+        if fl as usize >= FLLEN {
+            return None;
+        }
+
+        Some((fl as usize, sl & (SLLEN - 1)))
+    }
+
+
     pub closed spec fn valid_block_size(size: usize) -> bool {
         GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
     }
@@ -214,17 +242,26 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //      ∃ (buf_size: nat) (buf_start: addr) (pointsto: PointsToRaw),
     //           pointsto.is_range(buf_start, buf_size)
     //
-    // `insert_free_block_ptr` provides NonNull<[u8]> based interface, but Verus doesn't handle
-    // subtile properties like dereferencing the length field of slice pointer doesn't dereference the
-    // entire slice pointer (thus safe). This assumption used in `nonnull_slice_len` in rlsf.
     //
-    // TODO: As an option we can wrap the address based interface with slice pointer based one
-    //       `insert_free_block_ptr` out of Verus world and wrap/axiomize it with external_body annotation. 
-    //       (the postcondition would meet the precondition of `insert_free_block_ptr_aligned`)
 
+    const fn max_pool_size() -> Option<usize> {
+        let shift = Self::granularity_log2() + FLLEN as u32;
+        if shift < usize::BITS {
+            Some(1 << shift)
+        } else {
+            None
+        }
+    }
 
+    /// `insert_free_block_ptr` provides NonNull<[u8]> based interface, but Verus doesn't handle
+    /// subtile properties like dereferencing the length field of slice pointer doesn't dereference the
+    /// entire slice pointer (thus safe). This assumption used in `nonnull_slice_len` in rlsf.
+    ///
+    /// TODO: As an option we can wrap the address based interface with slice pointer based one
+    ///       `insert_free_block_ptr` out of Verus world and wrap/axiomize it with external_body annotation. 
+    ///       (the postcondition would meet the precondition of `insert_free_block_ptr_aligned`)
     // TODO: update ghost_free_list/all_block_headers in insert_free_block_ptr_aligned()
-    #[verifier::external_body] // for spec debug
+    //#[verifier::external_body] // for spec debug
     unsafe fn insert_free_block_ptr_aligned(
         &mut self,
         start: *mut u8,
@@ -235,7 +272,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // Given memory must have continuous range as specified by start/size.
         points_to.is_range(start as usize as int, size as int),
         // Given pointer must be aligned
-        start as usize as int % GRANULARITY == 0,
+        start as usize as int % GRANULARITY as int == 0,
         // Tlsf is well-formed
         // TODO: Is it reasonable to assume the free list is empty as a precondition?
         //       As I read the use case, there wasn't code adding new region twice.
@@ -243,70 +280,130 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
     {
-        unimplemented!()
-        //let mut size_remains = size;
-        //let mut cursor = start;
+        let mut size_remains = size;
+        let mut cursor = start as usize;
 
-        //while size >= GRANULARITY * 2 {
-            //let chunk_size = if let Some(max_pool_size) = Self::MAX_POOL_SIZE {
-                //size_remains.min(max_pool_size)
-            //} else {
-                //size_remains
-            //};
 
-            //debug_assert_eq!(chunk_size % GRANULARITY, 0);
+        while size >= GRANULARITY * 2 {
+            let chunk_size = if let Some(max_pool_size) = Self::max_pool_size() {
+                size_remains.min(max_pool_size)
+            } else {
+                size_remains
+            };
 
-            //// The new free block
-            //// Safety: `cursor` is not zero.
-            //let mut block = cursor as *mut FreeBlockHdr;
+            assert(chunk_size % GRANULARITY == 0);
 
-            //// Initialize the new free block
-            //block.as_mut().common = BlockHdr {
-                //size: chunk_size - GRANULARITY,
-                //prev_phys_block: None,
-            //};
+            // The new free block
+            // Safety: `cursor` is not zero.
+            let mut block = cursor as *mut FreeBlockHdr;
 
-            //// Cap the end with a sentinel block (a permanently-used block)
-            //let mut sentinel_block = block
-                //.as_ref()
-                //.common
-                //.next_phys_block()
-                //.cast::<UsedBlockHdr>();
+            // Initialize the new free block
+            block.as_mut().common = BlockHdr {
+                size: chunk_size - GRANULARITY,
+                prev_phys_block: None,
+            };
 
-            //sentinel_block.as_mut().common = BlockHdr {
-                //size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
-                //prev_phys_block: Some(block.cast()),
-            //};
+            // Cap the end with a sentinel block (a permanently-used block)
+            let mut sentinel_block = block
+                .as_ref()
+                .common
+                .next_phys_block()
+                .cast::<UsedBlockHdr>();
 
-            //// Link the free block to the corresponding free list
-            //self.link_free_block(block, chunk_size - GRANULARITY);
+            sentinel_block.as_mut().common = BlockHdr {
+                size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
+                prev_phys_block: Some(block.cast()),
+            };
 
-            //// `cursor` can reach `usize::MAX + 1`, but in such a case, this
-            //// iteration must be the last one
-            //debug_assert!(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
-            //size_remains -= chunk_size;
-            //cursor = cursor.wrapping_add(chunk_size);
-        //}
+            // Link the free block to the corresponding free list
+            self.link_free_block(block, chunk_size - GRANULARITY);
 
-        //cursor.wrapping_sub(start)
+            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
+            // iteration must be the last one
+            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
+            size_remains -= chunk_size;
+            cursor = cursor.wrapping_add(chunk_size);
+        }
+
+        cursor.wrapping_sub(start)
     }
+
+
+    // TODO
+    #[verifier::external_body] // for spec debug
+    unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize) {
+        let (fl, sl) = Self::map_floor(size).unwrap_or_else(|| {
+            debug_assert!(false, "could not map size {}", size);
+            // Safety: It's unreachable
+            unreachable_unchecked()
+        });
+        let first_free = &mut self.first_free[fl][sl];
+        let next_free = mem::replace(first_free, Some(block));
+        block.as_mut().next_free = next_free;
+        block.as_mut().prev_free = None;
+        if let Some(mut next_free) = next_free {
+            next_free.as_mut().prev_free = Some(block);
+        }
+
+        self.fl_bitmap.set_bit(fl as u32);
+        self.sl_bitmap[fl].set_bit(sl as u32);
+    }
+
 
 
     //-------------------------------------------
     //    Allocation & Deallocation interface
     //-------------------------------------------
 
-    //struct DeallocToken {}
-    //pub fn allocate(&mut self, layout: Layout) -> (r: *mut u8, points_to: Tracked<PointsToRaw>, Tracked<DeallocToken>)
-    //{ unimplemented!() }
+    #[verifier::external_body] // for spec debug
+    pub fn allocate(&mut self, size: usize, align: usize /* layout: Layout */) ->
+        (r: (Option<*mut u8>, Tracked<PointsToRaw>, Tracked<Option<DeallocToken>>))
+        requires
+            /* TODO */
+            old(self).wf()
+        ensures
+            ({  let (m, points_to, token) = r;
+                m matches Some(mem) ==>
+                    !points_to@.dom().is_empty() &&
+                    (token@ matches Some(tok) && tok.wf()) &&
+                    points_to@.dom().len() >= size /* &&
+                    // TODO: spec without existential
+                    (exists|nbytes: int| points_to@.is_range(mem as usize as int, nbytes) && nbytes >= size) &&
+                    points_to.provenance() == old(self).ghost_free_list@[i][j].provenance */
+                    /* TODO
+                     * - points_to has size as requested
+                     * - mem's start address is same as points_to
+                     * */ }),
+            ({  let (m, points_to, token) = r;
+                m == None::<*mut u8> ==> points_to@.dom().is_empty() && token@ == None::<DeallocToken> }),
+            self.wf()
+    { unimplemented!() }
     // TODO: update ghost_free_list in allocate()
 
-    //pub fn deallocate(&mut self, ptr: *mut u8, layout: Layout, Tracked(token): Tracked<DeallocToken>)
-    //requires tlsf.wf(), token.wf()
-    //ensures tlsf.wf()
-    //{ unimplemented!() }
+    #[verifier::external_body] // for spec debug
+    pub fn deallocate(&mut self, ptr: *mut u8, align: usize, Tracked(token): Tracked<DeallocToken>)
+    requires old(self).wf(), token.wf()
+    ensures self.wf()
+    { unimplemented!() }
+
     // TODO: update ghost_free_list/all_block_headers in deallocate()
 
+}
+
+struct DeallocToken {
+    header: PointsTo<UsedBlockHdr>
+}
+
+impl DeallocToken {
+    /// Validity of blocks being deallocated
+    /// allocated region and headers,
+    /// - Must have same provenance with PointsToRaw that we got when called insert_free_block_ptr*
+    /// - Must have same size/flags as allocated (NOTE: header integrity is assumed)
+    ///
+    /// TODO: formalize assumptions on the header of blocks being deallocated
+    pub closed spec fn wf(&self) -> bool {
+        true
+    }
 }
 
 #[inline]
