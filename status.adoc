@@ -350,3 +350,8 @@ test_verify_one_file! {
 * alloc/deallocの仕様を追加
 * verusdocの導入を試みたが、こちらの問題に出会った https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/Verusdoc
   内部的な利用以外の使用例も無いため、素のrustdocで一時的に代替(Verus特有の機能が消えた状態のものがドキュメント化される)
+
+== 2024/12/12
+
+* 標準ライブラリの整数に関する補題を調査した
+    ** ref. `calc!`, `lemma_low_bits_mask_unfold`

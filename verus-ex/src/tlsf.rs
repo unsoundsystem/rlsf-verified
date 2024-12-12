@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 verus! {
-use vstd::raw_ptr::PointsToRaw;
+use vstd::raw_ptr::{ptr_ref, PointsToRaw};
 use std::marker::PhantomData;
 use vstd::std_specs::bits::{u64_trailing_zeros, u64_leading_zeros, u32_leading_zeros, u32_trailing_zeros,
     ex_u64_leading_zeros, ex_u64_trailing_zeros, ex_u32_leading_zeros, ex_u32_trailing_zeros};
@@ -61,18 +61,19 @@ struct BlockHdr {
     size: usize,
     prev_phys_block: Option<*mut BlockHdr>,
 }
-//impl BlockHdr {
-    ///// Get the next block, assuming it exists.
-    /////
-    ///// # Safety
-    /////
-    ///// `self` must have a next block (it must not be the sentinel block in a
-    ///// pool).
-    //#[inline]
-    //unsafe fn next_phys_block(&self) -> *mut BlockHdr {
-        //((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
-    //}
-//}
+impl BlockHdr {
+    /// Get the next block, assuming it exists.
+    ///
+    /// # Safety
+    ///
+    /// `self` must have a next block (it must not be the sentinel block in a
+    /// pool).
+    /// TODO: must consider the cases that non-continuous chunks are added
+    #[inline]
+    unsafe fn next_phys_block(&self) -> *mut BlockHdr {
+        ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
+    }
+}
 
 #[repr(C)]
 struct UsedBlockHdr {
@@ -266,11 +267,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &mut self,
         start: *mut u8,
         size: usize,
-        Tracked(points_to): Tracked<PointsToRaw>
+        Tracked(points_to_block): Tracked<PointsToRaw>
     ) -> Option<usize>
     requires
         // Given memory must have continuous range as specified by start/size.
-        points_to.is_range(start as usize as int, size as int),
+        points_to_block.is_range(start as usize as int, size as int),
         // Given pointer must be aligned
         start as usize as int % GRANULARITY as int == 0,
         // Tlsf is well-formed
@@ -298,6 +299,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let mut block = cursor as *mut FreeBlockHdr;
 
             // Initialize the new free block
+            //ptr_mut_write(block, Tracked(&mut points_to_block),
+            //FreeBlockHdr {
+                //common: BlockHdr {
+                    //size: chunk_size - GRANULARITY,
+                    //prev_phys_block: None,
+                //},
+
+                //);
             block.as_mut().common = BlockHdr {
                 size: chunk_size - GRANULARITY,
                 prev_phys_block: None,
@@ -316,6 +325,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             };
 
             // Link the free block to the corresponding free list
+            assert(Self::valid_block_size(chunk_size - GRANULARITY));
             self.link_free_block(block, chunk_size - GRANULARITY);
 
             // `cursor` can reach `usize::MAX + 1`, but in such a case, this
@@ -325,28 +335,35 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             cursor = cursor.wrapping_add(chunk_size);
         }
 
-        cursor.wrapping_sub(start)
+        Some(cursor.wrapping_sub(start as usize))
     }
 
+    
 
     // TODO
     #[verifier::external_body] // for spec debug
-    unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize) {
-        let (fl, sl) = Self::map_floor(size).unwrap_or_else(|| {
-            debug_assert!(false, "could not map size {}", size);
-            // Safety: It's unreachable
-            unreachable_unchecked()
-        });
-        let first_free = &mut self.first_free[fl][sl];
-        let next_free = mem::replace(first_free, Some(block));
-        block.as_mut().next_free = next_free;
-        block.as_mut().prev_free = None;
-        if let Some(mut next_free) = next_free {
-            next_free.as_mut().prev_free = Some(block);
+    unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize)
+        requires
+            old(self).wf(),
+            Self::valid_block_size(size),
+        ensures
+            self.wf()
+    {
+        if let Some((fl, sl)) = Self::map_floor(size) {
+            //TODO
+//            let first_free = &mut self.first_free[fl][sl];
+//            let next_free = mem::replace(first_free, Some(block));
+//            block.as_mut().next_free = next_free;
+//            block.as_mut().prev_free = None;
+//            if let Some(mut next_free) = next_free {
+//                next_free.as_mut().prev_free = Some(block);
+//            }
+//
+//            self.fl_bitmap.set_bit(fl as u32);
+//            self.sl_bitmap[fl].set_bit(sl as u32);
+        } else {
+            // TODO: how do we handle this error?
         }
-
-        self.fl_bitmap.set_bit(fl as u32);
-        self.sl_bitmap[fl].set_bit(sl as u32);
     }
 
 
@@ -354,6 +371,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //-------------------------------------------
     //    Allocation & Deallocation interface
     //-------------------------------------------
+
 
     #[verifier::external_body] // for spec debug
     pub fn allocate(&mut self, size: usize, align: usize /* layout: Layout */) ->
@@ -377,7 +395,114 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             ({  let (m, points_to, token) = r;
                 m == None::<*mut u8> ==> points_to@.dom().is_empty() && token@ == None::<DeallocToken> }),
             self.wf()
-    { unimplemented!() }
+    { 
+        unsafe {
+            // The extra bytes consumed by the header and padding.
+            //
+            // After choosing a free block, we need to adjust the payload's location
+            // to meet the alignment requirement. Every block is aligned to
+            // `GRANULARITY` bytes. `size_of::<UsedBlockHdr>` is `GRANULARITY / 2`
+            // bytes, so the address immediately following `UsedBlockHdr` is only
+            // aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
+            // a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
+            let max_overhead =
+                layout.align().saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
+
+            // Search for a suitable free block
+            let search_size = layout.size().checked_add(max_overhead)?;
+            let search_size = search_size.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
+            let (fl, sl) = self.search_suitable_free_block_list_for_allocation(search_size)?;
+
+            // Get a free block: `block`
+            let first_free = self.first_free.get_unchecked_mut(fl).get_unchecked_mut(sl);
+            let block = first_free.unwrap_or_else(|| {
+                debug_assert!(false, "bitmap outdated");
+                // Safety: It's unreachable
+                unreachable_unchecked()
+            });
+            let mut next_phys_block = block.as_ref().common.next_phys_block();
+            let size_and_flags = block.as_ref().common.size;
+            let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
+            debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
+
+            debug_assert!(size >= search_size);
+
+            // Unlink the free block. We are not using `unlink_free_block` because
+            // we already know `(fl, sl)` and that `block.prev_free` is `None`.
+            *first_free = block.as_ref().next_free;
+            if let Some(mut next_free) = *first_free {
+                next_free.as_mut().prev_free = None;
+            } else {
+                // The free list is now empty - update the bitmap
+                let sl_bitmap = self.sl_bitmap.get_unchecked_mut(fl);
+                sl_bitmap.clear_bit(sl as u32);
+                if *sl_bitmap == SLBitmap::ZERO {
+                    self.fl_bitmap.clear_bit(fl as u32);
+                }
+            }
+
+            // Decide the starting address of the payload
+            let unaligned_ptr = block.as_ptr() as *mut u8 as usize + mem::size_of::<UsedBlockHdr>();
+            let ptr = NonNull::new_unchecked(
+                (unaligned_ptr.wrapping_add(layout.align() - 1) & !(layout.align() - 1)) as *mut u8,
+            );
+
+            if layout.align() < GRANULARITY {
+                debug_assert_eq!(unaligned_ptr, ptr.as_ptr() as usize);
+            } else {
+                debug_assert_ne!(unaligned_ptr, ptr.as_ptr() as usize);
+            }
+
+            // Calculate the actual overhead and the final block size of the
+            // used block being created here
+            let overhead = ptr.as_ptr() as usize - block.as_ptr() as usize;
+            debug_assert!(overhead <= max_overhead);
+
+            let new_size = overhead + layout.size();
+            let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
+            debug_assert!(new_size <= search_size);
+
+            if new_size == size {
+                // The allocation completely fills this free block.
+                // Updating `next_phys_block.prev_phys_block` is unnecessary in this
+                // case because it's still supposed to point to `block`.
+            } else {
+                // The allocation partially fills this free block. Create a new
+                // free block header at `block + new_size..block + size`
+                // of length (`new_free_block_size`).
+                let mut new_free_block: NonNull<FreeBlockHdr> =
+                    NonNull::new_unchecked(block.cast::<u8>().as_ptr().add(new_size)).cast();
+                let new_free_block_size = size - new_size;
+
+                // Update `next_phys_block.prev_phys_block` to point to this new
+                // free block
+                // Invariant: No two adjacent free blocks
+                debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
+                next_phys_block.as_mut().prev_phys_block = Some(new_free_block.cast());
+
+                // Create the new free block header
+                new_free_block.as_mut().common = BlockHdr {
+                    size: new_free_block_size,
+                    prev_phys_block: Some(block.cast()),
+                };
+                self.link_free_block(new_free_block, new_free_block_size);
+            }
+
+            // Turn `block` into a used memory block and initialize the used block
+            // header. `prev_phys_block` is already set.
+            let mut block = block.cast::<UsedBlockHdr>();
+            block.as_mut().common.size = new_size | SIZE_USED;
+
+            // Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
+            if layout.align() >= GRANULARITY {
+                (*UsedBlockPad::get_for_allocation(ptr)).block_hdr = block;
+            }
+
+            Some(ptr)
+        }
+
+        unimplemented!()
+    }
     // TODO: update ghost_free_list in allocate()
 
     #[verifier::external_body] // for spec debug
@@ -389,6 +514,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // TODO: update ghost_free_list/all_block_headers in deallocate()
 
 }
+
+impl !Copy for DeallocToken {}
 
 struct DeallocToken {
     header: PointsTo<UsedBlockHdr>

@@ -1,0 +1,7 @@
+= Verusはいかにしてプログラムの性質を証明できているか
+
+調査対象
+
+* lambda verus
+* verus verifier implementation
+    ** verification condition generation
