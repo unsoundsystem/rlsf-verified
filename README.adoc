@@ -23,7 +23,10 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 * Verusで `Tlsf::allocate` を検証する
     ** 対象とするユースケースやTCB,証明のためのproof constractなどの設計をまとめたdesign docを作る
+    ** `DeallocToken` の再考: deallocateで前後のブロックを結合する際にヘッダ全体の権限をユーザーが持っていると問題になりそう
+    ** link某を消して、ベタ書きにする(`ptr_mut_(read|write)` がフィールドの部分的な更新に対応していないため)
     ** specを具体例でテストする
+        *** ビット演算周りの仕様(`usize_*`)
     ** インデックス計算
         *** `map_ceil` の検証
         *** rotate_rightの形式仕様をbitvectorで解ける形で与える

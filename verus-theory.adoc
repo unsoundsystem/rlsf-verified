@@ -5,3 +5,7 @@
 * lambda verus
 * verus verifier implementation
     ** verification condition generation
+* related subjects
+    ** RustHornBelt
+    ** Verus IR(vir/air/(hir))
+        *** 検証用の中間表現は特定の計算モデルを念頭に設計されているか？(ただのFLだと思っているが要検証)
