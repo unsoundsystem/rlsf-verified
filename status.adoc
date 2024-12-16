@@ -366,3 +366,9 @@ test_verify_one_file! {
 * インデックス計算用の関数のOptionを取り除いた
     ** 正常なサイズを受け取ることを仮定できればtotalなため
 * insert_free_block_ptr_alignedの移植つづき
+
+== 2024/12/16
+
+* ビット操作に関する証明方法の調査・試行錯誤
+    ** Q: `usize::BITS` を具体的な値として計算させる方法/あるいは計算を済ませるのに十分な性質の証明
+* Cargo projectを新しく分けた `rlsf-verified`
