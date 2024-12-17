@@ -7,5 +7,8 @@
     ** verification condition generation
 * related subjects
     ** RustHornBelt
+        *** 博論でのVerusの形式モデルに関する議論はRustHornBeltの定式化を拡張する形で行われている
     ** Verus IR(vir/air/(hir))
-        *** 検証用の中間表現は特定の計算モデルを念頭に設計されているか？(ただのFLだと思っているが要検証)
+        *** 検証用の中間表現は特定の計算モデルを念頭に設計されているか？
+
+

@@ -370,5 +370,12 @@ test_verify_one_file! {
 == 2024/12/16
 
 * ビット操作に関する証明方法の調査・試行錯誤
-    ** Q: `usize::BITS` を具体的な値として計算させる方法/あるいは計算を済ませるのに十分な性質の証明
+    ** [[sizeof_usize]] Q: `usize::BITS` を具体的な値として計算させる方法/あるいは計算を済ませるのに十分な性質の証明
 * Cargo projectを新しく分けた `rlsf-verified`
+
+== 2024/12/17
+
+* xref:sizeof_usize[A:] Verusはオブジェクトのメモリ上でのサイズについて関知しないためglobal directiveをつかって必要に応じて教える必要がある
+    ** https://verus-lang.github.io/verus/guide/reference-global.html?highlight=global%20as#the-global-directive
+* インデックス計算の性質に関する補題を立てた(各インデックスの範囲の一意性・妥当なサイズに対するインデックスの存在性)
+* wrapping_add/wrapping_subの形式仕様を追加

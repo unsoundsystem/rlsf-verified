@@ -137,14 +137,26 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         usize_trailing_zeros(GRANULARITY)
     }
 
-    // well-formedness of Tlsf structure
-    // * freelist well-formedness
-    //   * blocks connected to freelist ordered by start address
-    // * bitmap is consistent with the freelist
+    /// well-formedness of Tlsf structure
+    /// * freelist well-formedness
+    ///   * blocks connected to freelist ordered by start address
+    /// * bitmap is consistent with the freelist
+    /// * blocks stored in the list have proper size by means of their index
     pub closed spec fn wf(&self) -> bool {
         // TODO
         &&& true 
         &&& self.bitmap_wf()
+        &&& is_power_of_two(SLLEN)
+    }
+
+    spec fn is_power_of_two(n: int) -> bool {
+         if n <= 0 {
+             false
+         } else if n == 1 {
+             true
+         } else {
+             n % 2 == 0 && is_power_of_two(n / 2)
+         } 
     }
 
     pub const fn new() -> Self {
@@ -178,21 +190,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //    Free list index calculation & bitmap properties
     //-------------------------------------------------------
 
-    // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
-
     /// TODO: state and proof more detailed property about index calculation and relate with
     /// `map_ceil` / `map_floor`
     #[verifier::external_body] // debug
     pub fn map_ceil(size: usize) -> (r: (usize, usize))
-        requires Self::valid_block_size(size),
+        requires
+            Self::valid_block_size(size),
         ensures
             Self::valid_block_index(r)
             // TODO: ensure `r` is index of freelist that all of its elements larger or equal to
             //       the requested size
     {
-        assert(size >= GRANULARITY);
-        //assert(size % GRANULARITY == 0);
-        assert(usize::BITS == 64);
         assert(GRANULARITY < usize::BITS);
         let mut fl = usize::BITS - Self::granularity_log2() - 1 - ex_usize_leading_zeros(size);
         assert(fl == log(2, size as int) - log(2, GRANULARITY as int)); // TODO
@@ -208,6 +216,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
+        // NOTE:
+        // - `sl & (SLLEN - 1)` mask with second-level index set (sl[0..=SLI]
+        // - because of rotating, if above underflowed, there bits present in sl[SLI+1..]
+        //   so round up
+        // FIXME: what does the underflowing bits means? 
         sl = (sl & (SLLEN - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
 
         // if sl[SLI] { fl += 1; sl = 0; }
@@ -216,11 +229,34 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         (fl as usize, sl & (SLLEN - 1))
     }
 
+    spec fn block_size_range(idx: (int, int)) -> Set<int> {
+        let (fl, sl) = idx;
+        let size = pow2(i + Self::granularity_log2_spec() - SLLEN);
+        set_int_range(pow2(fl) + size * sl, pow2(fl) + size * (sl + 1))
+    }
+
+    // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
+    proof fn index_unique_range(idx1: (int, int), idx2: (int, int))
+        requires
+            valid_block_index(idx1),
+            valid_block_index(idx2),
+            idx1 != idx2
+        ensures block_size_range(idx1).disjoint(block_size_range(idx2))
+    {
+    }
+
+    //TODO: proof
+    proof fn index_exists_for_valid_size(size: int)
+        requires valid_block_size(size)
+        ensures exists|idx: (int, int)| block_size_range(idx).contains(size)
+    {
+    }
 
     #[inline]
     #[verifier::external_body] // debug
     fn map_floor(size: usize) -> (r: (usize, usize))
-    requires Self::valid_block_size(size),
+    requires
+        Self::valid_block_size(size),
     ensures
         Self::valid_block_index(r),
         // TODO: ensure `r` is index of freelist appropriate to store the block of size requested
@@ -241,11 +277,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
 
-    pub closed spec fn valid_block_size(size: usize) -> bool {
-        GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
+    pub closed spec fn valid_block_size(size: int) -> bool {
+        &&& GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
+        &&& size % GRANULARITY == 0
     }
 
-    pub closed spec fn valid_block_index(idx: (usize, usize)) -> bool {
+    pub closed spec fn valid_block_index(idx: (int, int)) -> bool {
         let (fl, sl) = idx;
         &&& 0 <= fl < FLLEN
         &&& 0 <= sl < SLLEN

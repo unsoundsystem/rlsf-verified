@@ -27,6 +27,9 @@ ifdef::env-name[:relfilesuffix: .adoc]
     ** link某を消して、ベタ書きにする(`ptr_mut_(read|write)` がフィールドの部分的な更新に対応していないため)
     ** specを具体例でテストする
         *** ビット演算周りの仕様(`usize_*`)
+    ** global directiveの管理
+        *** プラットフォーム毎に唯一の `usize` 幅を想定してほしい
+        *** cfgで公理を含むモジュールのインポートを分岐させる
     ** インデックス計算
         *** `map_ceil` の検証
         *** rotate_rightの形式仕様をbitvectorで解ける形で与える
