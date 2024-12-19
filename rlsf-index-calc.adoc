@@ -1,0 +1,81 @@
+= rlsfのインデックス計算について
+:stem:
+:source-highlighter: pygments
+
+== 元論文の式
+
+* latexmath:[fl = \lfloor\log_2(size)\rfloor]
+* latexmath:[sl = (size - 2^{fl})\frac{2^\text{SLLEN}}{2^{fl}}]
+
+== rlsfの実装
+
+* `map_ceil` / `map_floor` のどちらも以下の二行に依存している
+* この二行は要求されたサイズのブロックが属する空きリストのインデックスを計算する
+    ** `sl` は下位 `SLI` ビットが結果となる
+
+[source,rust]
+----
+let fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+----
+
+* `fl` は単純であり、 `log2(size)` から最小ブロック分を引いて空きリストのインデックスとする
+* `sl` は latexmath:[size\frac{2^\text{SLLEN}}{2^{fl}}]を計算するが、いくつかのコーナケースを循環シフトでカバーしている
+    1. `fl + GRANULARITY_LOG2 - Self::SLI` が負になるケース
+    2. 要求サイズを各second-level blockの開始サイズで割ったとき余りが出る場合
+* 1. のケースは要求サイズが `GRANULARITY` と等しい場合しか起こり得ない 
+    ** 一般にSLI <= log2(sizeof(usize)*8) = log2(sizeof(usize)) + 3 かつ
+      GRANULARITY_LOG2 = log2(sizeof(usize)*4) = log2(sizeof(usize)) + 2、
+      よってSLI > fl + GRANULARITY_LOG2が成り立つのはfl=0のときに限る
+* 2. のケースはあまりに相当する桁が循環シフトによって上位に移動するため、
+  `map_ceil` では上位の桁を見て切り上げ、 `map_floor` では無視している
+
+
+
+[source,rust]
+----
+/// Find the free block list to store a free block of the specified size.
+#[inline]
+fn map_floor(size: usize) -> Option<(usize, usize)> {
+    debug_assert!(size >= GRANULARITY);
+    debug_assert!(size % GRANULARITY == 0);
+    let fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+
+    let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+
+    debug_assert!(((sl >> Self::SLI) & 1) == 1);
+
+    if fl as usize >= FLLEN {
+        return None;
+    }
+
+    Some((fl as usize, sl & (SLLEN - 1)))
+}
+----
+
+[source,rust]
+----
+/// Find the first free block list whose every item is at least as large
+/// as the specified size.
+#[inline]
+fn map_ceil(size: usize) -> Option<(usize, usize)> {
+    debug_assert!(size >= GRANULARITY);
+    debug_assert!(size % GRANULARITY == 0);
+    let mut fl = usize::BITS - GRANULARITY_LOG2 - 1 - size.leading_zeros();
+
+    let mut sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+
+    debug_assert!(((sl >> Self::SLI) & 1) == 1);
+
+    sl = (sl & (SLLEN - 1)) + (sl >= (1 << (Self::SLI + 1))) as usize;
+
+    // if sl[SLI] { fl += 1; sl = 0; }
+    fl += (sl >> Self::SLI) as u32;
+
+    if fl as usize >= FLLEN {
+        return None;
+    }
+
+    Some((fl as usize, sl & (SLLEN - 1)))
+}
+----

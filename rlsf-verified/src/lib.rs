@@ -9,7 +9,7 @@ use vstd::raw_ptr::{ptr_mut_write, ptr_ref, PointsToRaw, PointsTo};
 use vstd::set_lib::set_int_range;
 use std::marker::PhantomData;
 use vstd::{seq::*, seq_lib::*, bytes::*};
-use vstd::arithmetic::logarithm::log;
+use vstd::arithmetic::{logarithm::log, power2::pow2};
 use core::alloc::Layout;
 use core::mem;
 use crate::bits::{usize_trailing_zeros, ex_usize_leading_zeros, ex_usize_trailing_zeros};
@@ -73,7 +73,7 @@ impl BlockHdr {
     /// `self` must have a next block (it must not be the sentinel block in a
     /// pool).
     /// TODO: must consider the cases that non-continuous chunks are added
-    #[inline]
+    #[inline(always)]
     #[verifier::external] // debug
     unsafe fn next_phys_block(&self) -> *mut BlockHdr {
         ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
@@ -146,7 +146,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO
         &&& true 
         &&& self.bitmap_wf()
-        &&& is_power_of_two(SLLEN)
+        &&& Self::is_power_of_two(SLLEN)
     }
 
     spec fn is_power_of_two(n: int) -> bool {
@@ -155,7 +155,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
          } else if n == 1 {
              true
          } else {
-             n % 2 == 0 && is_power_of_two(n / 2)
+             n % 2 == 0 && Self::is_power_of_two(n / 2)
          } 
     }
 
@@ -173,7 +173,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     #[verifier::external_body]
-    #[inline]
+    #[inline(always)]
     fn update_bitmap(&mut self, fl: usize, sl: usize)
         requires Self::valid_block_index((fl, sl)),
         ensures self.fl_bitmap == (old(self).fl_bitmap | (1usize << fl as int)),
@@ -202,17 +202,34 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //       the requested size
     {
         assert(GRANULARITY < usize::BITS);
+        // subtracting `Self::granularity_log2()` because actual freelist starts from `2^Self::granularity_log2()`
         let mut fl = usize::BITS - Self::granularity_log2() - 1 - ex_usize_leading_zeros(size);
         assert(fl == log(2, size as int) - log(2, GRANULARITY as int)); // TODO
 
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching.
-        // negative case can occur when SLLEN > core::mem::size_of::<usize>() * 4
-        // (on 64bit platform SLLEN > 32, FIXME: is this unusual case?)
+        // negative case can occur when all of following holds
+        // - fl == 0
+        //   - log2(size) == GRANULARITY_LOG2 i.e. size == GRANULARITY
+        // - SLI > GRANULARITY_LOG2 i.e. SLLEN > GRANULARITY
+        // 
+        // FIXME: guessing the negative case is for treating this specific case
+        // FIXME(if i wrong):  the negative case occurs only when
+        //                     requested size is GRANULARITY (i.e. fl=0)
+        //      - Supposing 64bit platform, SLI <= 6 and GRANULARITY_LOG2 = 5.
+        //        thus when `SLI > fl + GRANULARITY_LOG2` holds, fl must be 0
+        //      - Supposing 32bit platform, SLI <= 5 and GRANULARITY_LOG2 = 4.
+        //        thus when `SLI > fl + GRANULARITY_LOG2` holds, fl must be 0
+        //      - Generally SLI <= log2(sizeof(usize)*8) = log2(sizeof(usize)) + 3 and
+        //        GRANULARITY_LOG2 = log2(sizeof(usize)*4) = log2(sizeof(usize)) + 2
+        //        thus when `SLI > fl + GRANULARITY_LOG2`
+        //        (i.e. `3 > fl + 2`) holds, fl must be 0
+        //
+        // (NOTE: this *is* unusual case! target usecase configured as SLLEN = 64)
         let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        //debug_assert!(((sl >> Self::sli()) & 1) == 1);
+        assert(((sl >> Self::sli()) & 1) == 1);
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
@@ -220,7 +237,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // - `sl & (SLLEN - 1)` mask with second-level index set (sl[0..=SLI]
         // - because of rotating, if above underflowed, there bits present in sl[SLI+1..]
         //   so round up
-        // FIXME: what does the underflowing bits means? 
+        // NOTE: underflowed digits means reminder of dividing size by second-level block size
+        //       thus they must be rounded up to return appropriate index for allocating from
+        // TODO: how to formalize this?
         sl = (sl & (SLLEN - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
 
         // if sl[SLI] { fl += 1; sl = 0; }
@@ -231,35 +250,38 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     spec fn block_size_range(idx: (int, int)) -> Set<int> {
         let (fl, sl) = idx;
-        let size = pow2(i + Self::granularity_log2_spec() - SLLEN);
+        // FIXME:        ↓ this can be negative!
+        //              vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+        let size = pow2(fl + Self::granularity_log2_spec() - SLLEN);
         set_int_range(pow2(fl) + size * sl, pow2(fl) + size * (sl + 1))
     }
 
     // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
     proof fn index_unique_range(idx1: (int, int), idx2: (int, int))
         requires
-            valid_block_index(idx1),
-            valid_block_index(idx2),
+            Self::valid_block_index(idx1),
+            Self::valid_block_index(idx2),
             idx1 != idx2
-        ensures block_size_range(idx1).disjoint(block_size_range(idx2))
+        ensures Self::block_size_range(idx1).disjoint(Self::block_size_range(idx2))
     {
     }
 
     //TODO: proof
     proof fn index_exists_for_valid_size(size: int)
-        requires valid_block_size(size)
-        ensures exists|idx: (int, int)| block_size_range(idx).contains(size)
+        requires Self::valid_block_size(size)
+        ensures exists|idx: (int, int)| Self::block_size_range(idx).contains(size)
     {
     }
 
-    #[inline]
+    #[inline(always)]
     #[verifier::external_body] // debug
     fn map_floor(size: usize) -> (r: (usize, usize))
     requires
         Self::valid_block_size(size),
     ensures
         Self::valid_block_index(r),
-        // TODO: ensure `r` is index of freelist appropriate to store the block of size requested
+        // ensuring `r` is index of freelist appropriate to store the block of size requested
+        Self::block_size_range(r).contains(size),
     {
         assert(size >= GRANULARITY);
         assert(size % GRANULARITY == 0);
@@ -649,7 +671,7 @@ impl DeallocToken {
     }
 }
 
-#[inline]
+#[inline(always)]
 #[verifier::external_body]
 fn bool_to_usize(b: bool) -> (r: usize)
     ensures

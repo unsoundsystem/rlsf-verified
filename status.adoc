@@ -379,3 +379,7 @@ test_verify_one_file! {
     ** https://verus-lang.github.io/verus/guide/reference-global.html?highlight=global%20as#the-global-directive
 * インデックス計算の性質に関する補題を立てた(各インデックスの範囲の一意性・妥当なサイズに対するインデックスの存在性)
 * wrapping_add/wrapping_subの形式仕様を追加
+
+== 2024/12/17
+
+* rlsfのインデックス計算の実装に関するインフォーマルな正当化を文書にまとめている xref:./rlsf-index-calc.adoc[]
