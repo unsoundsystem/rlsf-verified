@@ -5,9 +5,11 @@ use vstd::std_specs::bits::{
     u64_trailing_zeros, u64_leading_zeros,
     u32_leading_zeros, u32_trailing_zeros,
     ex_u64_leading_zeros, ex_u64_trailing_zeros,
-    ex_u32_leading_zeros, ex_u32_trailing_zeros
+    ex_u32_leading_zeros, ex_u32_trailing_zeros,
+    axiom_u64_trailing_zeros
 };
 use vstd::bytes::{spec_u32_to_le_bytes, spec_u64_to_le_bytes};
+use vstd::arithmetic::logarithm::log;
 
 //#[cfg(target_pointer_width = "32")]
 //global layout usize is size == 4;
@@ -44,6 +46,19 @@ pub open spec fn usize_trailing_zeros(x: usize) -> int
     u64_trailing_zeros(x as u64) as int
 }
 
+#[cfg(target_pointer_width = "64")]
+pub proof fn axiom_usize_trailing_zeros(x: usize) {
+    axiom_u64_trailing_zeros(x as u64);
+}
+
+proof fn usize_trailing_zeros_is_log2_when_pow2_given(x: usize)
+    requires is_power_of_two(x as int)
+    ensures usize_trailing_zeros(x) == log(2, x as int)
+{
+    axiom_usize_trailing_zeros(x);
+    //assert(usize_trailing_zeros(x) == log(2, x as int)) by (compute);
+    //TODO
+}
 
 #[verifier::external_body]
 #[cfg(target_pointer_width = "32")]
@@ -134,7 +149,9 @@ pub fn i32_from_le_bytes(b: [u8; 4]) -> (r: i32)
 use core::cmp::Ordering;
 use builtin::*;
 use vstd::math::abs;
-/// TODO: External specification for usize::rotate_right
+
+// TODO: more properties about rotating shift? e.g. rotated bits appears at (shift_amount mod BITS)
+//       there, stating only "`rotate_right` is equivalent to less efficient software emulation" ...
 pub open spec fn is_usize_rotate_right(x: usize, r: usize, n: int) -> bool {
     let sa: nat = abs(n) as nat % usize::BITS as nat;
     let sa_ctr: nat = (usize::BITS as nat - sa) as nat;
@@ -155,7 +172,7 @@ pub open spec fn low_mask(n: nat) -> usize {
 }
 
 #[verifier::external_body]
-pub fn usize_rotate_right(x: usize, n: u32) -> (r: usize)
+pub fn ex_usize_rotate_right(x: usize, n: u32) -> (r: usize)
     ensures
     // This primitive cast just work as usual exec code
     // TODO: is it ok? primitive cast really just reinterpet bytes?
@@ -230,7 +247,7 @@ proof fn unsigned_to_signed(n: u32)
 //bs.subrange(bs.len() - rot, bs.len()).add(bs.drop(rot))
 //}
 
-pub open spec fn spec_wrapping_sub_usize(lhs: int, rhs: int) -> int {
+pub open spec fn usize_wrapping_sub(lhs: int, rhs: int) -> int {
     let sub = lhs - rhs;
     if sub < usize::MIN {
         sub + (usize::MAX - usize::MIN + 1)
@@ -240,9 +257,9 @@ pub open spec fn spec_wrapping_sub_usize(lhs: int, rhs: int) -> int {
 }
 
 proof fn example2() {
-    assert(spec_wrapping_sub_usize(1, 2) == usize::MAX as int);
-    assert(spec_wrapping_sub_usize(2, 1) == 1);
-    assert(spec_wrapping_sub_usize(usize::MIN as int, usize::MAX as int) == 1);
+    assert(usize_wrapping_sub(1, 2) == usize::MAX as int);
+    assert(usize_wrapping_sub(2, 1) == 1);
+    assert(usize_wrapping_sub(usize::MIN as int, usize::MAX as int) == 1);
 }
 
 pub proof fn lemma_spec_wrapping_sub_usize_in_range(lhs: int, rhs: int)
@@ -250,19 +267,53 @@ pub proof fn lemma_spec_wrapping_sub_usize_in_range(lhs: int, rhs: int)
         usize::MIN <= lhs <= usize::MAX,
         usize::MIN <= rhs <= usize::MAX,
     ensures
-        usize::MIN <= spec_wrapping_sub_usize(lhs, rhs) <= usize::MAX
+        usize::MIN <= usize_wrapping_sub(lhs, rhs) <= usize::MAX
 {
-        assert(usize::MIN <= spec_wrapping_sub_usize(lhs, rhs) <= usize::MAX) by (compute);
+        assert(usize::MIN <= usize_wrapping_sub(lhs, rhs) <= usize::MAX) by (compute);
 }
 
 #[verifier::external_body]
-fn wrapping_sub_usize(lhs: usize, rhs: usize) -> (r: usize)
-    ensures r@ == spec_wrapping_sub_usize(lhs as int, rhs as int)
+pub fn ex_usize_wrapping_sub(lhs: usize, rhs: usize) -> (r: usize)
+    ensures r@ == usize_wrapping_sub(lhs as int, rhs as int)
 {
     lhs.wrapping_sub(rhs)
 }
 
-pub open spec fn spec_wrapping_add_usize(lhs: int, rhs: int) -> int {
+
+pub open spec fn u32_wrapping_sub(lhs: int, rhs: int) -> int {
+    let sub = lhs - rhs;
+    if sub < u32::MIN {
+        sub + (u32::MAX - u32::MIN + 1)
+    } else {
+        sub
+    }
+}
+
+proof fn example4() {
+    assert(u32_wrapping_sub(1, 2) == u32::MAX as int);
+    assert(u32_wrapping_sub(2, 1) == 1);
+    assert(u32_wrapping_sub(u32::MIN as int, u32::MAX as int) == 1);
+}
+
+pub proof fn lemma_spec_wrapping_sub_u32_in_range(lhs: int, rhs: int)
+    requires
+        u32::MIN <= lhs <= u32::MAX,
+        u32::MIN <= rhs <= u32::MAX,
+    ensures
+        u32::MIN <= u32_wrapping_sub(lhs, rhs) <= u32::MAX
+{
+        assert(u32::MIN <= u32_wrapping_sub(lhs, rhs) <= u32::MAX) by (compute);
+}
+
+#[verifier::external_body]
+pub fn ex_u32_wrapping_sub(lhs: u32, rhs: u32) -> (r: u32)
+    ensures r@ == u32_wrapping_sub(lhs as int, rhs as int)
+{
+    lhs.wrapping_sub(rhs)
+}
+
+
+pub open spec fn usize_wrapping_add(lhs: int, rhs: int) -> int {
     let add = lhs + rhs;
     if add > usize::MAX {
         add - (usize::MAX - usize::MIN + 1)
@@ -272,26 +323,39 @@ pub open spec fn spec_wrapping_add_usize(lhs: int, rhs: int) -> int {
 }
 
 proof fn example3() {
-    assert(spec_wrapping_add_usize(usize::MAX as int, 1) == usize::MIN);
-    assert(spec_wrapping_add_usize(2, 1) == 3);
-    assert(spec_wrapping_add_usize(usize::MAX as int, usize::MAX as int) == usize::MAX - 1);
+    assert(usize_wrapping_add(usize::MAX as int, 1) == usize::MIN);
+    assert(usize_wrapping_add(2, 1) == 3);
+    assert(usize_wrapping_add(usize::MAX as int, usize::MAX as int) == usize::MAX - 1);
 }
 
-pub proof fn lemma_spec_wrapping_add_usize_in_range(lhs: int, rhs: int)
+pub proof fn lemma_usize_wrapping_add_in_range(lhs: int, rhs: int)
     requires
         usize::MIN <= lhs <= usize::MAX,
         usize::MIN <= rhs <= usize::MAX,
     ensures
-        usize::MIN <= spec_wrapping_add_usize(lhs, rhs) <= usize::MAX
+        usize::MIN <= usize_wrapping_add(lhs, rhs) <= usize::MAX
 {
-        assert(usize::MIN <= spec_wrapping_add_usize(lhs, rhs) <= usize::MAX) by (compute);
+        assert(usize::MIN <= usize_wrapping_add(lhs, rhs) <= usize::MAX) by (compute);
 }
 
 #[verifier::external_body]
-fn wrapping_add_usize(lhs: usize, rhs: usize) -> (r: usize)
-    ensures r@ == spec_wrapping_add_usize(lhs as int, rhs as int)
+pub fn ex_usize_wrapping_add(lhs: usize, rhs: usize) -> (r: usize)
+    ensures r@ == usize_wrapping_add(lhs as int, rhs as int)
 {
     lhs.wrapping_add(rhs)
+}
+
+
+pub open spec fn is_power_of_two(n: int) -> bool
+    decreases n,
+{
+     if n <= 0 {
+         false
+     } else if n == 1 {
+         true
+     } else {
+         n % 2 == 0 && is_power_of_two(n / 2)
+     } 
 }
 
 }
