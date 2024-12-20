@@ -15,7 +15,7 @@ use vstd::arithmetic::logarithm::log;
 //global layout usize is size == 4;
 
 //#[cfg(target_pointer_width = "64")]
-global layout usize is size == 8;
+//global layout usize is size == 8;
 
 // NOTE: vstd's interface returns u32 for u(64|32)_(leading|trailing)_zeros,
 //       except for u64_leading_zeros (this returns int).

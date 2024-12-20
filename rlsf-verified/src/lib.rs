@@ -1,5 +1,6 @@
 #![feature(const_mut_refs)]
 #![feature(const_replace)]
+
 mod bits;
 mod block_index;
 
@@ -15,9 +16,10 @@ use core::alloc::Layout;
 use core::mem;
 use crate::bits::{
     usize_trailing_zeros, ex_usize_leading_zeros, ex_usize_trailing_zeros,
-    ex_usize_rotate_right, ex_usize_wrapping_sub, ex_usize_wrapping_add,
+    ex_usize_rotate_right, ex_u32_wrapping_sub, ex_usize_wrapping_add,
     is_power_of_two
 };
+use crate::block_index::BlockIndex;
 
 // for codes being executed
 macro_rules! get_bit {
@@ -54,7 +56,8 @@ pub const GRANULARITY: usize = 8 * 4;
 
 const SIZE_USED: usize = 1;
 const SIZE_SENTINEL: usize = 2;
-const SIZE_SIZE_MASK: usize =  !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1);
+// FIXME: cannot call function `lib::bits::ex_usize_trailing_zeros` with mode exec
+const SIZE_SIZE_MASK: usize =  0; // !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1);
 
 struct BlockHdr {
     /// The size of the whole memory block, including the header.
@@ -129,8 +132,13 @@ struct GhostTlsf {
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // workaround: verus doesn't support constants definitions in impl.
     //const SLI: u32 = SLLEN.trailing_zeros();
-    const fn sli() -> u32
+    const fn sli() -> (r: u32)
+        ensures r == Self::sli_spec()
     { ex_usize_trailing_zeros(SLLEN) }
+
+    spec fn sli_spec() -> int {
+        log(2, SLLEN as int)
+    }
 
     const fn granularity_log2() -> (r: u32)
         ensures r == usize_trailing_zeros(GRANULARITY)
@@ -188,11 +196,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// TODO: state and proof more detailed property about index calculation and relate with
     /// `map_ceil` / `map_floor`
     //#[verifier::external_body] // debug
-    pub fn map_ceil(size: usize) -> (r: (usize, usize))
+    pub fn map_ceil(size: usize) -> (r: BlockIndex<GRANULARITY, FLLEN, SLLEN>)
         requires
             Self::valid_block_size(size as int),
         ensures
-            Self::valid_block_index(r as (usize, usize))
+            Self::valid_block_index((r.0 as int, r.1 as int))
             // TODO: ensure `r` is index of freelist that all of its elements larger or equal to
             //       the requested size
     {
@@ -223,11 +231,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // (NOTE: this *is* unusual case! target usecase configured as SLLEN = 64)
         let mut sl = ex_usize_rotate_right(
             size,
-            ex_usize_wrapping_sub(fl + Self::granularity_log2(), Self::sli())
+            ex_u32_wrapping_sub(fl + Self::granularity_log2(), Self::sli())
         );
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        assert(((sl >> Self::sli()) & 1) == 1);
+        assert(((sl >> Self::sli_spec()) & 1) == 1);
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
@@ -250,8 +258,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let (fl, sl) = idx;
         // FIXME:        ↓ this can be negative!
         //              vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-        let size = pow2(fl + Self::granularity_log2_spec() - SLLEN);
-        set_int_range(pow2(fl) + size * sl, pow2(fl) + size * (sl + 1))
+        let size = pow2((fl + Self::granularity_log2_spec() - SLLEN) as nat);
+        set_int_range(pow2(fl as nat) + size * sl, pow2(fl as nat) + size * (sl + 1))
     }
 
     // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
@@ -273,13 +281,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     #[inline(always)]
     //#[verifier::external_body] // debug
-    fn map_floor(size: usize) -> (r: (usize, usize))
+    fn map_floor(size: usize) -> (r: BlockIndex<GRANULARITY, FLLEN, SLLEN>)
     requires
         Self::valid_block_size(size as int),
     ensures
-        Self::valid_block_index(r as (int, int)),
+        Self::valid_block_index((r.0 as int, r.1 as int)),
         // ensuring `r` is index of freelist appropriate to store the block of size requested
-        Self::block_size_range(r).contains(size),
+        Self::block_size_range((r.0 as int, r.1 as int)).contains(size as int),
     {
         assert(size >= GRANULARITY);
         assert(size % GRANULARITY == 0);
@@ -290,11 +298,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // in `map_floor`.
         let sl = ex_usize_rotate_right(
             size,
-            ex_usize_wrapping_sub(fl + Self::granularity_log2(), Self::sli())
+            ex_u32_wrapping_sub(fl + Self::granularity_log2(), Self::sli())
         );
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        assert(((sl >> Self::sli()) & 1) == 1);
+        assert(((sl >> Self::sli_spec()) & 1) == 1);
 
        (fl as usize, sl & (SLLEN - 1))
     }
@@ -314,7 +322,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
         // `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
         forall|fl: int, sl: int|  Self::valid_block_index((fl,sl)) ==>
-            nth_bit!(self.sl_bitmap[fl] as int, sl)
+            nth_bit!(self.sl_bitmap[fl], sl as usize)
                 <==> self.first_free[fl][sl].is_some()
     }
 
@@ -376,102 +384,102 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // Tlsf is well-formed
     {
         None
-//        let tracked mut new_header;
-//        let tracked mut mem_remains;
-//
-//        let mut size_remains = size;
-//        let mut cursor = start as usize;
-//
-//
-//        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
-//        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */ {
-//            let chunk_size = size_remains.min(Self::max_pool_size());
-//
-//            assert(chunk_size % GRANULARITY == 0);
-//
-//            proof {
-//                let (h, m) =
-//                    points_to_block.split(set_int_range(cursor as int, cursor as int + GRANULARITY as int));
-//                mem_remains = m;
-//                new_header = h.into_typed(cursor as int);
-//            }
-//
-//            // The new free block
-//            // Safety: `cursor` is not zero.
-//            let mut block = cursor as *mut FreeBlockHdr;
-//
-//            // Initialize the new free block
-//            // NOTE: header size calculated as GRANULARITY
-//            assert(Self::valid_block_size(chunk_size - GRANULARITY));
-//            let (fl, sl) = Self::map_floor(chunk_size - GRANULARITY);
-//            let first_free = &mut self.first_free[fl][sl];
-//            let next_free = mem::replace(first_free, Some(block));
-//
-//            // Obtain permssion for writing to the first node in the appropriate
-//            // freelist to insert `block`
-//            let tracked next_free_perm = self.gs@.ghost_free_list[fl as int][sl as int];
-//
-//            // Write the header
-//            // NOTE: because Verus doesn't supports field update through raw pointer,
-//            //       we have to write it at once with `ptr_mut_write`.
-//            ptr_mut_write(block, Tracked(&mut new_header),
-//            FreeBlockHdr {
-//                common: BlockHdr {
-//                    size: chunk_size - GRANULARITY,
-//                    prev_phys_block: None,
-//                },
-//                next_free: next_free,
-//                prev_free: None,
-//            });
-//
-//            if let Some(mut next_free) = next_free {
-//                //FIXME: looking for some way to eliminate this read
-//                if let Some(next_free_perm) = next_free_perm {
-//                    let &FreeBlockHdr { common: common_, next_free: next_free_, prev_free: prev_free_ }
-//                        = ptr_ref(next_free, Tracked(&next_free_perm));
-//                    ptr_mut_write(next_free, Tracked(&mut next_free_perm),
-//                        FreeBlockHdr {
-//                            common: common_,
-//                            next_free: next_free_,
-//                            prev_free: Some(block)
-//                        }
-//                    );
-//                } else { assert(false) }
-//                //next_free.prev_free = Some(block);
-//            }
-//            // Update bitmaps
-//            self.update_bitmap(fl, sl);
-//            //self.set_fl_bitmap(fl as u32);
-//            //self.sl_bitmap[fl].set_bit(sl as u32);
-//
-//
-//
-//            // Cap the end with a sentinel block (a permanently-used block)
-//            let mut sentinel_block = ptr_ref(block, Tracked(&new_header))
-//                .common
-//                .next_phys_block()
-//                .cast::<UsedBlockHdr>();
-//
-//            let tracked (sentinel_perm, m) = mem_remains.split(
-//                set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
-//            mem_remains = m;
-//
-//            ptr_mut_write(sentinel_block, Tracked(&mut sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize)),
-//                UsedBlockHdr { 
-//                    common: BlockHdr {
-//                        size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
-//                        prev_phys_block: Some(block.cast()),
-//                    }
-//                });
-//
-//            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
-//            // iteration must be the last one
-//            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
-//            size_remains -= chunk_size;
-//            cursor = cursor.wrapping_add(chunk_size);
-//        }
-//
-//        Some(cursor.wrapping_sub(start as usize))
+        let tracked mut new_header;
+        let tracked mut mem_remains;
+
+        let mut size_remains = size;
+        let mut cursor = start as usize;
+
+
+        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
+        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */ {
+            let chunk_size = size_remains.min(Self::max_pool_size());
+
+            assert(chunk_size % GRANULARITY == 0);
+
+            proof {
+                let (h, m) =
+                    points_to_block.split(set_int_range(cursor as int, cursor as int + GRANULARITY as int));
+                mem_remains = m;
+                new_header = h.into_typed(cursor as int);
+            }
+
+            // The new free block
+            // Safety: `cursor` is not zero.
+            let mut block = cursor as *mut FreeBlockHdr;
+
+            // Initialize the new free block
+            // NOTE: header size calculated as GRANULARITY
+            assert(Self::valid_block_size(chunk_size - GRANULARITY));
+            let BlockIndex(fl, sl) = Self::map_floor(chunk_size - GRANULARITY);
+            let first_free = &mut self.first_free[fl][sl];
+            let next_free = mem::replace(first_free, Some(block));
+
+            // Obtain permssion for writing to the first node in the appropriate
+            // freelist to insert `block`
+            let tracked next_free_perm = self.gs@.ghost_free_list[fl as int][sl as int];
+
+            // Write the header
+            // NOTE: because Verus doesn't supports field update through raw pointer,
+            //       we have to write it at once with `ptr_mut_write`.
+            ptr_mut_write(block, Tracked(&mut new_header),
+            FreeBlockHdr {
+                common: BlockHdr {
+                    size: chunk_size - GRANULARITY,
+                    prev_phys_block: None,
+                },
+                next_free: next_free,
+                prev_free: None,
+            });
+
+            if let Some(mut next_free) = next_free {
+                //FIXME: looking for some way to eliminate this read
+                if let Some(next_free_perm) = next_free_perm {
+                    let &FreeBlockHdr { common: common_, next_free: next_free_, prev_free: prev_free_ }
+                        = ptr_ref(next_free, Tracked(&next_free_perm));
+                    ptr_mut_write(next_free, Tracked(&mut next_free_perm),
+                        FreeBlockHdr {
+                            common: common_,
+                            next_free: next_free_,
+                            prev_free: Some(block)
+                        }
+                    );
+                } else { assert(false) }
+                //next_free.prev_free = Some(block);
+            }
+            // Update bitmaps
+            self.update_bitmap(fl, sl);
+            //self.set_fl_bitmap(fl as u32);
+            //self.sl_bitmap[fl].set_bit(sl as u32);
+
+
+
+            // Cap the end with a sentinel block (a permanently-used block)
+            let mut sentinel_block = ptr_ref(block, Tracked(&new_header))
+                .common
+                .next_phys_block()
+                .cast::<UsedBlockHdr>();
+
+            let tracked (sentinel_perm, m) = mem_remains.split(
+                set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
+            mem_remains = m;
+
+            ptr_mut_write(sentinel_block, Tracked(&mut sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize)),
+                UsedBlockHdr { 
+                    common: BlockHdr {
+                        size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
+                        prev_phys_block: Some(block.cast()),
+                    }
+                });
+
+            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
+            // iteration must be the last one
+            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
+            size_remains -= chunk_size;
+            cursor = cursor.wrapping_add(chunk_size);
+        }
+
+        Some(cursor.wrapping_sub(start as usize))
     }
 
 

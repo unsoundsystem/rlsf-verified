@@ -383,3 +383,8 @@ test_verify_one_file! {
 == 2024/12/17
 
 * rlsfのインデックス計算の実装に関するインフォーマルな正当化を文書にまとめている xref:./rlsf-index-calc.adoc[]
+
+== 2024/12/20
+
+* インデックス計算関連の補題・証明などをモジュールに切り出した
+* Verusのバグっぽい挙動のminimal exampleを作成
