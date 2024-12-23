@@ -388,3 +388,23 @@ test_verify_one_file! {
 
 * インデックス計算関連の補題・証明などをモジュールに切り出した
 * Verusのバグっぽい挙動のminimal exampleを作成
+[source,rust]
+----
+use vstd::prelude::*;
+verus! {
+const G: usize = 0;
+struct B<const N: usize> {}
+impl<const N: usize> B<N> {
+    fn f() -> B<G> { B {} }
+}
+}
+----
+
+== 2024/12/23
+
+* 先日のバグの報告・workaround
+* インデックス計算に関する補題の証明(wip)
+    ** Verusで区間に関する理論を扱う方法を模索中
+        *** `set_int_range` で整数上の区間を `Set` として生成できるが、
+            `Set` に条件をつけて回るため区間同士の関係の扱いが煩雑になる
+        *** 半開区間しか扱わないため、集合に関する証明に落とすよりは始点・終点の議論で済ませたい
