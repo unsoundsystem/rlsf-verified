@@ -3,8 +3,8 @@ use crate::bits::{ex_usize_trailing_zeros, usize_trailing_zeros, is_power_of_two
 use vstd::set_lib::set_int_range;
 use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
-use vstd::math::{max, min};
-
+use vstd::math::{clip, max, min};
+use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
 
 verus! {
 // Repeating definition here because of
@@ -69,9 +69,16 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         let BlockIndex(fl, sl) = self;
         // This is at least GRANULARITY
         let fl_block_bytes: int = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
-        // NOTE: This can be 0, when fl=0 && GRANULARITY < SLLEN
-        //                       vvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+        // This is at least GRANULARITY
+        // FIXME: is this correct?
+        //        - to reflect behivor of actual implementation (rlsf),
+        //          the least size of allcation specified as GRANULARITY.
+        //        - but the *range* of size, specified in bytes (rlsf assume GRANULARITY aligned)
+        //              - TODO: this seems reasonable as a spec but there would be inconsistency
+        //                      between impl & spec
         let sl_block_bytes = max(fl_block_bytes / SLLEN as int, GRANULARITY as int);
+        // NOTE: Actually although the range specified in 1-byte granularity,
+        //      there can be stored aribtrary size of blocks, because rlsf provides only GRANULARITY aligned allocation.
         (fl_block_bytes + sl_block_bytes * sl as int, fl_block_bytes + sl_block_bytes * (sl + 1) as int)
     }
 
@@ -119,26 +126,87 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         let r2 = idx2.block_size_range();
         reveal(log);
         reveal(pow2);
+        assert(forall|x: int, y: int| 0 < x && 0 <= y ==> #[trigger] (x * y) < #[trigger] (x * (y + 1))) by (nonlinear_arith);
 
-        if idx1.0 != idx2.0 {
-            if idx1.0 < idx2.0 {
-                assert(r1.1 < r2.0);
-            } else if idx1.0 > idx2.0 {
-                assert(r2.1 < r1.0);
-            } else {
-                assert(false);
+        Self::lemma_block_index_lt_is_strict_and_total();
+        idx1.lemma_block_size_range_is_valid_half_open_range();
+        idx2.lemma_block_size_range_is_valid_half_open_range();
+        assert(r1.0 < r1.1);
+        if Self::block_index_lt(idx1, idx2) {
+            // (<=)
+            // pow2(idx1.0 + GRANULARITY_LOG2) + max(pow2(idx1.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * (idx1.1 + 1)
+            // pow2(idx2.0 + GRANULARITY_LOG2) + max(pow2(idx2.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * idx2.1
+
+            if (idx1.0 == idx2.0 && idx1.1 < idx2.1) {
+                // (<=)
+                // max(pow2(idx1.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * (idx1.1 + 1)
+                // max(pow2(idx2.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * idx2.1
+                let fl1_bytes = pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int;
+                let fl2_bytes = pow2((idx2.0 + Self::granularity_log2_spec()) as nat) as int;
+                assert(fl1_bytes == fl2_bytes);
+                let sl1_bytes = max(fl1_bytes / SLLEN as int, GRANULARITY as int);
+                let sl2_bytes = max(fl2_bytes / SLLEN as int, GRANULARITY as int);
+                assert(sl1_bytes == sl2_bytes);
+                assert(idx1.1 + 1 <= idx2.1);
+                assert(idx1.1 + 1 >= 0 && idx2.1 >= 0);
+                assert(sl1_bytes >= 0 && sl2_bytes >= 0);
+                lemma_mult_lte_mono_pos(idx1.1 + 1 as int, idx2.1 as int, sl1_bytes);
+                assert(sl1_bytes * (idx1.1 + 1) <= sl2_bytes * idx2.1);
+                assert(r1.1 <= r2.0);
+            } else if idx1.0 < idx2.0 {
+                // (<=)
+                // pow2(idx1.0 + GRANULARITY_LOG2) + max(pow2(idx1.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * (idx1.1 + 1)
+                // pow2(idx2.0 + GRANULARITY_LOG2)
+
+                let fl1_bytes = pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int;
+                let fl2_bytes = pow2((idx2.0 + Self::granularity_log2_spec()) as nat) as int;
+                let sl1_bytes = max(fl1_bytes / SLLEN as int, GRANULARITY as int);
+                let sl2_bytes = max(fl2_bytes / SLLEN as int, GRANULARITY as int);
+                assert(idx1.0 >=  0 && idx2.0 >= 0 && Self::granularity_log2_spec() >= 0) by (compute);
+                assert(idx1.0 + Self::granularity_log2_spec() < idx2.0 + Self::granularity_log2_spec()) by (compute);
+                lemma_pow2_strictly_increases((idx1.0 + Self::granularity_log2_spec()) as nat, (idx2.0 + Self::granularity_log2_spec()) as nat);
+                assert(fl1_bytes < fl2_bytes);
+                assert(idx1.0 + 1 <= idx2.0);
+                assert((Self::granularity_log2_spec() + idx1.0 + 1) > 0) by (compute);
+                lemma_pow2_unfold((Self::granularity_log2_spec() + idx1.0 + 1) as nat);
+                assert(2 * fl1_bytes == pow2((Self::granularity_log2_spec() + idx1.0 + 1) as nat));
+                lemma_pow2_strictly_increases((idx1.0 + Self::granularity_log2_spec()) as nat, (idx1.0 + Self::granularity_log2_spec() + 1) as nat);
+                assert(fl1_bytes == pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int);
+                assert(fl1_bytes < pow2((Self::granularity_log2_spec() + idx1.0 + 1) as nat));
+                lemma_relax_pow2_strict_order(idx1.0 + Self::granularity_log2_spec(), idx2.0 + Self::granularity_log2_spec());
+                assert(2 * fl1_bytes <= fl2_bytes);
+                assert(idx1.1 + 1 <= SLLEN);
+                assert(sl1_bytes * SLLEN == fl1_bytes);
+
+                // TODO: branch depend on sl(.)_bytes == GRANULARITY
+                assert(sl1_bytes * (idx1.1 + 1) <= fl1_bytes); // TODO
+                assert(fl1_bytes + sl1_bytes * (idx1.1 + 1) <= 2 * fl1_bytes);
+                assert(fl1_bytes + sl1_bytes * (idx1.1 + 1) <= fl2_bytes);
+                assert(r1.1 <= r2.0) by (compute);
             }
-        } else if idx1.1 != idx2.1 {
-            if idx1.1 < idx2.1 {
-                assert(r1.1 < r2.0);
-            } else if idx1.1 > idx2.1 {
-                assert(r2.1 < r1.0);
-            } else {
-                assert(false);
-            }
+            assert(r1.1 <= r2.0);
+        } else if Self::block_index_lt(idx2, idx1) {
+            assert(r2.1 <= r1.0);
         }
+        //if idx1.0 != idx2.0 {
+            //if idx1.0 < idx2.0 {
+                //assert(r1.1 < r2.0);
+            //} else if idx1.0 > idx2.0 {
+                //assert(r2.1 < r1.0);
+            //} else {
+                //assert(false);
+            //}
+        //} else if idx1.1 != idx2.1 {
+            //if idx1.1 < idx2.1 {
+                //assert(r1.1 < r2.0);
+            //} else if idx1.1 > idx2.1 {
+                //assert(r2.1 < r1.0);
+            //} else {
+                //assert(false);
+            //}
+        //}
 
-        assert(r1.1 < r2.0 || r2.1 < r1.0); // TODO
+        assert(r1.1 <= r2.0 || r2.1 <= r1.0); // TODO
         lemma_disjoint_condition(r1, r2);
     }
 
@@ -181,6 +249,26 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         &&& GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
         &&& size % GRANULARITY == 0
     }
+
+
+    /// Order on BlockIndex
+    /// this order doesn't assume well-formedness of BlockIndex
+    /// (can contain overflowed index e.g. BlockIndex(FLLEN, SLLEN)
+    spec fn block_index_lt(idx1: Self, idx2: Self) -> bool {
+        let (fl1, sl1) = idx1@;
+        let (fl2, sl2) = idx2@;
+        if fl1 == fl2 {
+            sl1 < sl2
+        } else {
+            fl1 < fl2
+        }
+    }
+
+    proof fn lemma_block_index_lt_is_strict_and_total()
+        ensures vstd::relations::strict_total_ordering(|idx1: Self, idx2: Self| Self::block_index_lt(idx1, idx2))
+    {
+    }
+
 }
 
 // use core::cmp::Ordering;
@@ -226,6 +314,35 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 //     }
 // }
 
+proof fn lemma_max_lte_mono(x: int, y: int, c: int)
+    requires x <= y
+    ensures max(x, c) <= max(y, c)
+{}
+
+proof fn lemma_mult_lte_mono_pos(x: int, y: int, c: int) by (nonlinear_arith)
+    requires x >= 0, y >= 0, c >= 0, x <= y
+    ensures c*x <= c*y
+{}
+
+proof fn lemma_relax_pow2_strict_order(x: int, y: int)
+    requires x >= 0, y >= 0, x < y
+    ensures pow2((x + 1) as nat) <=  pow2(y as nat)
+{
+    lemma_pow2_mono((x + 1) as nat, y as nat);
+}
+
+proof fn lemma_pow2_mono(x: nat, y: nat)
+    requires
+        x <= y,
+    ensures
+        #[trigger] pow2(x) <= #[trigger] pow2(y),
+{
+    lemma_pow2(x);
+    lemma_pow2(y);
+    vstd::arithmetic::power::lemma_pow_increases(2, x, y);
+}
+
+
 /// Type for left half-open range
 struct HalfOpenRange(int, int);
 
@@ -250,7 +367,7 @@ proof fn lemma_disjoint_condition(r1: HalfOpenRange, r2: HalfOpenRange)
     requires
     ({  let HalfOpenRange(r1_start, r1_end) = r1;
         let HalfOpenRange(r2_start, r2_end) = r2;
-        r1_end < r2_start || r2_end < r1_start })
+        r1_end <= r2_start || r2_end <= r1_start })
     ensures
         r1.disjoint(r2)
     

@@ -254,6 +254,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // if sl[SLI] { fl += 1; sl = 0; }
         fl = fl + (sl >> Self::sli()) as u32;
 
+        // FIXME: fl can be greater than FLLEN.
+        //        in Verus this not a problem but for real use (interoperation with unverified code)
+        //        validation must be made.
+        //
+        //        - opiton: in the original code, result was Option<(usize, usize)>, seems this was the right
+        //                  way to insert validation. mapping function should be partial to accept
+        //                  any size of request.
+
         BlockIndex(fl as usize, sl & (SLLEN - 1))
     }
 
@@ -306,6 +314,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
         // The most significant one of `size` should be now at `sl[SLI]`
         assert(((sl >> Self::sli_spec()) & 1) == 1);
+
+        // FIXME: fl can be greater than FLLEN.
+        //        in Verus this not a problem but for real use (interoperation with unverified code)
+        //        validation must be made.
 
        BlockIndex(fl as usize, sl & (SLLEN - 1))
     }
