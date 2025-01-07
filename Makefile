@@ -1,5 +1,5 @@
 OUTDIR := build
-ASCIIDOCTOR_OPS := -a linkcss -a copycss -D build
+ASCIIDOCTOR_OPS := -a linkcss -a copycss -D build #-r asciidoctor-diagram 
 SRCS := prop2verif.adoc \
 								rlsf.adoc \
 								zhangetal.adoc \
