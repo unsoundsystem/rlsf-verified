@@ -29,6 +29,80 @@ let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
       よってSLI > fl + GRANULARITY_LOG2が成り立つのはfl=0のときに限る
 * 2. のケースはあまりに相当する桁が循環シフトによって上位に移動するため、
   `map_ceil` では上位の桁を見て切り上げ、 `map_floor` では無視している
+* 最小ブロックサイズは MBS = GRANULARITY = `size_of(usize)` * 4 であり、 `map_ceil/map_floor` ともにGRANULARITY倍の要求しか受け付けない
+    ** 従って、 `size` の下位GRANULARITY_LOG2ビット `size[0..GRANULARITY_LOG2]` は常にゼロとなる
+    ** 空きリストの添字が小さいものは、この制約から最初の数スロットしか使われない
+        *** 例えばfl=0とすると `2^(GRANULARITY_LOG2) <= size < 2^(GRANULARITY_LOG2+1)` の範囲のサイズを管理できるはずだが、
+            `GRANULARITY` 倍の要求しか受け付けないため `first_free[0][0]` しか使われない
+
+== mapping functionの定義と実装
+
+* 空きリストの定義
+    ** TLSFではメモリプールを2段階の空きリストで管理する
+        *** first-level list: リスト各添字stem:[n] に対してstem:[2^n \leq size < 2^{n+1}]に該当するサイズstem:[size]のブロックを管理している
+        *** second-level list: 各first-level listの添字stem:[n]に対して一つのsecond-level listが存在し、
+            添字stem:[n]に対応する領域を予め与えられたパラメータSLLENで等分した領域を管理する。
+
+与えられたfirst-level listの添字flとsecond-level listの添字slについて、
+second-level listの各添字の管理するサイズ範囲はstem:[slb = \frac{2^{fl}}{\text{SLLEN}}]であり、
+stem:[2^{fl} + sl\cdot slb \leq size < 2^{fl} + (sl+1)\cdot slb]なるサイズ stem:[size]のブロックが格納されている
+
+=== slの計算
+
+<<tlsf>>における計算式は以下のようになっている
+[latexmath]
+++++
+\begin{align}
+fl &= \lfloor\log_2(size)\rfloor\\
+sl &= (size - 2^{fl})\frac{2^{SLI}}{2^{fl}}
+\end{align}
+++++
+
+stem:[fl]は各空きリストのサイズ範囲の定義から直接従う。
+stem:[sl]について、first-level blockのサイズ範囲(stem:[2^{fl}])を要求サイズから引き、second-level listのサイズ範囲(stem:[\frac{2^{fl}}{\text{SLLEN}}])で割ると
+
+[latexmath]
+++++
+\begin{align}
+\frac{size - 2^{fl}}{\frac{2^{fl}}{\text{SLLEN}}} &= \frac{size - 2^{fl}}{\frac{2^{fl}}{2^{SLI}}} \\
+&= (size - 2^{fl}) \frac{2^{SLI}}{2^{fl}}
+\end{align}
+++++
+
+ここでstem:[SLI = \log_2 \text{SLLEN}]
+
+* 
+
+以下はrlsf内の要求サイズに対してsecond-level listの添字を計算する実装である。
+この実装は変数 `sl` の下位SLIビットに結果を計算する。
+
+[source,rust]
+----
+let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
+----
+
+これがいかに論文の式と対応するかをみる。
+論文との仮定の差分は以下である
+
+* 最小のブロックサイズとして `GRANULARITY = size_of(usize) * 4` を設定
+* 要求サイズとして `GRANULARITY` 倍のものだけを許す
+
+分岐命令を減らすため、循環シフトによってコーナケースをカバーしている。
+flが計算済みなため、stem:[size = 2^{fl+\text{GRANULARITY_LOG2}} + X < 2^{fl+\text{GRANULARITY_LOG2} + 1}]が仮定できる
+
+上で通り得るパスは
+
+1. シフト量が正で1を含むビットが循環しない
+2. シフト量が正で1を含むビットが循環する
+3. シフト量が負である(左シフトになる)
+
+* `fl + GRANULARITY_LOG2 >= SLI` の場合
+    ** `fl - SLI > 0` の場合
+        *** `sl[GRANULARITY_LOG2..]` のビットが循環する可能性がある
+    ** `fl - SLI =< 0` -> 1が該当
+        *** 循環は発生しない
+* `fl + GRANULARITY_LOG2 < SLI` の場合 -> 3が該当
+    ** `size == GRANULARITY` の場合のみ起こる
 
 
 
@@ -79,3 +153,7 @@ fn map_ceil(size: usize) -> Option<(usize, usize)> {
     Some((fl as usize, sl & (SLLEN - 1)))
 }
 ----
+
+[bibliography]
+== bibliography
+* [[[tlsf]]] MASMANO, Miguel, et al. TLSF: A new dynamic memory allocator for real-time systems. In: Proceedings. 16th Euromicro Conference on Real-Time Systems, 2004. ECRTS 2004. IEEE, 2004. p. 79-88.
