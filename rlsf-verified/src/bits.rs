@@ -202,16 +202,43 @@ use core::cmp::Ordering;
 use builtin::*;
 use vstd::math::abs;
 
-// TODO: more properties about rotating shift? e.g. rotated bits appears at (shift_amount mod BITS)
-//       there, stating only "`rotate_right` is equivalent to less efficient software emulation" ...
-pub open spec fn is_usize_rotate_right(x: usize, r: usize, n: int) -> bool {
+pub open spec fn usize_rotate_right(x: usize, n: int) -> usize {
     let sa: nat = abs(n) as nat % usize::BITS as nat;
     let sa_ctr: nat = (usize::BITS as nat - sa) as nat;
     // TODO: justification
-    &&& (n == 0) ==> (r == x)
-    &&& (n > 0) ==> r == ((x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr)))
-    &&& (n < 0) ==> r == ((x & low_mask(sa_ctr)) << sa | ((x & high_mask(sa)) >> (sa_ctr)))
+    if n == 0 {
+        x
+    } else if n > 0 {
+            (x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr))
+    } else { // n < 0
+        (x & low_mask(sa_ctr)) << sa | ((x & high_mask(sa)) >> (sa_ctr))
+    }
 }
+
+proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
+    requires
+        usize::BITS > n >= 0,
+        x == x & high_mask(n as nat)
+    ensures
+        x >> n == usize_rotate_right(x, n)
+{
+    //TODO
+}
+
+proof fn lemma_usize_rotate_right_mod0_eq(x: usize, n: int)
+    requires n % usize::BITS as int == 0
+    ensures x == usize_rotate_right(x, n)
+{
+    //TODO
+}
+
+proof fn lemma_usize_rotate_right_reversible(x: usize, n: int)
+    ensures x == usize_rotate_right(usize_rotate_right(x, n), -n)
+{
+    // TODO
+}
+
+
 use vstd::bits::low_bits_mask;
 // mask with n or higher bits n+1..usize::BITS set
 pub open spec fn high_mask(n: nat) -> usize {
@@ -227,77 +254,36 @@ pub open spec fn low_mask(n: nat) -> usize {
 pub fn ex_usize_rotate_right(x: usize, n: u32) -> (r: usize)
     ensures
     // This primitive cast just work as usual exec code
-    // TODO: is it ok? primitive cast really just reinterpet bytes?
-    is_usize_rotate_right(x, r, n as i32 as int)
+    // NOTE: is it ok? primitive cast really just reinterpet bytes?
+    //      ref. `unsigned_to_signed`
+    r == usize_rotate_right(x, n as i32 as int)
     { x.rotate_right(n) }
 
 use vstd::bits::*;
 use vstd::arithmetic::power2::*;
-proof fn example() {
+
+proof fn example5() {
     reveal(pow2);
-    //reveal(low_bits_mask);
     lemma_low_bits_mask_values();
-    //assert(low_mask(1) == 1);
-    //assert((1usize & !1) >> 1 | (1usize & 1) << 63 == 1usize << 63) by (bit_vector);
-    //assert((1 & high_mask(1)) >> 1 | ((1 & low_mask(1)) << 63) == (1usize << 63)) by (compute);
-    //reveal(abs);
-    //assert(abs(1) % usize::BITS as nat == 1);
-    //assert(usize::BITS == 64);
-    assert(is_usize_rotate_right(1, 1usize << 63, 1)) by (compute);
-    assert(is_usize_rotate_right(1usize << 63, 1, -1)) by (compute);
-    assert(is_usize_rotate_right(0xbeef00000000dead, 0xdeadbeef, -16)) by (compute);
-    assert(is_usize_rotate_right(0xbeef00000000dead, 0xdeadbeef00000000, 16)) by (compute);
-    assert(is_usize_rotate_right(0xdeadbeef, 0xdeadbeef, 128)) by (compute);
-    assert(is_usize_rotate_right(0xdeadbeef, 0xdeadbeef, -128)) by (compute);
-    //assert(u32::MAX as i32 as int == -1) by (bit_vector);
+    assert(usize_rotate_right(1, 1) == 1usize << 63) by (compute);
+    assert(usize_rotate_right(1usize << 63, -1) == 1) by (compute);
+    assert(usize_rotate_right(0xbeef00000000dead, -16) == 0xdeadbeef) by (compute);
+    assert(usize_rotate_right(0xbeef00000000dead, 16) == 0xdeadbeef00000000) by (compute);
+    assert(usize_rotate_right(0xdeadbeef, 128) == 0xdeadbeef) by (compute);
+    assert(usize_rotate_right(0xdeadbeef, -128) == 0xdeadbeef) by (compute);
     assert(0xfffffff0u32 as i32 as int == -16int) by (bit_vector);
-    assert(is_usize_rotate_right(0xbeef00000000dead, 0xdeadbeef, 0xfffffff0u32 as i32 as int));
+    assert(usize_rotate_right(0xbeef00000000dead, 0xfffffff0u32 as i32 as int) == 0xdeadbeef);
     // NOTE: 
     // - it seems `0xXXXu32 as i32` can be solved by bit_vector only 
     //   (by (compute) doesn't terminate)
     // - lemma around `usize_rotate_right` requires separate `assert` for `0xXXu32 as i32`
-    // TODO:
-    // - resoning abstractly about `usize_rotate_right` requires lemmas about unsigned to signed
-    //   cast.
 }
 
-proof fn unsigned_to_signed(n: u32)
+proof fn unsigned_to_signed(n: u32) by (bit_vector)
     ensures
         0 <= n && n <= 0x7fffffffu32 ==> (n as i32 as int) >= 0,
         0x7fffffff < n ==> (n as i32 as int) < 0,
-{
-    if 0 <= n && n <= 0x7fffffffu32 {
-        assert((n as i32 as int) >= 0) by (bit_vector)
-            requires 0 <= n && n <= 0x7fffffffu32;
-    } else {
-        assert((n as i32 as int) < 0) by (bit_vector)
-            requires 0x7fffffff < n;
-    };
-    //assert((0 <= n <= 0x7fffffffu32) ==> n as i32 as int >= 0)
-}
-
-
-//proof fn rotate_right_mod_0_id(x: usize, n: u32)
-    //requires n % usize::BITS == 0
-    //ensures usize_rotate_right
-
-//pub open spec fn usize_view(x: usize) -> Seq<bool> {
-//Seq::new(8*vstd::layout::size_of::<usize>(), |i: int| nth_bit!(x, i as usize))
-//}
-
-//pub open spec fn seq_rotate_right_pos(x: int, bs: Seq<bool>) -> Seq<bool>
-//recommends x > 0
-//{
-//let rot = x % bs.len();
-//bs.drop_first(rot).add(bs.subrange(bs.len() - rot, bs.len()))
-//}
-
-//pub open spec fn seq_rotate_right_neg(x: int, bs: Seq<bool>) -> Seq<bool>
-//recommends x > 0
-//{
-//let rot = x % bs.len();
-//bs.subrange(bs.len() - rot, bs.len()).add(bs.drop(rot))
-//}
+{}
 
 pub open spec fn usize_wrapping_sub(lhs: int, rhs: int) -> int {
     let sub = lhs - rhs;

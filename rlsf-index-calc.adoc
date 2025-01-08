@@ -96,42 +96,64 @@ flが計算済みなため、stem:[size = 2^{fl+\text{GRANULARITY_LOG2}} + X < 2
 2. シフト量が正で1を含むビットが循環する
 3. シフト量が負である(左シフトになる)
 
-* `fl + GRANULARITY_LOG2 >= SLI` の場合
-    ** `fl - SLI > 0` の場合
+* `fl + GRANULARITY_LOG2 - SLI >= 0` の場合
+    ** `fl + GRANULARITY_LOG2 - SLI >= GRANULARITY_LOG2` の場合
+        *** 下位SLIビットを見れば右シフトと変わらないstem:[\frac{size-2^{fl}}{2^{fl + \text{GRANULARITY_LOG2} - SLI}}]
         *** `sl[GRANULARITY_LOG2..]` のビットが循環する可能性がある
             もしも循環したら、それは計算結果の示すブロックサイズより元のsizeが大きいことを意味するため、
             map_ceilでは切り上げるための処理が入る
             **** `sl[0..SLI]` には切り捨てverのsecond-level listの添字が入る
-    ** `fl - SLI =< 0` -> 1が該当
+    ** `fl + GRANULARITY_LOG2 - SLI < GRANULARITY_LOG2` -> 1が該当
         *** 循環する桁が下位 `GRANULARITY_LOG2` のみなので影響はなく、通常の右シフトと同様
+        *** stem:[\frac{size}{2^{fl + \text{GRANULARITY_LOG2} - SLI}}]
 * `fl + GRANULARITY_LOG2 < SLI` の場合 -> 3が該当
-    ** `size == GRANULARITY` の場合のみ起こる
+    ** `size == GRANULARITY` の場合のみ起こり、1ビット左シフト
 
-    +-------- size ----------------------------+
-    |                                          |
-    |        +------------- fl                 |
-    |        |    _________ SLI                |
-    |        |   /////_____ GRANULARITY_LOG2   |
-    |        |  /////    /                     |
-    |        | /////    /                      |
-    |        v+---+----+                       |
-    |    0...1.....00..0                       |
-    |  MSB..........3210LSB                    |
-    +------------------------------------------+
+ここで常に `sl[SLI] = 1`
+
+* 1と2ではシフト量は常に  `fl+GRANULARITY_LOG2` 以下なため、 `sl[SLI] = 1`
+* 3のケースでは、SLI=6,fl=0,GRANULARITY_LOG2=5なので `0b100000 << 1 == 0b1000000` を見ると成り立っている。
+
+`fl + GRANULARITY_LOG2 >= SLI` かつ `fl - SLI > 0` の場合
+(SLIの幅はGRANULARITY_LOG2にかかりうる)
+[svgbob,format="svg"]
+....
++-------- size --------------------------------------+
+|                                                    |
+|              .---------------"fl+GRANULARITY_LOG2" |
+|              |    .----------"SLI"                 |
+|              |    |        .-"GRANULARITY_LOG2"    |
+|              |    |        '----.                  |
+|              |    |             |                  |
+|              v  <-+-~~~~~ <-----+------>           |
+|    +---+---+---+---------+---+---+--+---+          |
+|    | 0 |...| 1 |.........| 0 | 0 |..| 0 |          |
+|    +---+---+---+---------+---+---+--+---+          |
+|       63   ...fl                 ...0              |
+|               "(+GRANULARITY_LOG2)"                |
++----------------------------------------------------+
+....
 
 
-    +---size(rotated, sa > GRANULARITY_LOG2 )--+
-    |                           (originally fl)|
-    |   GRANULARITY_LOG2  +------------- SLI   |
-    |           \         |    _________ SLI-1 |
-    |            \____    |   ////             |
-    | overflow ___\   \   |  ////              |
-    |    -ed    \ \\\\\\  | ////               |
-    |            +-+----+ v+---+               |
-    |            ..00..00...1...               |
-    |          MSB..........3210LSB            |
-    +------------------------------------------+
-
+`fl + GRANULARITY_LOG2 >= SLI` かつ `fl - SLI =< 0` の場合
+(SLIの幅はGRANULARITY_LOG2にかかりうる)
+[svgbob,format="svg"]
+....
++-------- sl ----------------------------------------+
+|                                                    |
+|                  .------------"fl+GRANULARITY_LOG2"|
+|                  |    .-------"SLI"                |
+|                  |    |     .-"less than"          |
+|"0s from 0.."     |    |     | "GRANULARITY_LOG2"   |
+|"GRANULARITY_LOG2"|    |     '---.                  |
+|            "bits"v  <-+-~~~~~ <-+------>           |
+|        +---+---+---+---------+---+--+---+          |
+|        | 0 |...| 1 |.........| 0 |..| 0 |          |
+|        +---+---+---+---------+---+--+---+          |
+|           63   ...fl             ...0              |
+|               "(+GRANULARITY_LOG2)"                |
++----------------------------------------------------+
+....
 
 [source,rust]
 ----
@@ -139,8 +161,9 @@ sl = (sl & (SLLEN - 1)) + (sl >= (1 << (Self::SLI + 1))) as usize;
 ----
 
  * map_ceilの場合、循環して上位に来た桁があれば(fl,sl)を次の添字に進める必要がある
-    ** sl[SLI]=size[fl]なので、1⃣の循環がなければ `sl < 1<<SLI+1` 、これが義であれば1を下位SLIビットに加算してsecond-level listの添字は繰り上げることができる
+    ** sl[SLI]=size[fl]なので、1の循環がなければ `sl < 1<<SLI+1` 、これが義であれば1を下位SLIビットに加算してsecond-level listの添字は繰り上げることができる
     ** 繰り上げ後のslがSLLENを超えていれば i.e. sl[SLI]が立っていれば、1をflに加算
+        *** このとき繰り上げ後のslの下位SLIビットは0なので、(fl+1,0)として適切に添字の繰り上げができている
 
 [source,rust]
 ----

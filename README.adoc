@@ -68,12 +68,13 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == references
 
-* link:coqdoc/index.html[`rr-ex` のcoqdoc]
 * xref:./status.adoc[現状]
+* xref:./rlsf-index-calc.adoc[TLSFのインデックス計算に関する正当化]
 * xref:prop2verif.adoc[検証の対象とする性質の検討]
 * xref:rlsf.adoc[rlsfに関するメモ]
 * xref:refinedrust.adoc[RefinedRustに関するメモ]
 * xref:zhangetal.adoc[ZhangらによるTLSFの形式仕様に関するメモ]
+* link:coqdoc/index.html[`rr-ex` のcoqdoc]
 * https://plv.mpi-sws.org/refinedrust/[RefinedRust webpage]
 * https://github.com/yvt/rlsf/tree/main[rlsf repository]
 * https://iris-project.org[Iris webpage]

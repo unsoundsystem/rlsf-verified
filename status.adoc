@@ -424,3 +424,9 @@ impl<const N: usize> B<N> {
 == 2024/01/07
 
 * インデックス計算の検証に関するdesign doc(実装のインフォーマルな正当化)を書き進めた
+
+== 2024/01/08
+
+* `rlsf_verified::bits` のリファクタリング(`is_op_spec(arg, res)` -> `op_spec(x) == res`)
+* インデックス計算の検証に関するdesign docを書き進めた
+    ** 重要な行間は埋めることができたような気がしている
