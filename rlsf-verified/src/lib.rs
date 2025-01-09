@@ -180,13 +180,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     #[verifier::external_body]
     #[inline(always)]
-    fn update_bitmap(&mut self, fl: usize, sl: usize)
-        requires Self::valid_block_index((fl as int, sl as int)),
-        ensures self.fl_bitmap == (old(self).fl_bitmap | (1usize << fl as int)),
-                self.sl_bitmap[fl as int] == (old(self).sl_bitmap[fl as int] | (1usize << sl as int)),
-                self.wf(), // NOTE: this function should be used to fix the inconsistency bitween
-                           //       freelist & bitmaps (thus the postcondition)
+    fn update_bitmap(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
+        requires idx.wf(),
+        ensures ({ let BlockIndex(fl, sl) = idx;
+                &&& self.fl_bitmap == (old(self).fl_bitmap | (1usize << fl as int))
+                &&& self.sl_bitmap[fl as int] == (old(self).sl_bitmap[fl as int] | (1usize << sl as int))
+                &&& self.wf() })
+                // NOTE: this function should be used to fix the inconsistency bitween
+                //       freelist & bitmaps (thus the postcondition)
+
     {
+        let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap | (1usize << fl);
         self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl); // FIXME: Verus doesn't allow lhs
                                                                   // mutation
@@ -201,9 +205,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //#[verifier::external_body] // debug
     pub fn map_ceil(size: usize) -> (r: BlockIndex<FLLEN, SLLEN>)
         requires
-            Self::valid_block_size(size as int),
+            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
-            Self::valid_block_index((r.0 as int, r.1 as int))
+            r.wf(),
+            forall|sz: int| r.block_size_range_set().contains(sz) ==> sz >= size
             // TODO: ensure `r` is index of freelist that all of its elements larger or equal to
             //       the requested size
     {
@@ -265,40 +270,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         BlockIndex(fl as usize, sl & (SLLEN - 1))
     }
 
-    spec fn block_size_range(idx: (int, int)) -> Set<int> {
-        let (fl, sl) = idx;
-        // FIXME:        ↓ this can be negative!
-        //              vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-        let size = pow2((fl + Self::granularity_log2_spec() - SLLEN) as nat);
-        set_int_range(pow2(fl as nat) + size * sl, pow2(fl as nat) + size * (sl + 1))
-    }
-
-    // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
-    proof fn index_unique_range(idx1: (int, int), idx2: (int, int))
-        requires
-            Self::valid_block_index(idx1),
-            Self::valid_block_index(idx2),
-            idx1 != idx2
-        ensures Self::block_size_range(idx1).disjoint(Self::block_size_range(idx2))
-    {
-    }
-
-    //TODO: proof
-    proof fn index_exists_for_valid_size(size: int)
-        requires Self::valid_block_size(size as int)
-        ensures exists|idx: (int, int)| Self::block_size_range(idx).contains(size)
-    {
-    }
-
     #[inline(always)]
     //#[verifier::external_body] // debug
     fn map_floor(size: usize) -> (r: BlockIndex<FLLEN, SLLEN>)
-    requires
-        Self::valid_block_size(size as int),
-    ensures
-        Self::valid_block_index((r.0 as int, r.1 as int)),
+        requires BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+        ensures r.wf(),
+            r.block_size_range_set().contains(size as int),
         // ensuring `r` is index of freelist appropriate to store the block of size requested
-        Self::block_size_range((r.0 as int, r.1 as int)).contains(size as int),
     {
         assert(size >= GRANULARITY);
         assert(size % GRANULARITY == 0);
@@ -322,23 +300,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
        BlockIndex(fl as usize, sl & (SLLEN - 1))
     }
 
-
-    pub closed spec fn valid_block_size(size: int) -> bool {
-        &&& GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
-        &&& size % GRANULARITY as int == 0
-    }
-
-    pub closed spec fn valid_block_index(idx: (int, int)) -> bool {
-        let (fl, sl) = idx;
-        &&& 0 <= fl < FLLEN
-        &&& 0 <= sl < SLLEN
-    }
     spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
         // `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
-        forall|fl: int, sl: int|  Self::valid_block_index((fl,sl)) ==>
-            nth_bit!(self.sl_bitmap[fl], sl as usize)
-                <==> self.first_free[fl][sl].is_some()
+        forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
+            nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
+                <==> self.first_free[idx.0 as int][idx.1 as int].is_some()
     }
 
 
@@ -504,7 +471,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize)
         requires
             old(self).wf(),
-            Self::valid_block_size(size as int),
+            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
             self.wf()
     {

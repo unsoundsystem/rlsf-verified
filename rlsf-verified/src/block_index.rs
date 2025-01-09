@@ -17,7 +17,7 @@ pub struct BlockIndex<const FLLEN: usize, const SLLEN: usize>(pub usize, pub usi
 
 impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
-    spec fn view(&self) -> (int, int) {
+    pub open spec fn view(&self) -> (int, int) {
         (self.0 as int, self.1 as int)
     }
 
@@ -32,11 +32,11 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     //TODO: DRY
-    spec fn granularity_log2_spec() -> int {
+    pub open spec fn granularity_log2_spec() -> int {
         log(2, GRANULARITY as int)
     }
 
-    spec fn valid_int_tuple(idx: (int, int)) -> bool {
+    pub open spec fn valid_block_index(idx: (int, int)) -> bool {
         let (fl, sl) = idx;
         &&& Self::granularity_log2_spec() <= fl < FLLEN as int
         &&& 0 <= sl < SLLEN as int
@@ -48,8 +48,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     /// Block index validity according to given parameters (GRANULARITY/FLLEN/SLLEN)
-    spec fn wf(&self) -> bool {
-        Self::valid_int_tuple(self@)
+    pub open spec fn wf(&self) -> bool {
+        Self::valid_block_index(self@)
     }
 
     // Further properties about index calculation
@@ -57,13 +57,13 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     // FIXME(if i wrong): is there any special reason for using `int` there?
 
     /// Calculate size range as set of usize for given block index.
-    spec fn block_size_range_set(&self) -> Set<int>
+    pub open spec fn block_size_range_set(&self) -> Set<int>
         recommends self.wf()
     {
         self.block_size_range().to_set()
     }
 
-    spec fn calculate_block_size_range(&self) -> (int, int)
+    pub open spec fn calculate_block_size_range(&self) -> (int, int)
         recommends self.wf()
     {
         let BlockIndex(fl, sl) = self;
@@ -82,7 +82,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         (fl_block_bytes + sl_block_bytes * sl as int, fl_block_bytes + sl_block_bytes * (sl + 1) as int)
     }
 
-    spec fn block_size_range(&self) -> HalfOpenRange
+    pub closed spec fn block_size_range(&self) -> HalfOpenRange
         recommends self.wf()
     {
         let (start, end) = self.calculate_block_size_range();
@@ -227,8 +227,9 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     //TODO: proof
     /// There is at least one index for valid size.
     proof fn index_exists_for_valid_size(size: usize)
-        requires Self::valid_block_size(size)
-        ensures exists|idx: Self| idx.wf() && idx.block_size_range_set().contains(size as int)
+        requires Self::valid_block_size(size as int)
+        ensures exists|idx: Self| idx.wf()
+            && idx.block_size_range_set().contains(size as int)
     {
         let index = Self::calculate_index_from_block_size(size);
         assert(index.wf() && index.block_size_range_set().contains(size as int));
@@ -236,7 +237,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     /// idealized map_floor
     spec fn calculate_index_from_block_size(size: usize) -> Self
-        recommends Self::valid_block_size(size)
+        recommends Self::valid_block_size(size as int)
     {
         let fl = log(2, size as int) - Self::granularity_log2_spec();
         let sl = (size - pow2(fl as nat)) * pow2(min((fl + GRANULARITY - SLLEN), 0) as nat);
@@ -245,9 +246,9 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     // TODO: formalize idealized map_ceil & proof it returns block of size at least requested
 
-    pub closed spec fn valid_block_size(size: usize) -> bool {
+    pub closed spec fn valid_block_size(size: int) -> bool {
         &&& GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
-        &&& size % GRANULARITY == 0
+        &&& size % (GRANULARITY as int) == 0
     }
 
 
@@ -344,21 +345,21 @@ proof fn lemma_pow2_mono(x: nat, y: nat)
 
 
 /// Type for left half-open range
-struct HalfOpenRange(int, int);
+pub struct HalfOpenRange(int, int);
 
 impl HalfOpenRange {
     /// Forbiding here invalid format of half-open range which start point is bigger than end. e.g. ]123, -42)
     #[verifier::type_invariant]
-    spec fn wf(self) -> bool {
+    pub open spec fn wf(self) -> bool {
         let Self(start, end) = self;
         start <= end
     }
 
-    spec fn to_set(&self) -> Set<int> {
+    pub closed spec fn to_set(&self) -> Set<int> {
         set_int_range(self.0, self.1)
     }
 
-    spec fn disjoint(&self, rhs: Self) -> bool {
+    pub open spec fn disjoint(&self, rhs: Self) -> bool {
         self.to_set().disjoint(rhs.to_set())
     }
 }

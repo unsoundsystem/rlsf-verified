@@ -430,3 +430,8 @@ impl<const N: usize> B<N> {
 * `rlsf_verified::bits` のリファクタリング(`is_op_spec(arg, res)` -> `op_spec(x) == res`)
 * インデックス計算の検証に関するdesign docを書き進めた
     ** 重要な行間は埋めることができたような気がしている
+    
+== 2024/01/09
+
+* ビット演算周りの補題の証明(wip)
+    ** bit maskと整数剰余との相互関係を使いたいので `vstd::bits::lemma_u64_low_bits_mask_is_mod` あたりをusizeに移植する必要がある

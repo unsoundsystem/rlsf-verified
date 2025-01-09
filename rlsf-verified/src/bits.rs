@@ -225,11 +225,39 @@ proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
     //TODO
 }
 
+proof fn lemma_usize_rotate_right_0_eq(x: usize)
+    ensures x == usize_rotate_right(x, 0)
+{
+}
+
+proof fn lemma_usize_full_mask(x: usize)
+    ensures x & usize::MAX == x
+{
+    assert(usize::MAX == pow2(usize::BITS as nat) - 1) by (compute);
+    assert forall |i: usize| i <= #[trigger] usize::MAX by {
+        assert(i <= pow2(usize::BITS as nat) - 1);
+    };
+}
+
 proof fn lemma_usize_rotate_right_mod0_eq(x: usize, n: int)
     requires n % usize::BITS as int == 0
     ensures x == usize_rotate_right(x, n)
 {
-    //TODO
+    assert(high_mask(usize::BITS as nat) == 0) by (compute);
+    let sa = 0nat;
+    let sa_ctr: nat = usize::BITS as nat;
+    // TODO: justification
+    assert(low_mask(0) == 0) by (compute);
+    assume((abs(n) as nat % usize::BITS as nat) == 0);
+    if n > 0 {
+        vstd::bits::lemma_low_bits_mask_values();
+        assert(usize::MAX == low_mask(usize::BITS as nat)) by (compute);
+        assert(x & high_mask(0) == x) by (compute);
+        assert(x & low_mask(0) == 0) by (compute);
+        //assert((x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr)) == x) by (compute_only);
+    } 
+    if n < 0 {
+    }
 }
 
 proof fn lemma_usize_rotate_right_reversible(x: usize, n: int)
