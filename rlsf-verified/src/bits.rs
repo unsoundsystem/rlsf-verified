@@ -11,6 +11,7 @@ use vstd::std_specs::bits::{
 use vstd::bytes::{spec_u32_to_le_bytes, spec_u64_to_le_bytes};
 use vstd::arithmetic::logarithm::{log, lemma_log_nonnegative};
 use vstd::arithmetic::power::{pow, lemma_pow_adds};
+use vstd::arithmetic::div_mod::lemma_mod_breakdown;
 
 //#[cfg(target_pointer_width = "32")]
 //global layout usize is size == 4;
@@ -209,7 +210,7 @@ pub open spec fn usize_rotate_right(x: usize, n: int) -> usize {
     if n == 0 {
         x
     } else if n > 0 {
-            (x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr))
+        (x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr))
     } else { // n < 0
         (x & low_mask(sa_ctr)) << sa | ((x & high_mask(sa)) >> (sa_ctr))
     }
@@ -227,53 +228,83 @@ proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
 
 proof fn lemma_usize_rotate_right_0_eq(x: usize)
     ensures x == usize_rotate_right(x, 0)
-{
-}
+{}
+
+proof fn lemma_usize_shr_0(x: usize) by (bit_vector)
+    ensures x == x >> 0
+{}
+
+proof fn lemma_usize_shl_0(x: usize) by (bit_vector)
+    ensures x == x << 0
+{}
+
+proof fn lemma_usize_shr_over(x: usize) by (bit_vector)
+    ensures x >> usize::BITS == 0
+{}
 
 proof fn lemma_usize_full_mask(x: usize)
     ensures x & usize::MAX == x
 {
-    assert(usize::MAX == pow2(usize::BITS as nat) - 1) by (compute);
-    assert forall |i: usize| i <= #[trigger] usize::MAX by {
-        assert(i <= pow2(usize::BITS as nat) - 1);
-    };
+    assert(x & usize::MAX == x) by (compute);
 }
 
-proof fn lemma_usize_rotate_right_mod0_eq(x: usize, n: int)
+proof fn lemma_usize_rotate_right_mod0_noop(x: usize, n: int)
     requires n % usize::BITS as int == 0
     ensures x == usize_rotate_right(x, n)
 {
-    assert(high_mask(usize::BITS as nat) == 0) by (compute);
     let sa = 0nat;
-    let sa_ctr: nat = usize::BITS as nat;
-    // TODO: justification
-    assert(low_mask(0) == 0) by (compute);
-    assume((abs(n) as nat % usize::BITS as nat) == 0);
-    if n > 0 {
-        vstd::bits::lemma_low_bits_mask_values();
-        assert(usize::MAX == low_mask(usize::BITS as nat)) by (compute);
-        assert(x & high_mask(0) == x) by (compute);
-        assert(x & low_mask(0) == 0) by (compute);
-        //assert((x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr)) == x) by (compute_only);
-    } 
-    if n < 0 {
+    let sa_ctr = usize::BITS as nat;
+    assert(high_mask(0) == usize::MAX) by (compute_only);
+    assert(low_mask(0) == 0) by (compute_only);
+    assert(low_mask(usize::BITS as nat) == usize::MAX) by (compute_only);
+    if n == 0 {
+        assert(x == x);
+    } else if n > 0 {
+        lemma_usize_full_mask(x);
+        lemma_usize_shr_0(x);
+        lemma_usize_shl_0(x);
+        assert(x == (x & usize::MAX) >> 0 | ((x & 0) << (usize::BITS as nat))) by (compute);
+    } else {
+        lemma_usize_full_mask(x);
+        lemma_usize_shr_over(x);
+        lemma_usize_shl_0(x);
+        assert(x == x | 0) by (bit_vector);
+        assert(x == (x & usize::MAX) << 0 | ((x & usize::MAX) >> (usize::BITS as nat))) by (compute);
     }
+}
+
+proof fn lemma_usize_rotate_right_distr(x: usize, m: int, n: int, l: int)
+    requires m == n + l
+    ensures usize_rotate_right(x, m) == usize_rotate_right(usize_rotate_right(x, n), l)
+{
+    // TODO
 }
 
 proof fn lemma_usize_rotate_right_reversible(x: usize, n: int)
     ensures x == usize_rotate_right(usize_rotate_right(x, n), -n)
 {
     // TODO
+    if n == 0 {
+        assert(x == usize_rotate_right(usize_rotate_right(x, 0), 0));
+    } else if n > 0 {
+        assert(-n < 0);
+        let sa1: nat = abs(n) as nat % usize::BITS as nat;
+        let sa_ctr1: nat = (usize::BITS as nat - sa1) as nat;
+        let sa2: nat = abs(-n) as nat % usize::BITS as nat;
+        let sa_ctr2: nat = (usize::BITS as nat - sa2) as nat;
+    } else {
+        assert(-n > 0);
+    }
 }
 
 
 use vstd::bits::low_bits_mask;
-// mask with n or higher bits n+1..usize::BITS set
+// mask with n or higher bits n..usize::BITS set
 pub open spec fn high_mask(n: nat) -> usize {
     !low_mask(n)
 }
 
-// masks with bits 0..=n set
+// masks with bits 0..n set
 pub open spec fn low_mask(n: nat) -> usize {
     low_bits_mask(n) as usize
 }
@@ -299,6 +330,7 @@ proof fn example5() {
     assert(usize_rotate_right(0xbeef00000000dead, 16) == 0xdeadbeef00000000) by (compute);
     assert(usize_rotate_right(0xdeadbeef, 128) == 0xdeadbeef) by (compute);
     assert(usize_rotate_right(0xdeadbeef, -128) == 0xdeadbeef) by (compute);
+    assert(usize_rotate_right(usize_rotate_right(0xdeadbeef, -1234), 1234) == 0xdeadbeef) by (compute);
     assert(0xfffffff0u32 as i32 as int == -16int) by (bit_vector);
     assert(usize_rotate_right(0xbeef00000000dead, 0xfffffff0u32 as i32 as int) == 0xdeadbeef);
     // NOTE: 
@@ -424,4 +456,70 @@ pub open spec fn is_power_of_two(n: int) -> bool
      } 
 }
 
+use vstd::bits::lemma_u64_low_bits_mask_is_mod;
+
+#[cfg(target_pointer_width = "64")]
+proof fn lemma_usize_low_bits_mask_is_mod(x: usize, n: nat) {
+    lemma_u64_low_bits_mask_is_mod(x as u64, n);
 }
+
+
+
+use vstd::calc;
+proof fn ex_lemma_low_bits_mask_is_mod(x: u64, n: nat)
+    requires n < u64::BITS,
+    ensures
+        #[trigger] (x & (low_bits_mask(n) as u64)) == x % (pow2(n) as u64),
+    decreases n,
+{
+    // Bounds.
+    lemma_u64_pow2_no_overflow(n);
+    lemma_pow2_pos(n);
+
+    // Inductive proof.
+    if n == 0 {
+        assert(low_bits_mask(0) == 0) by (compute_only);
+        assert(x & 0 == 0) by (bit_vector);
+        assert(pow2(0) == 1) by (compute_only);
+        assert(x % 1 == 0);
+    } else {
+        lemma_pow2_unfold(n);
+        assert((x % 2) == ((x % 2) & 1)) by (bit_vector);
+        calc!{ (==)
+            x % (pow2(n) as u64);
+                {}
+            x % ((2 * pow2((n-1) as nat)) as u64);
+                {
+                    lemma_pow2_pos((n-1) as nat);
+                    lemma_mod_breakdown(x as int, 2, pow2((n-1) as nat) as int);
+                }
+            add(mul(2, (x / 2) % (pow2((n-1) as nat) as u64)), x % 2);
+                {
+                    ex_lemma_low_bits_mask_is_mod(x/2, (n-1) as nat);
+                }
+            add(mul(2, (x / 2) & (low_bits_mask((n-1) as nat) as u64)), x % 2);
+                {
+                    lemma_low_bits_mask_div2(n);
+                }
+            add(mul(2, (x / 2) & (low_bits_mask(n) as u64 / 2)), x % 2);
+                {
+                    lemma_low_bits_mask_is_odd(n);
+                }
+            add(mul(2, (x / 2) & (low_bits_mask(n) as u64 / 2)), (x % 2) & ((low_bits_mask(n) as u64) % 2));
+                {
+                    and_split_low_bit(x as u64, low_bits_mask(n) as u64);
+                }
+                x & (low_bits_mask(n) as u64);
+        }
+    }
+}
+
+// Helper lemma breaking a bitwise-and operation into the low bit and the rest.
+proof fn and_split_low_bit(x: u64, m: u64)
+    by (bit_vector)
+    ensures
+        x & m == add(mul(((x / 2) & (m / 2)), 2), (x % 2) & (m % 2)),
+{
+}
+
+} // verus!
