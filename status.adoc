@@ -440,3 +440,6 @@ impl<const N: usize> B<N> {
 
 * 添字計算式の再考→有理数上での再定式化
 * Verus上での有理数の形式化
+    ** `[verifier::type_invariant]` はspec modeのものには使えず、数学的な対象には `admit()` などを使って公理化するのが標準的なよう
+    ** `vstd::relations` が `==` で同値関係が定義されていることを仮定しており、VerusはまだPartialEqのユーザー実装をサポートしていないため、
+        該当部分を再実装
