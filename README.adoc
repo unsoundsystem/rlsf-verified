@@ -22,18 +22,24 @@ ifdef::env-name[:relfilesuffix: .adoc]
 == TODO
 
 * Verusで `Tlsf::allocate` を検証する
-    ** 対象とするユースケースやTCB,証明のためのproof constractなどの設計をまとめたdesign docを作る
-    ** `DeallocToken` の再考: deallocateで前後のブロックを結合する際にヘッダ全体の権限をユーザーが持っていると問題になりそう
-    ** link某を消して、ベタ書きにする(`ptr_mut_(read|write)` がフィールドの部分的な更新に対応していないため)
-    ** specを具体例でテストする
-        *** ビット演算周りの仕様(`usize_*`)
+    ** [ ] 対象とするユースケースやTCB,証明のためのproof constractなどの設計をまとめたdesign docを作る
+    ** [ ] `DeallocToken` の再考: deallocateで前後のブロックを結合する際にヘッダ全体の権限をユーザーが持っていると問題になりそう
     ** global directiveの管理
         *** プラットフォーム毎に唯一の `usize` 幅を想定してほしい
         *** cfgで公理を含むモジュールのインポートを分岐させる
     ** インデックス計算
-        *** `map_ceil` の検証
-        *** rotate_rightの形式仕様をbitvectorで解ける形で与える
-        *** `model.v` を参考にインデックス計算に関する性質を書いていく
+        *** rotate_rightの形式仕様
+            **** [ ] `lemma_usize_rotate_right_0_eq`
+            **** [ ] `lemma_usize_rotate_right_low_mask_shl`
+            **** [x] `lemma_usize_rotate_right_mod0_noop`
+            **** [ ] `lemma_usize_rotate_right_distr`
+            **** [ ] `lemma_usize_rotate_right_reversible`
+        *** 理論的性質
+            **** [ ] 有理数上の半開区間に移植する
+            **** [ ] 有理数の形式化
+            **** [ ] `index_unique_range`
+            **** [ ] `index_exists_for_valid_size`
+            **** [ ] `lemma_block_size_range_mono` (optional)
     ** メモリ領域の正当性の公理化・伝播
         *** Tlsf構造体内の情報に関する証明内追跡用の構造体の設計(各 `(.*)Block` によるリンクリストの情報など)
         *** Deallocation tokenの設計
@@ -62,8 +68,6 @@ ifdef::env-name[:relfilesuffix: .adoc]
 * 検証の対象とする性質の検討
     ** Rustのアロケータとして要求される仕様について検討する
     ** メモリプールの扱い(固定長/動的に拡張可能？)
-* `Tlsf::allocate` / `Tlsf::deallocate` に絞って正当性を考えて・スペックを書き始める
-* `crates/rlsf/src/tlsf.rs` を現在のフロントエンドで扱える範囲に、書き換える
 //* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
 
 == references

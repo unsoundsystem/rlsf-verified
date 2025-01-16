@@ -63,6 +63,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         self.block_size_range().to_set()
     }
 
+    // FIXME: correct this using half-open range on Q
     pub open spec fn calculate_block_size_range(&self) -> (int, int)
         recommends self.wf()
     {
@@ -76,11 +77,18 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         //        - but the *range* of size, specified in bytes (rlsf assume GRANULARITY aligned)
         //              - TODO: this seems reasonable as a spec but there would be inconsistency
         //                      between impl & spec
+        // TODO: this is not correct!!!!! branching into GRANULARITY crossing the boundary of fl_block_bytes
         let sl_block_bytes = max(fl_block_bytes / SLLEN as int, GRANULARITY as int);
         // NOTE: Actually although the range specified in 1-byte granularity,
         //      there can be stored aribtrary size of blocks, because rlsf provides only GRANULARITY aligned allocation.
         (fl_block_bytes + sl_block_bytes * sl as int, fl_block_bytes + sl_block_bytes * (sl + 1) as int)
     }
+
+    // minimal index fall into minimal block size (=GRANULARITY)
+    //pub proof fn lemma_block_size_range_min(self)
+        //requires self.wf(), vstd::relations::is_minimal(Set::full(), |i: Self, j: Self| block_index_lt(i, j), self)
+        //ensures vstd::relations::is_minimal(self.block_size_range_set(), |i: int, j: int| i < j, GRANULARITY as int)
+    //{}
 
     pub closed spec fn block_size_range(&self) -> HalfOpenRange
         recommends self.wf()
@@ -111,6 +119,44 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         vstd::set_lib::lemma_int_range(GRANULARITY as int, GRANULARITY as int + GRANULARITY as int);
         assert(!idx.block_size_range_set().is_empty());
         assert(idx.block_size_range_set().len() == GRANULARITY);
+    }
+
+    // TODO: this can be stronger e.g. all elements of idx1's range is bigger than idx2's range
+    proof fn lemma_index_unique_range_for_fl(idx1: Self, idx2: Self)
+        requires idx1.0 < idx2.0
+        ensures idx1.block_size_range_set().disjoint(idx2.block_size_range_set())
+    {
+//
+//        // (<=)
+//        // pow2(idx1.0 + GRANULARITY_LOG2) + max(pow2(idx1.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * (idx1.1 + 1)
+//        // pow2(idx2.0 + GRANULARITY_LOG2)
+//        let fl1_bytes = pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int;
+//        let fl2_bytes = pow2((idx2.0 + Self::granularity_log2_spec()) as nat) as int;
+//        let sl1_bytes = max(fl1_bytes / SLLEN as int, GRANULARITY as int);
+//        let sl2_bytes = max(fl2_bytes / SLLEN as int, GRANULARITY as int);
+//        assert(idx1.0 >=  0 && idx2.0 >= 0 && Self::granularity_log2_spec() >= 0) by (compute);
+//        assert(idx1.0 + Self::granularity_log2_spec() < idx2.0 + Self::granularity_log2_spec()) by (compute);
+//        lemma_pow2_strictly_increases((idx1.0 + Self::granularity_log2_spec()) as nat, (idx2.0 + Self::granularity_log2_spec()) as nat);
+//        assert(fl1_bytes < fl2_bytes);
+//        assert(idx1.0 + 1 <= idx2.0);
+//        assert((Self::granularity_log2_spec() + idx1.0 + 1) > 0) by (compute);
+//        lemma_pow2_unfold((Self::granularity_log2_spec() + idx1.0 + 1) as nat);
+//        assert(2 * fl1_bytes == pow2((Self::granularity_log2_spec() + idx1.0 + 1) as nat));
+//        lemma_pow2_strictly_increases((idx1.0 + Self::granularity_log2_spec()) as nat, (idx1.0 + Self::granularity_log2_spec() + 1) as nat);
+//        assert(fl1_bytes == pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int);
+//        assert(fl1_bytes < pow2((Self::granularity_log2_spec() + idx1.0 + 1) as nat));
+//        lemma_relax_pow2_strict_order(idx1.0 + Self::granularity_log2_spec(), idx2.0 + Self::granularity_log2_spec());
+//        assert(2 * fl1_bytes <= fl2_bytes);
+//        assert(idx1.1 + 1 <= SLLEN);
+//        assume(sl1_bytes * SLLEN == fl1_bytes);
+//        assert(idx1.1 < SLLEN);
+//
+//        // TODO: branch depend on sl(.)_bytes == GRANULARITY
+//        assert(sl1_bytes * (idx1.1 + 1) <= fl1_bytes); // TODO
+//        assert(fl1_bytes + sl1_bytes * (idx1.1 + 1) <= 2 * fl1_bytes);
+//        assert(fl1_bytes + sl1_bytes * (idx1.1 + 1) <= fl2_bytes);
+//        assert(r1.1 <= r2.0) by (compute);
+//        assert(idx1.block_size_range_set().disjoint(idx2.block_size_range_set()));
     }
 
     // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
@@ -158,31 +204,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
                 // pow2(idx1.0 + GRANULARITY_LOG2) + max(pow2(idx1.0 + GRANULARITY_LOG2) / SLLEN, GRANULARITY) * (idx1.1 + 1)
                 // pow2(idx2.0 + GRANULARITY_LOG2)
 
-                let fl1_bytes = pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int;
-                let fl2_bytes = pow2((idx2.0 + Self::granularity_log2_spec()) as nat) as int;
-                let sl1_bytes = max(fl1_bytes / SLLEN as int, GRANULARITY as int);
-                let sl2_bytes = max(fl2_bytes / SLLEN as int, GRANULARITY as int);
-                assert(idx1.0 >=  0 && idx2.0 >= 0 && Self::granularity_log2_spec() >= 0) by (compute);
-                assert(idx1.0 + Self::granularity_log2_spec() < idx2.0 + Self::granularity_log2_spec()) by (compute);
-                lemma_pow2_strictly_increases((idx1.0 + Self::granularity_log2_spec()) as nat, (idx2.0 + Self::granularity_log2_spec()) as nat);
-                assert(fl1_bytes < fl2_bytes);
-                assert(idx1.0 + 1 <= idx2.0);
-                assert((Self::granularity_log2_spec() + idx1.0 + 1) > 0) by (compute);
-                lemma_pow2_unfold((Self::granularity_log2_spec() + idx1.0 + 1) as nat);
-                assert(2 * fl1_bytes == pow2((Self::granularity_log2_spec() + idx1.0 + 1) as nat));
-                lemma_pow2_strictly_increases((idx1.0 + Self::granularity_log2_spec()) as nat, (idx1.0 + Self::granularity_log2_spec() + 1) as nat);
-                assert(fl1_bytes == pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int);
-                assert(fl1_bytes < pow2((Self::granularity_log2_spec() + idx1.0 + 1) as nat));
-                lemma_relax_pow2_strict_order(idx1.0 + Self::granularity_log2_spec(), idx2.0 + Self::granularity_log2_spec());
-                assert(2 * fl1_bytes <= fl2_bytes);
-                assert(idx1.1 + 1 <= SLLEN);
-                assert(sl1_bytes * SLLEN == fl1_bytes);
-
-                // TODO: branch depend on sl(.)_bytes == GRANULARITY
-                assert(sl1_bytes * (idx1.1 + 1) <= fl1_bytes); // TODO
-                assert(fl1_bytes + sl1_bytes * (idx1.1 + 1) <= 2 * fl1_bytes);
-                assert(fl1_bytes + sl1_bytes * (idx1.1 + 1) <= fl2_bytes);
-                assert(r1.1 <= r2.0) by (compute);
+                Self::lemma_index_unique_range_for_fl(idx1, idx2);
             }
             assert(r1.1 <= r2.0);
         } else if Self::block_index_lt(idx2, idx1) {

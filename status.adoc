@@ -435,3 +435,8 @@ impl<const N: usize> B<N> {
 
 * ビット演算周りの補題の証明(wip)
     ** bit maskと整数剰余との相互関係を使いたいので `vstd::bits::lemma_u64_low_bits_mask_is_mod` あたりをusizeに移植する必要がある
+
+== 2024/01/16
+
+* 添字計算式の再考→有理数上での再定式化
+* Verus上での有理数の形式化
