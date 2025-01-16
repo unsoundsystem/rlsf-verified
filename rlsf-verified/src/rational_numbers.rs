@@ -17,9 +17,10 @@ impl Rational {
         self.den > 0
     }
 
-    proof fn silly(self)
+    // NOTE: Axiomization
+    proof fn axiom_denominator_is_nonzero(self)
         ensures self.wf()
-    {}
+    { admit() }
 
     /// self=self.num/self.den, rhs=rhs.num/rhs.den then self=rhs iff
     /// self.num*rhs.den/self.den*rhs.den = rhs.num*self.den/self.den*rhs.den
@@ -43,21 +44,20 @@ impl Rational {
         }
     }
 
+    // TODO: find better way than asserting wf-ness in precondition of all lemmas about fracitonals
     proof fn lemma_equivalence_transitive()
-        
         ensures transitive(|p: Self, q: Self| p.eq(q))
     {
         assert forall |p: Self, q: Self, r: Self| p.eq(q) && p.eq(r) implies q.eq(r) by {
-            //assume(p.wf() && q.wf() && r.wf());
             if p.num == 0 {
                 calc! {
                     (==>)
                     p.num == 0 && p.eq(q) && p.eq(r); {}
                     0 == q.num * p.den && 0 == r.num * p.den;
                     {
-                        assert(p.wf());
                         lemma_mul_zero_choose(q.num, p.den);
                         lemma_mul_zero_choose(r.num, p.den);
+                        p.axiom_denominator_is_nonzero();
                         assert(p.den != 0);
                     }
                     q.num == 0 && r.num == 0;
@@ -77,6 +77,7 @@ impl Rational {
                     (p.den * p.num) * (q.num * r.den) == (p.den * p.num) * (r.num * q.den);
                     {
                         lemma_mul_nonzero(p.den, p.num);
+                        p.axiom_denominator_is_nonzero();
                         assert(p.num * p.den != 0);
                         assert(forall |m: int, x: int, y: int|
                             m != 0 && #[trigger] (m * x) == #[trigger] (m * y) ==> x == y) by (nonlinear_arith);

@@ -17,6 +17,9 @@ use vstd::math::abs;
 //#[cfg(target_pointer_width = "64")]
 //global layout usize is size == 8;
 
+// NOTE: following compatibility layer for usize formalization should be removed in future once
+//       Verus implements equivalent functionalities
+
 // NOTE: vstd's interface returns u32 for u(64|32)_(leading|trailing)_zeros,
 //       except for u64_leading_zeros (this returns int).
 //       Thus, aligned the return type at int for spec functions here.
