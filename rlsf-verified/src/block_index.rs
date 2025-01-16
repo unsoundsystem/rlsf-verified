@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use crate::bits::{ex_usize_trailing_zeros, usize_trailing_zeros, is_power_of_two};
+use crate::bits::{usize_trailing_zeros, is_power_of_two};
 use vstd::set_lib::set_int_range;
 use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
@@ -28,7 +28,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     {
         // TODO: proof this in `crate::bits::usize_trailing_zeros_is_log2_when_pow2_given`
         assume(forall|x: usize| is_power_of_two(x as int) ==> usize_trailing_zeros(x) == log(2, x as int));
-        ex_usize_trailing_zeros(GRANULARITY)
+        GRANULARITY.trailing_zeros()
     }
 
     //TODO: DRY

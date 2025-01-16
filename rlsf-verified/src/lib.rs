@@ -17,9 +17,7 @@ use vstd::arithmetic::{logarithm::log, power2::pow2};
 use core::alloc::Layout;
 use core::mem;
 use crate::bits::{
-    usize_trailing_zeros, ex_usize_leading_zeros, ex_usize_trailing_zeros,
-    ex_usize_rotate_right, ex_u32_wrapping_sub, ex_usize_wrapping_add,
-    is_power_of_two
+    usize_trailing_zeros, is_power_of_two
 };
 use crate::block_index::BlockIndex;
 
@@ -138,7 +136,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //const SLI: u32 = SLLEN.trailing_zeros();
     const fn sli() -> (r: u32)
         ensures r == Self::sli_spec()
-    { ex_usize_trailing_zeros(SLLEN) }
+    { SLLEN.trailing_zeros() }
 
     spec fn sli_spec() -> int {
         log(2, SLLEN as int)
@@ -148,7 +146,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires is_power_of_two(GRANULARITY as int)
         ensures r == Self::granularity_log2_spec()
     {
-        ex_usize_trailing_zeros(GRANULARITY)
+        GRANULARITY.trailing_zeros()
     }
 
     spec fn granularity_log2_spec() -> int {
@@ -216,7 +214,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         assert(GRANULARITY < usize::BITS);
         // subtracting `Self::granularity_log2()` because actual freelist starts from `2^Self::granularity_log2()`
-        let mut fl = usize::BITS - Self::granularity_log2() - 1 - ex_usize_leading_zeros(size);
+        let mut fl = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
         assert(fl == log(2, size as int) - log(2, GRANULARITY as int)); // TODO
 
         // The shift amount can be negative, and rotation lets us handle both
@@ -239,10 +237,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //        (i.e. `3 > fl + 2`) holds, fl must be 0
         //
         // (NOTE: this *is* unusual case! target usecase configured as SLLEN = 64)
-        let mut sl = ex_usize_rotate_right(
-            size,
-            ex_u32_wrapping_sub(fl + Self::granularity_log2(), Self::sli())
-        );
+        let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
         assert(((sl >> Self::sli_spec()) & 1) == 1);
@@ -282,15 +277,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         assert(size >= GRANULARITY);
         assert(size % GRANULARITY == 0);
-        let fl = usize::BITS - Self::granularity_log2() - 1 - ex_usize_leading_zeros(size);
+        let mut fl = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
 
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching. Underflowed digits can be simply masked out
         // in `map_floor`.
-        let sl = ex_usize_rotate_right(
-            size,
-            ex_u32_wrapping_sub(fl + Self::granularity_log2(), Self::sli())
-        );
+        let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
         assert(((sl >> Self::sli_spec()) & 1) == 1);
