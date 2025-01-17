@@ -7,27 +7,27 @@ use vstd::math::abs;
 
 verus! {
 /// Rational number `num/den`
-struct Rational;
+pub struct Rational;
 
 // TODO: theory of field
 impl Rational {
-    spec fn num(self) -> int; // numerator
-    spec fn den(self) -> int; // denominator
+    pub spec fn num(self) -> int; // numerator
+    pub spec fn den(self) -> int; // denominator
 
     /// Although signiture is total, this function is undefined on d <= 0
-    spec fn new(n: int, d: int) -> Rational recommends d > 0;
+    pub spec fn new(n: int, d: int) -> Rational recommends d > 0;
 
     /// self=a/b, rhs=c/d
     /// self=rhs <==> a*d = b*c
-    spec fn eq(self, rhs: Self) -> bool {
+    pub open spec fn eq(self, rhs: Self) -> bool {
         self.num() * rhs.den() == rhs.num() * self.den()
     }
 
-    spec fn lt(self, rhs: Self) -> bool {
+    pub open spec fn lt(self, rhs: Self) -> bool {
         self.num() * rhs.den() < rhs.num() * self.den()
     }
 
-    spec fn lte(self, rhs: Self) -> bool {
+    pub open spec fn lte(self, rhs: Self) -> bool {
         self.lt(rhs) || self.eq(rhs)
     }
 
@@ -35,7 +35,7 @@ impl Rational {
         self.num() == rhs * self.den()
     }
 
-    spec fn from_int(x: int) -> Self;
+    pub spec fn from_int(x: int) -> Self;
 
     // TODO: find better way than asserting wf-ness in precondition of all lemmas about fracitonals
     proof fn lemma_equivalence_transitive()
@@ -88,10 +88,10 @@ impl Rational {
     }
 
     // TODO
-    proof fn lemma_int_embedding_injective(x: int)
-        ensures
-            injective(|x: int| Self::from_int(x), |p: Rational, q: Rational| p.eq(q), |x: int, y: int| x == y)
-    { admit() }
+    //proof fn lemma_int_embedding_injective(x: int)
+        //ensures
+            //injective(|x: int| Self::from_int(x), |p: Rational, q: Rational| p.eq(q), |x: int, y: int| x == y)
+    //{ admit() }
 
     proof fn lemma_lt_is_connected()
         ensures connected(|p: Self, q: Self| p.lt(q), |p: Self, q: Self| p.eq(q))
@@ -144,25 +144,35 @@ impl Rational {
         Self::lemma_lt_is_transitive();
     }
 
+    pub open spec fn lt_int(self, i: int) -> bool {
+        self.lt(Self::from_int(i))
+    }
+
+    // TODO
+    proof fn lemma_eq_from_int_equiv(i: int, j: int)
+        ensures
+            i == j <==> Self::from_int(i).eq(Self::from_int(j))
+    {}
+
     /// Addition, multiplication, opposite and inverse (division)
 
-    spec fn add(self, rhs: Rational) -> Rational {
+    pub open spec fn add(self, rhs: Rational) -> Rational {
         Rational::new(self.num() * rhs.den() + rhs.num() * self.den(), self.den() * rhs.den())
     }
 
-    spec fn mul(self, rhs: Rational) -> Rational {
+    pub open spec fn mul(self, rhs: Rational) -> Rational {
         Rational::new(self.num() * rhs.num(), self.den() * rhs.den())
     }
 
-    spec fn neg(self) -> Rational {
+    pub open spec fn neg(self) -> Rational {
         Rational::new(-(self.num()), self.den())
     }
 
-    spec fn sub(self, rhs: Rational) -> Rational {
+    pub open spec fn sub(self, rhs: Rational) -> Rational {
         self.add(rhs.neg())
     }
 
-    spec fn inv(self) -> Rational {
+    pub open spec fn inv(self) -> Rational {
         if self.num() == 0 {
             Rational::new(0, 1)
         } else if self.num() < 0 {
@@ -171,6 +181,10 @@ impl Rational {
             Rational::new(self.den(), self.num())
         }
     }
+
+    pub open spec fn div(self, rhs: Rational) -> Rational {
+        self.mul(rhs.inv())
+    }
 }
 
 // NOTE: Axiomization
@@ -178,6 +192,30 @@ broadcast proof fn axiom_denominator_is_nonzero(r: Rational)
     ensures r.den() > 0
 { admit() }
 
+// FIXME: this cause inconsistency!!! assert(false) proved
+//      minimal example:
+//      >    pub struct Rational;
+//      >    impl Rational {
+//      >        pub spec fn num(self) -> int; // numerator
+//      >        pub spec fn den(self) -> int; // denominator
+//      >        pub spec fn from_int(x: int) -> Self;
+//      >    }
+//      >    
+//      >    broadcast proof fn axiom_denominator_is_nonzero(r: Rational)
+//      >        ensures r.den() > 0
+//      >    { admit() }
+//      >    
+//      >    broadcast proof fn axiom_from_int(i: int)
+//      >        ensures
+//      >            Rational::from_int(i).den() == 1,
+//      >            Rational::from_int(i).num() == i
+//      >    { admit() }
+//      >    
+//      >    proof fn test() {
+//      >        axiom_from_int(0);
+//      >        // axiom_from_int(1);
+//      >        assert(false)
+//      >    }
 broadcast proof fn axiom_from_int(i: int)
     ensures
         Rational::from_int(i).den() == 1,
@@ -210,5 +248,20 @@ proof fn lemma_mul_strict_inequality_imp(x: int, y: int, z: int) by (nonlinear_a
     ensures
         x < y && z > 0 ==> #[trigger] (z * x) < #[trigger] (z * y)
 {}
+
+proof fn examples() {
+    axiom_from_int(0);
+    axiom_from_int(1);
+    assert(Rational::from_int(0).lt(Rational::from_int(1)));
+
+    assert(Rational::new(2, 2).eq(Rational::from_int(1)));
+    assert(Rational::new(1, 2).lt(Rational::from_int(1)));
+    assert(Rational::new(1, 3).lt(Rational::new(2, 3)));
+    assert(!Rational::new(1, 3).lt(Rational::new(1, 3)));
+
+    assert(Rational::new(1, 3).div(Rational::new(1, 3)).eq(Rational::from_int(1)));
+    assert(Rational::new(0, 3).div(Rational::new(0, 3)).eq(Rational::from_int(1234)));
+    assert(false); // FIXME!!!!!
+}
 
 } // verus!

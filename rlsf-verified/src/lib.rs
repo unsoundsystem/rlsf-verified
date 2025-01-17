@@ -21,6 +21,7 @@ use crate::bits::{
     usize_trailing_zeros, is_power_of_two
 };
 use crate::block_index::BlockIndex;
+use crate::rational_numbers::Rational;
 
 // for codes being executed
 macro_rules! get_bit {
@@ -209,7 +210,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
             r.wf(),
-            forall|sz: int| r.block_size_range_set().contains(sz) ==> sz >= size
+            forall|sz: int| r.block_size_range_set().contains(Rational::from_int(sz)) ==> sz >= size
             // TODO: ensure `r` is index of freelist that all of its elements larger or equal to
             //       the requested size
     {
@@ -273,7 +274,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     fn map_floor(size: usize) -> (r: BlockIndex<FLLEN, SLLEN>)
         requires BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures r.wf(),
-            r.block_size_range_set().contains(size as int),
+            r.block_size_range_set().contains(Rational::from_int(size as int)),
         // ensuring `r` is index of freelist appropriate to store the block of size requested
     {
         assert(size >= GRANULARITY);

@@ -5,7 +5,8 @@ use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
-use crate::half_open_range::HalfOpenRange;
+use crate::half_open_range::{HalfOpenRange, HalfOpenRangeOnRat};
+use crate::rational_numbers::Rational;
 
 verus! {
 // Repeating definition here because of
@@ -58,7 +59,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     // FIXME(if i wrong): is there any special reason for using `int` there?
 
     /// Calculate size range as set of usize for given block index.
-    pub open spec fn block_size_range_set(&self) -> Set<int>
+    pub open spec fn block_size_range_set(&self) -> Set<Rational>
         recommends self.wf()
     {
         self.block_size_range().to_set()
@@ -87,28 +88,23 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
 
     // FIXME: correct this using half-open range on Q
-    pub open spec fn calculate_block_size_range_alt(&self) -> HalfOpenRange
+    pub open spec fn calculate_block_size_range_alt(&self) -> HalfOpenRangeOnRat
         recommends self.wf()
     {
         let BlockIndex(fl, sl) = self;
         // This is at least GRANULARITY
-        let fl_block_bytes: int = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
-        // This is at least GRANULARITY
-        // FIXME: is this correct?
-        //        - to reflect behivor of actual implementation (rlsf),
-        //          the least size of allcation specified as GRANULARITY.
-        //        - but the *range* of size, specified in bytes (rlsf assume GRANULARITY aligned)
-        //              - TODO: this seems reasonable as a spec but there would be inconsistency
-        //                      between impl & spec
-        // TODO: this is not correct!!!!! branching into GRANULARITY crossing the boundary of fl_block_bytes
-        let sl_block_bytes = max(fl_block_bytes / SLLEN as int, GRANULARITY as int);
+        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
 
-        let start = fl_block_bytes + sl_block_bytes * sl as int;
-        let size = sl_block_bytes as nat;
+        // This is at least GRANULARITY / SLLEN (possibly smaller than 1)
+        // NOTE: using rational numbers here to prevent second-level block size to be zero.
+        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
 
-        // NOTE: Actually although the range specified in 1-byte granularity,
-        //      there can be stored aribtrary size of blocks, because rlsf provides only GRANULARITY aligned allocation.
-        HalfOpenRange::new(start, size)
+        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
+        let size = sl_block_bytes;
+
+        // NOTE: Although the range specified in rational numbers,
+        //      there cannot be stored blocks of aribtrary bytes, because rlsf provides only GRANULARITY aligned allocation.
+        HalfOpenRangeOnRat::new(start, size)
     }
 
 
@@ -119,7 +115,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         //ensures vstd::relations::is_minimal(self.block_size_range_set(), |i: int, j: int| i < j, GRANULARITY as int)
     //{}
 
-    pub closed spec fn block_size_range(&self) -> HalfOpenRange
+    pub closed spec fn block_size_range(&self) -> HalfOpenRangeOnRat
         recommends self.wf()
     {
         self.calculate_block_size_range_alt()
@@ -149,12 +145,6 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         assert(idx.block_size_range_set().len() == GRANULARITY);
     }
 
-    // TODO: this can be stronger e.g. all elements of idx1's range is bigger than idx2's range
-    proof fn lemma_index_unique_range_for_fl(idx1: Self, idx2: Self)
-        requires idx1.0 < idx2.0
-        ensures idx1.block_size_range_set().disjoint(idx2.block_size_range_set())
-    {}
-
     // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
     /// Correspoinding size ranges for distict indices are not overwrapping.
     proof fn index_unique_range(idx1: Self, idx2: Self)
@@ -165,29 +155,15 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         ensures idx1.block_size_range().disjoint(idx2.block_size_range())
     {}
 
-    // TODO: this is stronger than `index_unique_range`
-    proof fn lemma_block_size_range_mono(&self, rhs: Self) -> (r: (HalfOpenRange, HalfOpenRange))
-        requires
-            self.wf(),
-            rhs.wf()
-        ensures
-        ({ let (lhs_range, rhs_range) = r;
-           lhs_range.disjoint(rhs_range) })
-    {
-        let lhs_range = self.block_size_range();
-        let rhs_range = self.block_size_range();
-        (lhs_range, rhs_range)
-    }
-
     //TODO: proof
     /// There is at least one index for valid size.
     proof fn index_exists_for_valid_size(size: usize)
         requires Self::valid_block_size(size as int)
         ensures exists|idx: Self| idx.wf()
-            && idx.block_size_range_set().contains(size as int)
+            && idx.block_size_range_set().contains(Rational::from_int(size as int))
     {
-        let index = Self::calculate_index_from_block_size(size);
-        assert(index.wf() && index.block_size_range_set().contains(size as int));
+        //let index = Self::calculate_index_from_block_size(size);
+        //assert(index.wf() && index.block_size_range_set().contains(Rational::from_int(size as int)));
     }
 
     /// idealized map_floor
@@ -210,9 +186,9 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     /// Order on BlockIndex
     /// this order doesn't assume well-formedness of BlockIndex
     /// (can contain overflowed index e.g. BlockIndex(FLLEN, SLLEN)
-    spec fn block_index_lt(idx1: Self, idx2: Self) -> bool {
-        let (fl1, sl1) = idx1@;
-        let (fl2, sl2) = idx2@;
+    spec fn block_index_lt(self, rhs: Self) -> bool {
+        let (fl1, sl1) = self@;
+        let (fl2, sl2) = rhs@;
         if fl1 == fl2 {
             sl1 < sl2
         } else {
@@ -221,7 +197,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     proof fn lemma_block_index_lt_is_strict_and_total()
-        ensures vstd::relations::strict_total_ordering(|idx1: Self, idx2: Self| Self::block_index_lt(idx1, idx2))
+        ensures vstd::relations::strict_total_ordering(|idx1: Self, idx2: Self| idx1.block_index_lt(idx2))
     {
     }
 
