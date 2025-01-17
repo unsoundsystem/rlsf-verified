@@ -5,6 +5,7 @@ mod bits;
 mod block_index;
 mod rational_numbers;
 mod relation_utils;
+mod half_open_range;
 
 use vstd::prelude::*;
 
