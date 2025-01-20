@@ -2,146 +2,65 @@ use vstd::prelude::*;
 use vstd::relations::{equivalence_relation, transitive};
 use vstd::arithmetic::mul::{lemma_mul_is_commutative, lemma_mul_strict_inequality, lemma_mul_equality_converse, lemma_mul_nonzero};
 use vstd::calc;
-use crate::relation_utils::{strict_total_ordering, connected, injective};
+use crate::relation_utils::{injective, equivalence_relation_if, transitive_if, strict_total_ordering_if, partial_ordering_if};
 use vstd::math::abs;
 
 verus! {
 /// Rational number `num/den`
-pub struct Rational;
+pub struct Rational(int, int);
 
 // TODO: theory of field
 impl Rational {
-    pub spec fn num(self) -> int; // numerator
-    pub spec fn den(self) -> int; // denominator
+    pub closed spec fn num(self) -> int // numerator
+    {
+        self.0
+    }
+    pub closed spec fn den(self) -> int // denominator
+    {
+        self.1
+    }
 
-    /// Although signiture is total, this function is undefined on d <= 0
-    pub spec fn new(n: int, d: int) -> Rational recommends d > 0;
+    #[verifier::type_invariant]
+    pub open spec fn wf(self) -> bool {
+        self.den() > 0
+    }
+
+    // FIXME: denominator must d > 0, but there no way to enforce this in spec mode
+    //      current workaround: just `recommends` on every spec function
+    /// This function is only meaningful on d > 0
+    pub closed spec fn new(n: int, d: int) -> Rational recommends d > 0 {
+        Rational(n, d)
+    }
 
     /// self=a/b, rhs=c/d
     /// self=rhs <==> a*d = b*c
-    pub open spec fn eq(self, rhs: Self) -> bool {
+    pub open spec fn eq(self, rhs: Self) -> bool
+        recommends self.wf()
+    {
         self.num() * rhs.den() == rhs.num() * self.den()
     }
 
-    pub open spec fn lt(self, rhs: Self) -> bool {
+    pub open spec fn lt(self, rhs: Self) -> bool
+        recommends self.wf()
+    {
         self.num() * rhs.den() < rhs.num() * self.den()
     }
 
-    pub open spec fn lte(self, rhs: Self) -> bool {
+    pub open spec fn lte(self, rhs: Self) -> bool
+        recommends self.wf()
+    {
         self.lt(rhs) || self.eq(rhs)
     }
 
-    spec fn eq_int(self, rhs: int) -> bool {
+    pub open spec fn eq_int(self, rhs: int) -> bool
+        recommends self.wf()
+    {
+
         self.num() == rhs * self.den()
     }
 
-    pub spec fn from_int(x: int) -> Self;
-
-    // TODO: find better way than asserting wf-ness in precondition of all lemmas about fracitonals
-    proof fn lemma_equivalence_transitive()
-        ensures transitive(|p: Self, q: Self| p.eq(q))
-    {
-        assert forall |p: Self, q: Self, r: Self| p.eq(q) && p.eq(r) implies q.eq(r) by {
-            if p.num() == 0 {
-                calc! {
-                    (==>)
-                    p.num() == 0 && p.eq(q) && p.eq(r); {}
-                    0 == q.num() * p.den() && 0 == r.num() * p.den();
-                    {
-                        lemma_mul_zero_choose(q.num(), p.den());
-                        lemma_mul_zero_choose(r.num(), p.den());
-                        axiom_denominator_is_nonzero(p);
-                        assert(p.den() != 0);
-                    }
-                    q.num() == 0 && r.num() == 0;
-                }
-            } else {
-                calc! {
-                    (==>)
-                    p.eq(q) && p.eq(r); {}
-                    q.num() * p.den() == p.num() * q.den() && p.num() * r.den() == r.num() * p.den(); {
-                        assert(q.num() * p.den() == p.num() * q.den() && p.num() * r.den() == r.num() * p.den()
-                            ==> q.num() * p.den() * p.num() * r.den() == p.num() * q.den() * r.num() * p.den()) by (nonlinear_arith);
-                    }
-                    q.num() * p.den() * p.num() * r.den() == p.num() * q.den() * r.num() * p.den(); {
-                        assert(q.num() * p.den() * p.num() * r.den() == p.num() * q.den() * r.num() * p.den()
-                            ==> (p.den() * p.num()) * (q.num() * r.den()) == (p.den() * p.num()) * (r.num() * q.den())) by (nonlinear_arith);
-                    }
-                    (p.den() * p.num()) * (q.num() * r.den()) == (p.den() * p.num()) * (r.num() * q.den());
-                    {
-                        lemma_mul_nonzero(p.den(), p.num());
-                        axiom_denominator_is_nonzero(p);
-                        assert(p.num() * p.den() != 0);
-                        assert(forall |m: int, x: int, y: int|
-                            m != 0 && #[trigger] (m * x) == #[trigger] (m * y) ==> x == y) by (nonlinear_arith);
-                    }
-                    q.num() * r.den() == r.num() * q.den();
-                }
-            }
-        }
-    }
-
-    proof fn lemma_equivalence()
-        ensures equivalence_relation(|p: Self, q: Self| p.eq(q))
-    {
-        Self::lemma_equivalence_transitive();
-    }
-
-    // TODO
-    //proof fn lemma_int_embedding_injective(x: int)
-        //ensures
-            //injective(|x: int| Self::from_int(x), |p: Rational, q: Rational| p.eq(q), |x: int, y: int| x == y)
-    //{ admit() }
-
-    proof fn lemma_lt_is_connected()
-        ensures connected(|p: Self, q: Self| p.lt(q), |p: Self, q: Self| p.eq(q))
-    {}
-
-    proof fn lemma_lt_is_transitive()
-        ensures transitive(|p: Self, q: Self| p.lt(q))
-    {
-        assert forall |p: Self, q: Self, r: Self| p.lt(q) && q.lt(r) implies p.lt(r) by {
-            calc! {
-                (==>)
-                p.lt(q); { lemma_mul_is_commutative(q.num(), p.den()); assert(p.lt(q) ==> p.num() * q.den() < p.den() * q.num()) by (compute) }
-                p.num() * q.den() < p.den() * q.num(); {
-                    axiom_denominator_is_nonzero(r);
-                    lemma_mul_equality_converse_right(p.num() * q.den(), p.den() * q.num(), r.den());
-                }
-                p.num() * q.den() * r.den() < p.den() * q.num() * r.den();
-            };
-
-            calc! {
-                (==>)
-                q.lt(r); { lemma_mul_is_commutative(r.num(), q.den()); assert(q.lt(r) ==> q.num() * r.den() < q.den() * r.num()) by (compute) }
-                q.num() * r.den() < q.den() * r.num(); {
-                    axiom_denominator_is_nonzero(p);
-                    lemma_mul_strict_inequality_imp(q.num() * r.den(), q.den() * r.num(), p.den());
-                    vstd::arithmetic::mul::lemma_mul_is_associative(p.den(), q.num(), r.den());
-                    vstd::arithmetic::mul::lemma_mul_is_associative(p.den(), q.den(), r.num());
-                }
-                p.den() * q.num() * r.den() < p.den() * q.den() * r.num();
-            }
-
-            // transitivity of inequality on int
-            assert((p.num() * q.den() * r.den() < p.den() * q.num() * r.den()) &&
-                (p.den() * q.num() * r.den() < p.den() * q.den() * r.num())
-                ==> p.num() * q.den() * r.den() < p.den() * q.den() * r.num()) by (nonlinear_arith);
-
-            axiom_denominator_is_nonzero(q);
-            assert(p.num() * q.den() * r.den() < p.den() * q.den() * r.num() ==> p.num() * r.den() * q.den() < p.den() * r.num() * q.den()) by (nonlinear_arith);
-            lemma_mul_strict_inequality_converse_imp(p.num() * r.den(), p.den() * r.num(), q.den());
-            assert(p.num() * r.den() * q.den() < p.den() * r.num() * q.den() ==> p.num() * r.den() < p.den() * r.num());
-            vstd::arithmetic::mul::lemma_mul_is_commutative(r.num(), p.den());
-            assert(p.num() * r.den() < r.num() * p.den() ==> p.lt(r));
-        }
-    }
-
-    proof fn lemma_lt_is_strict_total()
-        ensures strict_total_ordering(|p: Self, q: Self| p.lt(q), |p: Self, q: Self| p.eq(q))
-    {
-        Self::lemma_equivalence(); // to surpress recommendation warning
-        Self::lemma_lt_is_transitive();
+    pub open spec fn from_int(x: int) -> Self {
+        Self::new(x, 1)
     }
 
     pub open spec fn lt_int(self, i: int) -> bool {
@@ -156,23 +75,33 @@ impl Rational {
 
     /// Addition, multiplication, opposite and inverse (division)
 
-    pub open spec fn add(self, rhs: Rational) -> Rational {
+    pub open spec fn add(self, rhs: Rational) -> Rational
+        recommends self.wf() && rhs.wf()
+    {
         Rational::new(self.num() * rhs.den() + rhs.num() * self.den(), self.den() * rhs.den())
     }
 
-    pub open spec fn mul(self, rhs: Rational) -> Rational {
+    pub open spec fn mul(self, rhs: Rational) -> Rational
+        recommends self.wf() && rhs.wf()
+    {
         Rational::new(self.num() * rhs.num(), self.den() * rhs.den())
     }
 
-    pub open spec fn neg(self) -> Rational {
+    pub open spec fn neg(self) -> Rational
+        recommends self.wf()
+    {
         Rational::new(-(self.num()), self.den())
     }
 
-    pub open spec fn sub(self, rhs: Rational) -> Rational {
+    pub open spec fn sub(self, rhs: Rational) -> Rational
+        recommends self.wf() && rhs.wf()
+    {
         self.add(rhs.neg())
     }
 
-    pub open spec fn inv(self) -> Rational {
+    pub open spec fn inv(self) -> Rational
+        recommends self.wf()
+    {
         if self.num() == 0 {
             Rational::new(0, 1)
         } else if self.num() < 0 {
@@ -182,53 +111,132 @@ impl Rational {
         }
     }
 
-    pub open spec fn div(self, rhs: Rational) -> Rational {
+    pub open spec fn div(self, rhs: Rational) -> Rational
+        recommends self.wf() && rhs.wf()
+    {
         self.mul(rhs.inv())
     }
+
 }
 
-// NOTE: Axiomization
-broadcast proof fn axiom_denominator_is_nonzero(r: Rational)
-    ensures r.den() > 0
-{ admit() }
+pub proof fn lemma_add_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+    requires lhs.wf(), rhs.wf()
+    ensures lhs.add(rhs).wf()
+{}
 
-// FIXME: this cause inconsistency!!! assert(false) proved
-//      minimal example:
-//      >    pub struct Rational;
-//      >    impl Rational {
-//      >        pub spec fn num(self) -> int; // numerator
-//      >        pub spec fn den(self) -> int; // denominator
-//      >        pub spec fn from_int(x: int) -> Self;
-//      >    }
-//      >    
-//      >    broadcast proof fn axiom_denominator_is_nonzero(r: Rational)
-//      >        ensures r.den() > 0
-//      >    { admit() }
-//      >    
-//      >    broadcast proof fn axiom_from_int(i: int)
-//      >        ensures
-//      >            Rational::from_int(i).den() == 1,
-//      >            Rational::from_int(i).num() == i
-//      >    { admit() }
-//      >    
-//      >    proof fn test() {
-//      >        axiom_from_int(0);
-//      >        // axiom_from_int(1);
-//      >        assert(false)
-//      >    }
-broadcast proof fn axiom_from_int(i: int)
-    ensures
-        Rational::from_int(i).den() == 1,
-        Rational::from_int(i).num() == i
-{ admit() }
+pub proof fn lemma_sub_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+    requires lhs.wf(), rhs.wf()
+    ensures lhs.sub(rhs).wf()
+{}
 
-broadcast proof fn axiom_new_rational(n: int, d: int)
-    requires
-        d > 0
+pub proof fn lemma_div_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+    requires lhs.wf(), rhs.wf()
+    ensures lhs.div(rhs).wf()
+{}
+
+pub proof fn lemma_mul_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+    requires lhs.wf(), rhs.wf()
+    ensures lhs.mul(rhs).wf()
+{}
+
+pub proof fn lemma_neg_preserve_wf(lhs: Rational) by (nonlinear_arith)
+    requires lhs.wf()
+    ensures lhs.neg().wf()
+{}
+
+pub proof fn lemma_inv_preserve_wf(lhs: Rational) by (nonlinear_arith)
+    requires lhs.wf()
+    ensures lhs.inv().wf()
+{}
+
+pub proof fn lemma_rat_range_split(rhs: Rational, lhs: Rational) by (nonlinear_arith)
+    requires rhs.wf(), lhs.wf()
+    ensures lhs.lt(rhs) <==> !rhs.lte(lhs)
+{}
+
+pub proof fn lemma_add_lt_mono(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), r.wf(), p.lt(q)
+    ensures p.add(r).lt(q.add(r))
+{}
+
+pub proof fn lemma_sub_lt_mono(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), r.wf(), p.lt(q)
+    ensures p.sub(r).lt(q.sub(r))
+{}
+
+pub proof fn lemma_neg_lt_inverse(p: Rational, q: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), p.lt(q)
+    ensures q.neg().lt(p.neg())
+{}
+
+pub proof fn lemma_add_eq_preserve(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), r.wf(), p.eq(q)
+    ensures p.add(r).eq(q.add(r))
+{}
+
+
+pub proof fn lemma_from_int_adequate(i: int)
     ensures
-        Rational::new(n, d).num() == n,
-        Rational::new(n, d).den() == d,
-{ admit() }
+        Rational::from_int(i).eq_int(i),
+        Rational::from_int(i).wf()
+{}
+
+pub proof fn lemma_add_zero(p: Rational)
+    requires p.wf()
+    ensures p.add(Rational::from_int(0)).eq(p)
+{}
+
+proof fn lemma_equivalence_transitive() by (nonlinear_arith)
+    ensures transitive_if(|p: Rational, q: Rational| p.eq(q), |p: Rational| p.wf())
+{
+}
+
+proof fn lemma_equivalence()
+    ensures equivalence_relation_if(|p: Rational, q: Rational| p.eq(q), |p: Rational| p.wf())
+{
+    lemma_equivalence_transitive();
+}
+
+// TODO
+//proof fn lemma_int_embedding_injective(x: int)
+    //ensures
+        //injective(|x: int| Rational::from_int(x), |p: Rational, q: Rational| p.eq(q), |x: int, y: int| x == y)
+//{ admit() }
+
+proof fn lemma_lt_is_transitive() by (nonlinear_arith)
+    ensures transitive_if(|p: Rational, q: Rational| p.lt(q), |p: Rational| p.wf())
+{
+}
+
+proof fn lemma_lt_is_strict_total()
+    ensures strict_total_ordering_if(|p: Rational, q: Rational| p.lt(q), |p: Rational, q: Rational| p.eq(q), |p: Rational| p.wf())
+{
+    lemma_equivalence(); // to surpress recommendation warning
+    lemma_lt_is_transitive();
+}
+
+pub proof fn lemma_lte_is_transitive() by (nonlinear_arith)
+    ensures transitive_if(|p: Rational, q: Rational| p.lte(q), |p: Rational| p.wf())
+{
+}
+
+pub proof fn lemma_lte_is_partial_ordering()
+    ensures partial_ordering_if(|p: Rational, q: Rational| p.lte(q), |p: Rational, q: Rational| p.eq(q), |p: Rational| p.wf())
+{
+    lemma_equivalence();
+    lemma_lte_is_transitive();
+}
+
+pub proof fn lemma_lt_lte_trans(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), r.wf()
+    ensures p.lt(q) && q.lte(r) ==> p.lt(r)
+{}
+
+// in another style
+pub proof fn lemma_lte_trans(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.wf(), r.wf(), q.wf()
+    ensures p.lte(q) && q.lte(r) ==> p.lte(r)
+{}
 
 proof fn lemma_mul_zero_choose(x: int, y: int) by (nonlinear_arith)
     ensures x*y == 0 ==> x == 0 || y == 0
@@ -250,8 +258,8 @@ proof fn lemma_mul_strict_inequality_imp(x: int, y: int, z: int) by (nonlinear_a
 {}
 
 proof fn examples() {
-    axiom_from_int(0);
-    axiom_from_int(1);
+    lemma_from_int_adequate(0);
+    lemma_from_int_adequate(1);
     assert(Rational::from_int(0).lt(Rational::from_int(1)));
 
     assert(Rational::new(2, 2).eq(Rational::from_int(1)));
@@ -260,8 +268,19 @@ proof fn examples() {
     assert(!Rational::new(1, 3).lt(Rational::new(1, 3)));
 
     assert(Rational::new(1, 3).div(Rational::new(1, 3)).eq(Rational::from_int(1)));
-    assert(Rational::new(0, 3).div(Rational::new(0, 3)).eq(Rational::from_int(1234)));
-    assert(false); // FIXME!!!!!
+    //assert(Rational::new(0, 3).div(Rational::new(0, 3)).eq(Rational::from_int(1234)));
+    //assert(false); // FIXME!!!!!
+}
+
+// FIXME: Verus panics when invoking this with `broadcast use`
+pub broadcast group rational_number_facts {
+    lemma_add_preserve_wf,
+    lemma_sub_preserve_wf,
+    lemma_mul_preserve_wf,
+    lemma_div_preserve_wf,
+    lemma_neg_preserve_wf,
+    lemma_inv_preserve_wf,
+    lemma_from_int_adequate
 }
 
 } // verus!

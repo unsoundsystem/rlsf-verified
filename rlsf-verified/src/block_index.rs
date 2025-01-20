@@ -5,7 +5,7 @@ use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
-use crate::half_open_range::{HalfOpenRange, HalfOpenRangeOnRat};
+use crate::half_open_range::HalfOpenRangeOnRat;
 use crate::rational_numbers::Rational;
 
 verus! {
