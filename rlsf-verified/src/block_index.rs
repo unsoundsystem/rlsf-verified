@@ -6,7 +6,7 @@ use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
 use crate::half_open_range::HalfOpenRangeOnRat;
-use crate::rational_numbers::Rational;
+use crate::rational_numbers::{Rational, rational_number_facts, lemma_nonneg_div, lemma_rat_int_lte_equiv};
 
 verus! {
 // Repeating definition here because of
@@ -29,7 +29,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         ensures r == Self::granularity_log2_spec()
     {
         // TODO: proof this in `crate::bits::usize_trailing_zeros_is_log2_when_pow2_given`
-        assume(forall|x: usize| is_power_of_two(x as int) ==> usize_trailing_zeros(x) == log(2, x as int));
+        assume(forall|x: usize| is_power_of_two(x as int) ==> #[trigger] usize_trailing_zeros(x) == log(2, x as int));
         GRANULARITY.trailing_zeros()
     }
 
@@ -121,17 +121,23 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         self.calculate_block_size_range_alt()
     }
 
-    proof fn lemma_block_size_range_is_valid_half_open_range(&self) -> (r: (int, int))
+    proof fn lemma_block_size_range_is_valid_half_open_range(&self)
         requires self.wf()
         ensures
-            r.0 < r.1
+            self.block_size_range().wf()
     {
-        assert(self.wf());
-        assert(forall|x: int, y: int| 0 < x && 0 <= y ==> #[trigger] (x * y) < #[trigger] (x * (y + 1))) by (nonlinear_arith);
-        reveal(pow2);
-        let (start, end) = self.calculate_block_size_range();
-        assert(start < end) by (compute);
-        (start, end)
+        broadcast use rational_number_facts;
+        let BlockIndex(fl, sl) = self;
+        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
+        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
+        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
+        let size = sl_block_bytes;
+        lemma_rat_int_lte_equiv(0, pow2((fl + Self::granularity_log2_spec()) as nat) as int);
+        assert(Rational::from_int(0).lte(fl_block_bytes)) by (compute);
+        assert(fl_block_bytes.is_nonneg());
+        lemma_nonneg_div(fl_block_bytes, Rational::from_int(SLLEN as int));
+        assert(sl_block_bytes.is_nonneg());
+        HalfOpenRangeOnRat::lemma_wf_if_size_is_pos(start, size);
     }
 
     proof fn example_ranges() {
@@ -145,7 +151,34 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         assert(idx.block_size_range_set().len() == GRANULARITY);
     }
 
-    // TODO: Proof any block size in range fall into exactly one freelist index (fl, sl)
+    // TODO
+    proof fn lemma_index_unique_range_sl(idx1: Self, idx2: Self)
+        requires
+            idx1.wf(),
+            idx2.wf(),
+            idx1.0 == idx2.0,
+            idx1.1 != idx2.1
+        ensures
+        ({  let r1 = idx1.block_size_range();
+            let r2 = idx2.block_size_range();
+            r1.wf() && r2.wf() && r1.disjoint(r2) })
+    {
+        admit()
+    }
+
+    // TODO
+    proof fn lemma_index_unique_range_fl(idx1: Self, idx2: Self)
+        requires
+            idx1.wf(),
+            idx2.wf(),
+            idx1.0 != idx2.0,
+        ensures
+        ({  let r1 = idx1.block_size_range();
+            let r2 = idx2.block_size_range();
+            r1.wf() && r2.wf() && r1.disjoint(r2) })
+    { admit() }
+
+    // TODO: Proof all sub lemma
     /// Correspoinding size ranges for distict indices are not overwrapping.
     proof fn index_unique_range(idx1: Self, idx2: Self)
         requires
@@ -153,14 +186,36 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             idx2.wf(),
             idx1 != idx2
         ensures idx1.block_size_range().disjoint(idx2.block_size_range())
-    {}
+    {
+        if idx1.block_index_lt(idx2) {
+            if idx1.0 == idx2.0 {
+                Self::lemma_index_unique_range_sl(idx1, idx2);
+            } else {
+                Self::lemma_index_unique_range_fl(idx1, idx2);
+            }
+
+            //assert(r1.wf() && r2.wf());
+            //assert(r1.end().lte(r2.start()));
+            //assert(r1.disjoint(r2));
+        } else {
+            if idx1.0 == idx2.0 {
+                Self::lemma_index_unique_range_sl(idx1, idx2);
+            } else {
+                Self::lemma_index_unique_range_fl(idx1, idx2);
+            }
+
+            //assert(r1.wf() && r2.wf());
+            //assume(r2.end().lte(r1.start()));
+            //assert(r1.disjoint(r2));
+        }
+    }
 
     //TODO: proof
     /// There is at least one index for valid size.
     proof fn index_exists_for_valid_size(size: usize)
         requires Self::valid_block_size(size as int)
         ensures exists|idx: Self| idx.wf()
-            && idx.block_size_range_set().contains(Rational::from_int(size as int))
+            && #[trigger] idx.block_size_range_set().contains(Rational::from_int(size as int))
     {
         //let index = Self::calculate_index_from_block_size(size);
         //assert(index.wf() && index.block_size_range_set().contains(Rational::from_int(size as int)));

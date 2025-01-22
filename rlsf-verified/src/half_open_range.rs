@@ -2,7 +2,11 @@ use vstd::prelude::*;
 use vstd::{seq::*, seq_lib::*};
 use vstd::set_lib::set_int_range;
 use vstd::set::Set;
-use crate::rational_numbers::{Rational, lemma_from_int_adequate, lemma_add_preserve_wf, lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split};
+use crate::rational_numbers::{
+    Rational, lemma_from_int_adequate, lemma_add_preserve_wf,
+    lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split,
+    rational_number_facts, lemma_lte_nonneg_add
+};
 
 verus! {
 /// Type for left half-open range on Q
@@ -10,11 +14,11 @@ pub struct HalfOpenRangeOnRat(Rational, Rational);
 
 impl HalfOpenRangeOnRat {
     #[verifier::type_invariant]
-    pub closed spec fn wf(self) -> bool {
-        self.0.wf() && self.1.wf() && self.0.lte(self.1)
+    pub open spec fn wf(self) -> bool {
+        self.start().wf() && self.end().wf() && self.start().lte(self.end())
     }
     pub closed spec fn new(start: Rational, size: Rational) -> Self
-        recommends start.wf(), size.wf()
+        recommends start.wf(), size.wf(), size.is_nonneg()
     {
         HalfOpenRangeOnRat(start, start.add(size))
     }
@@ -86,6 +90,15 @@ impl HalfOpenRangeOnRat {
         ensures r.end().lte(e) ==> !r.contains(e)
     {}
 
+    pub proof fn lemma_wf_if_size_is_pos(start: Rational, size: Rational)
+        requires start.wf(), size.wf(), size.is_nonneg()
+        ensures HalfOpenRangeOnRat::new(start, size).wf()
+    {
+        broadcast use rational_number_facts;
+        lemma_lte_nonneg_add(start, size);
+        assert(start.add(size).wf());
+        assert(start.lte(start.add(size)));
+    }
 
     /// Compatibility with Set
 

@@ -117,36 +117,43 @@ impl Rational {
         self.mul(rhs.inv())
     }
 
+    pub open spec fn is_nonneg(self) -> bool {
+        Self::zero().lte(self)
+    }
+
+    pub open spec fn zero() -> Self {
+        Rational::new(0, 1)
+    }
 }
 
-pub proof fn lemma_add_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_add_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
     requires lhs.wf(), rhs.wf()
-    ensures lhs.add(rhs).wf()
+    ensures #[trigger] lhs.add(rhs).wf()
 {}
 
-pub proof fn lemma_sub_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_sub_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
     requires lhs.wf(), rhs.wf()
-    ensures lhs.sub(rhs).wf()
+    ensures #[trigger] lhs.sub(rhs).wf()
 {}
 
-pub proof fn lemma_div_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_div_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
     requires lhs.wf(), rhs.wf()
-    ensures lhs.div(rhs).wf()
+    ensures #[trigger] lhs.div(rhs).wf()
 {}
 
-pub proof fn lemma_mul_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_mul_preserve_wf(lhs: Rational, rhs: Rational) by (nonlinear_arith)
     requires lhs.wf(), rhs.wf()
-    ensures lhs.mul(rhs).wf()
+    ensures #[trigger] lhs.mul(rhs).wf()
 {}
 
-pub proof fn lemma_neg_preserve_wf(lhs: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_neg_preserve_wf(lhs: Rational) by (nonlinear_arith)
     requires lhs.wf()
-    ensures lhs.neg().wf()
+    ensures #[trigger] lhs.neg().wf()
 {}
 
-pub proof fn lemma_inv_preserve_wf(lhs: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_inv_preserve_wf(lhs: Rational) by (nonlinear_arith)
     requires lhs.wf()
-    ensures lhs.inv().wf()
+    ensures #[trigger] lhs.inv().wf()
 {}
 
 pub proof fn lemma_rat_range_split(rhs: Rational, lhs: Rational) by (nonlinear_arith)
@@ -174,16 +181,15 @@ pub proof fn lemma_add_eq_preserve(p: Rational, q: Rational, r: Rational) by (no
     ensures p.add(r).eq(q.add(r))
 {}
 
-
-pub proof fn lemma_from_int_adequate(i: int)
+pub broadcast proof fn lemma_from_int_adequate(i: int)
     ensures
-        Rational::from_int(i).eq_int(i),
-        Rational::from_int(i).wf()
+        #[trigger] Rational::from_int(i).eq_int(i),
+        #[trigger] Rational::from_int(i).wf()
 {}
 
 pub proof fn lemma_add_zero(p: Rational)
     requires p.wf()
-    ensures p.add(Rational::from_int(0)).eq(p)
+    ensures p.add(Rational::zero()).eq(p)
 {}
 
 proof fn lemma_equivalence_transitive() by (nonlinear_arith)
@@ -238,6 +244,23 @@ pub proof fn lemma_lte_trans(p: Rational, q: Rational, r: Rational) by (nonlinea
     ensures p.lte(q) && q.lte(r) ==> p.lte(r)
 {}
 
+pub proof fn lemma_lte_nonneg_add(p: Rational, q: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), q.is_nonneg()
+    ensures p.lte(p.add(q))
+{}
+
+pub proof fn lemma_nonneg_div(p: Rational, q: Rational)
+    requires p.wf(), q.wf(), q.is_nonneg(), p.is_nonneg()
+    ensures p.div(q).is_nonneg()
+{}
+
+pub proof fn lemma_rat_int_lte_equiv(p: int, q: int)
+    ensures
+        p <= q <==> Rational::from_int(p).lte(Rational::from_int(q))
+{}
+
+// silly lemma about integer arith
+
 proof fn lemma_mul_zero_choose(x: int, y: int) by (nonlinear_arith)
     ensures x*y == 0 ==> x == 0 || y == 0
 {}
@@ -272,7 +295,6 @@ proof fn examples() {
     //assert(false); // FIXME!!!!!
 }
 
-// FIXME: Verus panics when invoking this with `broadcast use`
 pub broadcast group rational_number_facts {
     lemma_add_preserve_wf,
     lemma_sub_preserve_wf,
