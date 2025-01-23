@@ -9,8 +9,7 @@ use crate::half_open_range::HalfOpenRangeOnRat;
 use crate::rational_numbers::{Rational, rational_number_facts, lemma_nonneg_div, lemma_rat_int_lte_equiv};
 
 verus! {
-// Repeating definition here because of
-// https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/error.20and.20panic.20while.20verifying.20code.20with.20const.20generics/near/490367584
+// TODO: const generics fixed, rewrite
 #[cfg(target_pointer_width = "64")]
 pub const GRANULARITY: usize = 8 * 4;
 

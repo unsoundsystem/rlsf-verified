@@ -192,6 +192,12 @@ pub proof fn lemma_add_zero(p: Rational)
     ensures p.add(Rational::zero()).eq(p)
 {}
 
+pub proof fn lemma_add_eq_zero(p: Rational, q: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), q.eq(Rational::zero())
+    ensures p.add(q).eq(p)
+{}
+
+
 proof fn lemma_equivalence_transitive() by (nonlinear_arith)
     ensures transitive_if(|p: Rational, q: Rational| p.eq(q), |p: Rational| p.wf())
 {
@@ -257,6 +263,16 @@ pub proof fn lemma_nonneg_div(p: Rational, q: Rational)
 pub proof fn lemma_rat_int_lte_equiv(p: int, q: int)
     ensures
         p <= q <==> Rational::from_int(p).lte(Rational::from_int(q))
+{}
+
+pub proof fn lemma_hor_empty(p: Rational, q: Rational)
+    requires p.wf(), q.wf()
+    ensures !(#[trigger] p.lte(q) && q.lt(p))
+{}
+
+pub proof fn lemma_lt_eq_equiv(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.wf(), q.wf(), r.wf(), q.eq(r)
+    ensures p.lt(q) <==> p.lt(r)
 {}
 
 // silly lemma about integer arith

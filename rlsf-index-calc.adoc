@@ -45,7 +45,24 @@ let sl = size.rotate_right((fl + GRANULARITY_LOG2).wrapping_sub(Self::SLI));
 
 与えられたfirst-level listの添字flとsecond-level listの添字slについて、
 second-level listの各添字の管理するサイズ範囲はstem:[slb = \frac{2^{fl}}{\text{SLLEN}}]であり、
-stem:[2^{fl} + sl\cdot slb \leq size < 2^{fl} + (sl+1)\cdot slb]なるサイズ stem:[size]のブロックが格納されている
+stem:[2^{fl} + sl\cdot slb \leq size < 2^{fl} + (sl+1)\cdot slb]なるサイズ stem:[size]のブロックが格納されている。
+以下はブロックサイズと添字の対応を示す。
+
+[svgbob,format="svg"]
+....
+                                                    "fl=n,   "fl=n,                                   
+"n is actually n=m+log2(GRANULARITY)"                sl=0"    sl=1 ..."                               
+                                                       |       |                                            
+"GRANULARITY(=2^0)"              "2^(n-1)"       "2^n" v       v                 "2^(n+1)"         "..." 
+                  o---o---o-------o---------------o-------+-------+-------+-------o--------------------------
+                                                  |       |       |<--+-->|       |         
+                                                  |                               |        
+                                                  |                 "2^n / SLLEN" |      
+                                                  |<----------------------------->|         
+                                                              "2^n"                         
+                                                                                            
+....
+
 
 === slの計算
 
