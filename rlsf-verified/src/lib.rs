@@ -125,6 +125,9 @@ struct GhostTlsf {
     ///     * singly linked list by prev_phys_block chain 
     ///      NOTE: This contains allocated blocks
     ///     * doubly linked list by FreeBlockHdr fields
+    ///
+    /// Remark: ghost_free_list[fl][sl] contains size of blocks in
+    ///     BlockIndex(fl, sl).block_size_range()
     tracked ghost_free_list: Seq<Seq<Option<PointsTo<FreeBlockHdr>>>>,
 
     //FIXME: the points to here overwraps with avobe ghost_free_list
@@ -157,14 +160,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// well-formedness of Tlsf structure
     /// * freelist well-formedness
-    ///   * blocks connected to freelist ordered by start address
+    ///   * TODO: blocks connected to freelist ordered by start address
     /// * bitmap is consistent with the freelist
-    /// * blocks stored in the list have proper size by means of their index
+    /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(&self) -> bool {
-        // TODO
-        &&& true 
         &&& self.bitmap_wf()
-        &&& is_power_of_two(SLLEN as int)
+        &&& is_power_of_two(SLLEN as int) && SLLEN <= usize::BITS
     }
 
     pub const fn new() -> Self {
@@ -489,6 +490,46 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // }
     }
 
+    /// Search for a non-empty free block list for allocation.
+    #[verifier::external_body] // debug
+    #[inline(always)]
+    fn search_suitable_free_block_list_for_allocation(
+        &self,
+        min_size: usize,
+    ) -> (r: Option<(usize, usize)>)
+        requires self.wf()
+        ensures
+        // None ==> invalid size requested or there no free entry
+        // Some(fl, sl) ==> first_free[fl][sl].is_some()
+    {
+        //let (mut fl, mut sl) = Self::map_ceil(min_size)?; // TODO: return None if invalid size requested
+
+        //// Search in range `(fl, sl..SLLEN)`
+        //sl = self.sl_bitmap[fl].bit_scan_forward(sl as u32) as usize;
+        //if sl < SLLEN {
+            //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
+
+            //return Some((fl, sl));
+        //}
+
+        //// Search in range `(fl + 1.., ..)`
+        //fl = self.fl_bitmap.bit_scan_forward(fl as u32 + 1) as usize;
+        //if fl < FLLEN {
+            //debug_assert!(self.fl_bitmap.get_bit(fl as u32));
+
+            //sl = self.sl_bitmap[fl].trailing_zeros() as usize;
+            //if sl >= SLLEN {
+                //debug_assert!(false, "bitmap contradiction");
+                //unreachable!()
+                ////unsafe { unreachable_unchecked() };
+            //}
+
+            //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
+            //Some((fl, sl))
+        //} else {
+            //None
+        //}
+    }
 
 
     //-------------------------------------------
