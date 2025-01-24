@@ -34,6 +34,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
             **** [x] `lemma_usize_rotate_right_mod0_noop`
             **** [ ] `lemma_usize_rotate_right_distr`
             **** [ ] `lemma_usize_rotate_right_reversible`
+        *** ビットマップの操作を形式化
         *** 理論的性質
             **** [ ] 有理数上の半開区間に移植する
             **** [ ] 有理数の形式化
