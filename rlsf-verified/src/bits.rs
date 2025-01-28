@@ -17,6 +17,23 @@ use vstd::math::abs;
 //#[cfg(target_pointer_width = "64")]
 //global layout usize is size == 8;
 
+// for codes being executed
+#[macro_export]
+macro_rules! get_bit {
+    ($a:expr, $b:expr) => {{
+        (0x1usize & ($a >> $b)) == 1
+    }};
+}
+
+// for spec/proof codes
+#[macro_export]
+macro_rules! nth_bit {
+    ($($a:tt)*) => {
+        verus_proof_macro_exprs!(get_bit!($($a)*))
+    }
+}
+
+
 // NOTE: following compatibility layer for usize formalization should be removed in future once
 //       Verus implements equivalent functionalities
 

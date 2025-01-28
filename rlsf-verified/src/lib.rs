@@ -19,31 +19,17 @@ use core::alloc::Layout;
 use core::mem;
 use crate::bits::{
     usize_trailing_zeros, is_power_of_two,
-    bit_scan_forward
+    bit_scan_forward,
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
-
-// for codes being executed
-macro_rules! get_bit {
-    ($a:expr, $b:expr) => {{
-        (0x1usize & ($a >> $b)) == 1
-    }};
-}
-
-// for spec/proof codes
-macro_rules! nth_bit {
-    ($($a:tt)*) => {
-        verus_proof_macro_exprs!(get_bit!($($a)*))
-    }
-}
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     sl_bitmap: [usize; FLLEN],
     first_free: [[Option<*mut FreeBlockHdr>; SLLEN]; FLLEN],
-    gs: Ghost<GhostTlsf>,
+    gs: Ghost<GhostTlsf<FLLEN, SLLEN>>,
     _phantom: PhantomData<&'pool ()>,
 }
 
@@ -119,7 +105,7 @@ struct FreeBlockHdr {
 //}
 
 /// A proof constract tracking information about Tlsf struct
-struct GhostTlsf {
+struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
     /// Things we have to track
     /// * all `PointsTo`s related to registered blocks
     /// * things needed to track the list views 
@@ -129,12 +115,25 @@ struct GhostTlsf {
     ///
     /// Remark: ghost_free_list[fl][sl] contains size of blocks in
     ///     BlockIndex(fl, sl).block_size_range()
-    tracked ghost_free_list: Seq<Seq<Option<PointsTo<FreeBlockHdr>>>>,
+    tracked ghost_free_list: Seq<Seq<Seq<PointsTo<FreeBlockHdr>>>>,
 
-    //FIXME: the points to here overwraps with avobe ghost_free_list
+    //FIXME: the PointsTo here overwraps with above ghost_free_list
     //TODO: We need a way to obtain permission from block to adjacent
     // List of all BlockHdrs ordered by their addresses.
     tracked all_block_headers: Seq<PointsTo<BlockHdr>>,
+}
+
+impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf <FLLEN, SLLEN> {
+    //FIXME: error: external_type_specification: Const params not yet supported
+    //#[verifier::type_invariant]
+    spec fn wf(self) -> bool {
+        // TODO: sync with actual implementation: recursive predicate on list
+        &&& self.ghost_free_list.len() == FLLEN
+        &&& self.ghost_free_list.fold_right::<bool>(|sl_list: Seq<Seq<_>>, b: bool|
+            sl_list.len() == (SLLEN as nat) && b,
+            true
+        )
+    }
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -165,24 +164,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * bitmap is consistent with the freelist
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(&self) -> bool {
+        &&& self.gs@.wf()
         &&& self.bitmap_wf()
         &&& is_power_of_two(SLLEN as int) && SLLEN <= usize::BITS
     }
 
-    pub const fn new() -> Self {
+    pub const fn new() -> (r: Self)
+        ensures r.wf()
+    {
         Self {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
             first_free: [[None; SLLEN]; FLLEN],
             gs: Ghost(GhostTlsf {
-                ghost_free_list: Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| None)),
+                ghost_free_list: Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| Seq::empty())),
                 all_block_headers: Seq::empty(),
             }),
             _phantom: PhantomData
         }
     }
 
-    #[verifier::external_body]
+    //#[verifier::external_body] // debug
     #[inline(always)]
     fn update_bitmap(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires idx.wf(),

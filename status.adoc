@@ -473,3 +473,9 @@ impl<const N: usize> B<N> {
 * 有理数に関する補題を整備
     ** broadcast groupを追加
     ** x ÷  y * y = xの証明
+
+== 2025/01/28
+
+* `search_suitable_free_block_list_for_allocation` の移植・形式仕様
+* `GhostTlsf` の構造見直し
+* `Tlsf::update_bitmap` のFIXME原因調査
