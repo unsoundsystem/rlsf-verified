@@ -18,7 +18,8 @@ use vstd::arithmetic::{logarithm::log, power2::pow2};
 use core::alloc::Layout;
 use core::mem;
 use crate::bits::{
-    usize_trailing_zeros, is_power_of_two
+    usize_trailing_zeros, is_power_of_two,
+    bit_scan_forward
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
@@ -206,13 +207,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// TODO: state and proof more detailed property about index calculation and relate with
     /// `map_ceil` / `map_floor`
     //#[verifier::external_body] // debug
-    pub fn map_ceil(size: usize) -> (r: BlockIndex<FLLEN, SLLEN>)
+    pub fn map_ceil(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>)
         requires
             BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
-            r.wf(),
-            forall|sz: int| r.block_size_range_set().contains(Rational::from_int(sz)) ==> sz >= size
-            // TODO: ensure `r` is index of freelist that all of its elements larger or equal to
+            r matches Some(idx) ==> idx.wf() &&
+                forall|sz: int| idx.block_size_range_set().contains(Rational::from_int(sz)) ==> sz >= size
+            // TODO: ensure `idx` is index of freelist that all of its elements larger or equal to
             //       the requested size
     {
         assert(GRANULARITY < usize::BITS);
@@ -259,23 +260,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // if sl[SLI] { fl += 1; sl = 0; }
         fl = fl + (sl >> Self::sli()) as u32;
 
-        // FIXME: fl can be greater than FLLEN.
-        //        in Verus this not a problem but for real use (interoperation with unverified code)
-        //        validation must be made.
-        //
-        //        - opiton: in the original code, result was Option<(usize, usize)>, seems this was the right
-        //                  way to insert validation. mapping function should be partial to accept
-        //                  any size of request.
+        if fl as usize >= FLLEN {
+            return None;
+        }
 
-        BlockIndex(fl as usize, sl & (SLLEN - 1))
+        Some(BlockIndex(fl as usize, sl & (SLLEN - 1)))
     }
 
     #[inline(always)]
     //#[verifier::external_body] // debug
-    fn map_floor(size: usize) -> (r: BlockIndex<FLLEN, SLLEN>)
-        requires BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
-        ensures r.wf(),
-            r.block_size_range_set().contains(Rational::from_int(size as int)),
+    fn map_floor(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>)
+        //requires BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+        ensures
+            r matches Some(idx) ==> idx.wf() &&
+                idx.block_size_range_set().contains(Rational::from_int(size as int)),
         // ensuring `r` is index of freelist appropriate to store the block of size requested
     {
         assert(size >= GRANULARITY);
@@ -290,11 +288,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // The most significant one of `size` should be now at `sl[SLI]`
         assert(((sl >> Self::sli_spec()) & 1) == 1);
 
-        // FIXME: fl can be greater than FLLEN.
-        //        in Verus this not a problem but for real use (interoperation with unverified code)
-        //        validation must be made.
+        if fl as usize >= FLLEN {
+            return None;
+        }
 
-       BlockIndex(fl as usize, sl & (SLLEN - 1))
+       Some(BlockIndex(fl as usize, sl & (SLLEN - 1)))
     }
 
     spec fn bitmap_wf(&self) -> bool {
@@ -468,7 +466,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize)
         requires
             old(self).wf(),
-            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+                BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
             self.wf()
     {
@@ -491,45 +489,46 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     /// Search for a non-empty free block list for allocation.
-    #[verifier::external_body] // debug
+    //#[verifier::external_body] // debug
     #[inline(always)]
     fn search_suitable_free_block_list_for_allocation(
         &self,
         min_size: usize,
-    ) -> (r: Option<(usize, usize)>)
+    ) -> (r: Option<BlockIndex<FLLEN,SLLEN>>)
         requires self.wf()
         ensures
+            r matches Some(idx) ==> idx.wf() &&
+                self.first_free[idx.0 as int][idx.1 as int].is_some()
         // None ==> invalid size requested or there no free entry
-        // Some(fl, sl) ==> first_free[fl][sl].is_some()
     {
-        //let (mut fl, mut sl) = Self::map_ceil(min_size)?; // TODO: return None if invalid size requested
+        let BlockIndex(mut fl, mut sl) = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
 
-        //// Search in range `(fl, sl..SLLEN)`
-        //sl = self.sl_bitmap[fl].bit_scan_forward(sl as u32) as usize;
-        //if sl < SLLEN {
+        // Search in range `(fl, sl..SLLEN)`
+        sl = bit_scan_forward(self.sl_bitmap[fl], sl as u32) as usize;
+        if sl < SLLEN {
             //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
 
-            //return Some((fl, sl));
-        //}
+            return Some(BlockIndex(fl, sl));
+        }
 
-        //// Search in range `(fl + 1.., ..)`
-        //fl = self.fl_bitmap.bit_scan_forward(fl as u32 + 1) as usize;
-        //if fl < FLLEN {
+        // Search in range `(fl + 1.., ..)`
+        fl = bit_scan_forward(self.fl_bitmap, fl as u32 + 1) as usize;
+        if fl < FLLEN {
             //debug_assert!(self.fl_bitmap.get_bit(fl as u32));
 
-            //sl = self.sl_bitmap[fl].trailing_zeros() as usize;
+            sl = self.sl_bitmap[fl].trailing_zeros() as usize;
+            assert(sl < SLLEN);
             //if sl >= SLLEN {
                 //debug_assert!(false, "bitmap contradiction");
                 //unreachable!()
-                ////unsafe { unreachable_unchecked() };
+                //unsafe { unreachable_unchecked() };
             //}
 
             //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
-            //Some((fl, sl))
-        //} else {
-            //None
-        //}
-        None
+            Some(BlockIndex(fl, sl))
+        } else {
+            None
+        }
     }
 
 

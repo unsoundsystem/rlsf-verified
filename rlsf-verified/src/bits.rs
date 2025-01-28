@@ -290,4 +290,19 @@ proof fn lemma_usize_low_bits_mask_is_mod(x: usize, n: nat) {
     lemma_u64_low_bits_mask_is_mod(x as u64, n);
 }
 
+#[inline(always)]
+pub fn bit_scan_forward(b: usize, start: u32) -> u32 {
+    if start >= usize::BITS {
+        usize::BITS
+    } else {
+        usize_hight_mask(b, start).trailing_zeros()
+    }
+}
+
+// mask with start..usize::BITS bits set
+#[inline(always)]
+pub fn usize_hight_mask(b: usize, start: u32) -> usize {
+    b & !(usize::MAX >> start)
+}
+
 } // verus!
