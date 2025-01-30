@@ -447,7 +447,7 @@ impl<const N: usize> B<N> {
 == 2025/01/17
 
 * 必要最低限の有理数・半開区間に関する理論をVerus上で形式化できた
-    ** 公理化の過程で不整合を起こしてしまった
+    ** [[inconsistency]] 公理化の過程で不整合を起こしてしまった
 
 == 2025/01/20
 
@@ -479,3 +479,34 @@ impl<const N: usize> B<N> {
 * `search_suitable_free_block_list_for_allocation` の移植・形式仕様
 * `GhostTlsf` の構造見直し
 * `Tlsf::update_bitmap` のFIXME原因調査
+
+== 2025/01/30
+
+* 有理数の構成を再考
+    ** 正の整数を表す `Pos` をペアノ自然数と同様に構成し、 `i > 0` なる `int` との全単射によって同一視する方法のPoCを作成
+       https://play.verus-lang.org/?version=stable&mode=basic&edition=2021&gist=5bff4aee0cbadc50299946b153da9369
+        *** xref:inconsistency[この不整合] は、Verusの `int` にかかる形で公理を与えていたことが原因だったため、
+            `Pos` を使うことで公理的な形式化をする際に同様の原因による不整合を防げる
+            **** vstdのように間接的な方法を除いて `int` を含む公理を作るのはやめたほうが良い
+                詳細はわからないが以下のような公理をあたえると `assert(false)` が証明できる
+[source,rust]
+----
+struct Rational;
+impl Rational {
+    spec fn num() -> int;
+    ...
+    spec fn new(n: int, d: Pos) -> Self;
+}
+proof fn axiom_new(n: int, d: Pos)
+ensures Rational::new(n, d).num() == n,
+        ...
+{admit()}
+
+proof fn ex() {
+    axiom_new(1, from_int(2));
+    axiom_new(0, from_int(2));
+    assert(false);
+}
+----
+            **** 以上の例から、公理的な形式化をする際にも `struct Rational(int, Pos)` のような定義とその上の演算・同値関係はVerus内で定義しておく必要があるように見える
+        *** また、公理的な形式化ではなくてもすべての定理の前提に `requires r.wf()` を要求せずにすむ
