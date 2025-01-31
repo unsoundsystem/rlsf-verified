@@ -34,10 +34,10 @@ ifdef::env-name[:relfilesuffix: .adoc]
             **** [x] `lemma_usize_rotate_right_mod0_noop`
             **** [ ] `lemma_usize_rotate_right_distr`
             **** [ ] `lemma_usize_rotate_right_reversible`
-        *** ビットマップの操作を形式化
         *** 理論的性質
             **** [ ] 有理数上の半開区間に移植する
             **** [ ] 有理数の形式化
+                ***** `Pos` を使ったリファクタ
             **** [ ] `index_unique_range`
             **** [ ] `index_exists_for_valid_size`
             **** [ ] `lemma_block_size_range_mono` (optional)
