@@ -7,7 +7,7 @@ use vstd::set::Set;
 //       and Verus has no support for impl PartialEq
 
 verus! {
-use vstd::relations::{transitive, equivalence_relation, irreflexive};
+use vstd::relations::{transitive, equivalence_relation, irreflexive, reflexive};
 
 pub open spec fn antisymmetric<T>(r: spec_fn(T, T) -> bool, eq: spec_fn(T, T) -> bool) -> bool
     recommends equivalence_relation(eq)
@@ -84,5 +84,14 @@ pub open spec fn partial_ordering_if<T>(r: spec_fn(T, T) -> bool, eq: spec_fn(T,
     &&& transitive_if(r, p)
     &&& antisymmetric_if(r, eq, p)
 }
+
+pub open spec fn partial_ordering<T>(r: spec_fn(T, T) -> bool, eq: spec_fn(T, T) -> bool) -> bool 
+    recommends equivalence_relation(eq)
+{
+    &&& reflexive(r)
+    &&& transitive(r)
+    &&& antisymmetric(r, eq)
+}
+
 
 } // verus!

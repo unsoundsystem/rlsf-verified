@@ -3,7 +3,7 @@ use vstd::{seq::*, seq_lib::*};
 use vstd::set_lib::set_int_range;
 use vstd::set::Set;
 use crate::rational_numbers::{
-    Rational, lemma_from_int_adequate, lemma_add_preserve_wf,
+    Rational, lemma_from_int_adequate,
     lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split,
     rational_number_facts, lemma_lte_nonneg_add, lemma_hor_empty, lemma_lt_eq_equiv,
     lemma_add_eq_zero,
@@ -16,10 +16,10 @@ pub struct HalfOpenRangeOnRat(Rational, Rational);
 impl HalfOpenRangeOnRat {
     #[verifier::type_invariant]
     pub open spec fn wf(self) -> bool {
-        self.start().wf() && self.end().wf() && self.start().lte(self.end())
+        self.start().lte(self.end())
     }
     pub closed spec fn new(start: Rational, size: Rational) -> Self
-        recommends start.wf(), size.wf(), size.is_nonneg()
+        recommends size.is_nonneg()
     {
         HalfOpenRangeOnRat(start, start.add(size))
     }
@@ -33,9 +33,8 @@ impl HalfOpenRangeOnRat {
     }
 
     pub open spec fn contains(self, e: Rational) -> bool
-        recommends self.wf(), e.wf()
+        recommends self.wf()
     {
-        &&& e.wf()
         &&& self.start().lte(e)
         &&& e.lt(self.end())
     }
@@ -69,9 +68,9 @@ impl HalfOpenRangeOnRat {
 
     pub proof fn lemma_disjoint_not_contains(r1: Self, r2: Self)
         requires r1.wf(), r2.wf()
-        ensures r1.disjoint(r2) <==> forall|e: Rational| e.wf() && r1.contains(e) ==> !r2.contains(e)
+        ensures r1.disjoint(r2) <==> forall|e: Rational| r1.contains(e) ==> !r2.contains(e)
     {
-        assert forall|e: Rational| e.wf() && r1.disjoint(r2) && r1.contains(e)
+        assert forall|e: Rational| r1.disjoint(r2) && r1.contains(e)
             implies !r2.contains(e) by {
             if r1.is_empty() {
                 Self::lemma_empty_range_not_contains(r1);
@@ -124,26 +123,25 @@ impl HalfOpenRangeOnRat {
             }
         }
         assert(!r1.disjoint(r2) ==>
-            exists|x: Rational| x.wf() && (r1.contains(x) && r2.contains(x)));
+            exists|x: Rational| (r1.contains(x) && r2.contains(x)));
     }
 
     pub proof fn lemma_out_of_range_start(r: Self, e: Rational)
-        requires r.wf(), e.wf()
+        requires r.wf()
         ensures e.lt(r.start()) ==> !r.contains(e)
     {}
 
     pub proof fn lemma_out_of_range_end(r: Self, e: Rational)
-        requires r.wf(), e.wf()
+        requires r.wf()
         ensures r.end().lte(e) ==> !r.contains(e)
     {}
 
     pub proof fn lemma_wf_if_size_is_pos(start: Rational, size: Rational)
-        requires start.wf(), size.wf(), size.is_nonneg()
+        requires size.is_nonneg()
         ensures HalfOpenRangeOnRat::new(start, size).wf()
     {
         broadcast use rational_number_facts;
         lemma_lte_nonneg_add(start, size);
-        assert(start.add(size).wf());
         assert(start.lte(start.add(size)));
     }
 
@@ -152,7 +150,7 @@ impl HalfOpenRangeOnRat {
     pub open spec fn to_set(self) -> Set<Rational>
         recommends self.wf()
     {
-        Set::new(|p: Rational| p.wf() && self.start().lte(p) && p.lt(self.end()))
+        Set::new(|p: Rational| self.start().lte(p) && p.lt(self.end()))
     }
 
     pub proof fn lemma_disjoint_hor_disjoint_set(r1: Self, r2: Self)
@@ -164,17 +162,17 @@ impl HalfOpenRangeOnRat {
     }
 
     pub proof fn lemma_hor_set_equiv(r: Self, e: Rational)
-        requires r.wf(), e.wf()
+        requires r.wf()
         ensures r.to_set().contains(e) <==> r.contains(e)
     {}
 
     pub proof fn lemma_hor_disjoint(r1: Self, r2: Self)
         requires r1.wf(), r2.wf()
         ensures #[trigger] r1.disjoint(r2) <==>
-            forall |e: Rational| e.wf() ==>
-                (#[trigger] r1.contains(e) <==> #[trigger] r2.contains(e) == false)
+            forall |e: Rational|
+                #[trigger] r1.contains(e) <==> #[trigger] r2.contains(e) == false
     {
-        assert(r1.disjoint(r2) <==> forall |e: Rational| e.wf() ==> (#[trigger] r1.contains(e) <==> #[trigger] r2.contains(e) == false));
+        assert(r1.disjoint(r2) <==> forall |e: Rational| #[trigger] r1.contains(e) <==> #[trigger] r2.contains(e) == false);
     }
 
     pub proof fn lemma_empty_range_disjoint(r1: Self, r2: Self)
@@ -184,7 +182,7 @@ impl HalfOpenRangeOnRat {
     }
 
     pub proof fn lemma_empty_range(p: Rational, q: Rational)
-        requires p.wf(), q.wf(), q.eq(Rational::zero())
+        requires q.eq(Rational::zero())
         ensures ({
             let r = HalfOpenRangeOnRat::new(p, q); 
             r.wf() && r.to_set().is_empty()
@@ -206,7 +204,7 @@ impl HalfOpenRangeOnRat {
         requires r.wf(), r.is_empty()
         ensures r.to_set().is_empty()
     {
-        assert forall|a: Rational| a.wf() implies !(#[trigger] r.to_set().contains(a)) by {
+        assert forall|a: Rational| !(#[trigger] r.to_set().contains(a)) by {
             Self::lemma_empty_range_not_contains(r);
             assert(!r.contains(a));
             Self::lemma_hor_set_equiv(r, a);
@@ -215,9 +213,9 @@ impl HalfOpenRangeOnRat {
     }
     proof fn lemma_empty_range_not_contains(r: Self)
         requires r.wf(), r.is_empty()
-        ensures forall|e: Rational| e.wf() ==> !r.contains(e)
+        ensures forall|e: Rational| !r.contains(e)
     {
-        assert forall|a: Rational| a.wf() implies !r.contains(a) by {
+        assert forall|a: Rational| !r.contains(a) by {
             if r.start().lte(a) && a.lt(r.end()) {
                 lemma_hor_empty(r.start(), a);
                 lemma_lt_eq_equiv(a, r.start(), r.end());

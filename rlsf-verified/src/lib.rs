@@ -184,7 +184,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    //#[verifier::external_body] // debug
+    #[verifier::external_body] // debug
     #[inline(always)]
     fn update_bitmap(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires idx.wf(),
