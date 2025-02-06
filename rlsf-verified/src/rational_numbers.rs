@@ -218,7 +218,8 @@ impl Rational {
 
     pub open spec fn add(self, rhs: Rational) -> Rational
     {
-        Rational::new(self.num() * rhs.den() + rhs.num() * self.den(), Pos::from_int(self.den() * rhs.den()))
+        Rational::new(self.num() * rhs.den() + rhs.num() * self.den(),
+                    Pos::from_int(self.den() * rhs.den()))
     }
 
     pub open spec fn mul(self, rhs: Rational) -> Rational
@@ -271,7 +272,7 @@ pub broadcast proof fn lemma_denominator_is_positive(p: Rational)
     lemma_pos_is_positive(p.1);
 }
 
-pub broadcast proof fn lemma_add_pos_to_int(p: Rational, q: Rational, r: Rational)
+pub broadcast proof fn lemma_add_pos_to_int_structual_eq(p: Rational, q: Rational, r: Rational)
     ensures r == p.add(q) <==>
                 r.den() == p.den() * q.den() &&
                 r.num() == p.num() * q.den() + q.num() * p.den()
@@ -308,37 +309,74 @@ pub broadcast proof fn lemma_add_pos_to_int(p: Rational, q: Rational, r: Rationa
     };
 }
 
-// TODO: refactor
-proof fn lemma_add_pos_to_int_silly(p: Rational, q: Rational)
+pub broadcast proof fn lemma_add_pos_to_int(p: Rational, q: Rational)
     ensures
-        p.add(q).den() == p.den() * q.den() &&
+        p.add(q).den() == p.den() * q.den(),
         p.add(q).num() == p.num() * q.den() + q.num() * p.den()
 {
-    lemma_add_pos_to_int(p, q, p.add(q));
+    lemma_from_int_mul_distr(p.1, q.1);
 }
 
-pub proof fn lemma_mul_pos_to_int(p: Rational, q: Rational)
+pub broadcast proof fn lemma_neg_pos_to_int(p: Rational)
+    ensures p.neg().den() == p.den(),
+            p.neg().num() == -p.num()
+{
+    lemma_denominator_is_positive(p);
+    lemma_int_pos_bij(p.den());
+}
+
+pub broadcast proof fn lemma_sub_pos_to_int(p: Rational, q: Rational) by (nonlinear_arith)
+    ensures
+        p.sub(q).den() == p.den() * q.den(),
+        p.sub(q).num() == p.num() * q.den() - q.num() * p.den()
+{
+    lemma_neg_pos_to_int(q);
+    lemma_add_pos_to_int(p, q.neg());
+}
+
+
+pub broadcast proof fn lemma_mul_pos_to_int(p: Rational, q: Rational)
     ensures p.mul(q).num() == p.num() * q.num(),
             p.mul(q).den() == p.den() * q.den()
 {
     lemma_from_int_mul_distr(p.1, q.1);
 }
 
-// TODO
-pub proof fn lemma_inv_pos_to_int(p: Rational)
+pub broadcast proof fn lemma_inv_pos_to_int(p: Rational)
     requires p.num() != 0
     ensures abs(p.inv().num()) == p.den(),
             p.inv().den() == abs(p.num()),
             p.num() > 0 <==> p.inv().num() > 0
 {
     if p.num() < 0 {
-        //assert(abs(p.inv().num()) == -(p.den())) by (compute);
-        //Rational::new(-(self.den()), Pos::from_int(-(self.num())))
+        assert(p.inv().num() == -(p.den()));
+        lemma_denominator_is_positive(p);
+        assert(abs(p.inv().num()) == p.den());
+        lemma_int_pos_bij(-p.num());
+        assert(p.inv().den() == -p.num());
     } else { // p.num() > 0
-        admit()
-        //Rational::new(self.den(), Pos::from_int(self.num()))
+        lemma_denominator_is_positive(p);
+        assert(p.inv().num() == p.den());
+        lemma_int_pos_bij(p.num());
+        assert(p.inv().den() == p.num());
     }
 
+}
+
+pub broadcast proof fn lemma_div_pos_to_int(p: Rational, q: Rational) by (nonlinear_arith)
+    requires p.num() != 0, q.num() != 0
+    ensures abs(p.div(q).num()) == abs(p.num() * q.den()),
+            abs(p.div(q).den()) == abs(p.den() * q.num()),
+            p.num() * q.num() > 0 <==> p.div(q).num() > 0
+{
+    //if p.num() > 0 {
+        
+    //} else { // p.num() < 0
+    //}
+    lemma_denominator_is_positive(p);
+    lemma_denominator_is_positive(q);
+    lemma_inv_pos_to_int(q);
+    lemma_mul_pos_to_int(p, q.inv());
 }
 
 pub proof fn lemma_add_comm(lhs: Rational, rhs: Rational)
@@ -360,8 +398,8 @@ pub broadcast proof fn lemma_add_lt_mono(p: Rational, q: Rational, r: Rational)
     ensures p.add(r).lt(q.add(r))
 {
     broadcast use rational_number_facts;
-    lemma_add_pos_to_int_silly(p, r);
-    lemma_add_pos_to_int_silly(q, r);
+    lemma_add_pos_to_int(p, r);
+    lemma_add_pos_to_int(q, r);
     let (a, b) = (p.num(), p.den());
     let (c, d) = (q.num(), q.den());
     let (e, f) = (r.num(), r.den());
@@ -652,6 +690,7 @@ proof fn lemma_inv_mul_is_one(p: Rational)
         p.inv().mul(p).eq(Rational::one()),
         p.mul(p.inv()).eq(Rational::one())
 {
+        broadcast use rational_number_facts;
         if p.num() < 0 {
             let one = Rational::one();
             let (a, b) = (p.num(), p.den());
@@ -694,7 +733,11 @@ proof fn lemma_inv_zero_is_zero(p: Rational)
 pub broadcast proof fn lemma_mul_one_noop(p: Rational, q: Rational) by (nonlinear_arith)
     requires #[trigger] q.eq(Rational::one())
     ensures #[trigger] p.mul(q).eq(p)
-{}
+{
+    lemma_denominator_is_positive(p);
+    lemma_denominator_is_positive(q);
+    lemma_mul_pos_to_int(p, q);
+}
 
 pub broadcast proof fn lemma_div_mul_eq(p: Rational, q: Rational)
     requires !q.eq(Rational::zero())
@@ -726,7 +769,11 @@ pub broadcast proof fn lemma_div_mul_eq(p: Rational, q: Rational)
 pub broadcast proof fn lemma_eq_trans(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     requires #[trigger] p.eq(q), #[trigger] q.eq(r)
     ensures #[trigger] p.eq(r)
-{}
+{
+    lemma_denominator_is_positive(p);
+    lemma_denominator_is_positive(q);
+    lemma_denominator_is_positive(r);
+}
 
 pub broadcast proof fn lemma_eq_sym(p: Rational, q: Rational) by (nonlinear_arith)
     requires p.eq(q)
@@ -762,7 +809,10 @@ pub broadcast group positive_number_facts {
 pub broadcast group rational_number_facts {
     lemma_denominator_is_positive,
     lemma_from_int_adequate,
-    lemma_add_pos_to_int
+    lemma_add_pos_to_int,
+    lemma_sub_pos_to_int,
+    lemma_mul_pos_to_int,
+    lemma_div_pos_to_int,
 }
 
 pub broadcast group rational_number_equality {
@@ -781,15 +831,18 @@ pub broadcast group rational_number_div_mul_properties {
     rational_number_div_properties
 }
 pub broadcast group rational_number_mul_properties {
+    lemma_mul_pos_to_int,
     lemma_mul_eq_preserve,
     lemma_mul_associative,
     lemma_mul_is_commutative,
     lemma_mul_one_noop
 }
 pub broadcast group rational_number_div_properties {
+    lemma_div_pos_to_int,
     lemma_div_eq_preserve,
 }
 pub broadcast group rational_number_add_properties {
+    lemma_add_pos_to_int,
     lemma_add_eq_preserve,
     lemma_add_lt_mono,
     lemma_add_eq_zero
