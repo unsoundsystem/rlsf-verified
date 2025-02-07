@@ -39,7 +39,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     pub open spec fn valid_block_index(idx: (int, int)) -> bool {
         let (fl, sl) = idx;
-        &&& Self::granularity_log2_spec() <= fl < FLLEN as int
+        &&& 0 <= fl < FLLEN as int
         &&& 0 <= sl < SLLEN as int
     }
 
@@ -64,37 +64,23 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         self.block_size_range().to_set()
     }
 
-    // FIXME: correct this using half-open range on Q
-    pub open spec fn calculate_block_size_range(&self) -> (int, int)
-        recommends self.wf()
-    {
-        let BlockIndex(fl, sl) = self;
-        // This is at least GRANULARITY
-        let fl_block_bytes: int = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
-        // This is at least GRANULARITY
-        // FIXME: is this correct?
-        //        - to reflect behivor of actual implementation (rlsf),
-        //          the least size of allcation specified as GRANULARITY.
-        //        - but the *range* of size, specified in bytes (rlsf assume GRANULARITY aligned)
-        //              - TODO: this seems reasonable as a spec but there would be inconsistency
-        //                      between impl & spec
-        // TODO: this is not correct!!!!! branching into GRANULARITY crossing the boundary of fl_block_bytes
-        let sl_block_bytes = max(fl_block_bytes / SLLEN as int, GRANULARITY as int);
-        // NOTE: Actually although the range specified in 1-byte granularity,
-        //      there can be stored aribtrary size of blocks, because rlsf provides only GRANULARITY aligned allocation.
-        (fl_block_bytes + sl_block_bytes * sl as int, fl_block_bytes + sl_block_bytes * (sl + 1) as int)
-    }
-
-
-    // FIXME: correct this using half-open range on Q
-    pub open spec fn calculate_block_size_range_alt(&self) -> HalfOpenRangeOnRat
+    /// Calculate the correspoinding block size range for given BlockIndex
+    ///
+    /// * The range is on *rational numbers*,
+    ///     i.e. `[start, end) ⊆ { x ∈ Q | GRANULARITY ≤  x < (max valid block size) } `
+    ///
+    /// Depending on configuration of rlsf, there specific case that split size range of
+    /// [GRANULARITY, 2*GRANULARITY) with SLLEN(< GRANULARITY).
+    /// In implementation we don't using things like "free block size of GRANULARITY + half bytes"
+    /// it's only theorical demands.
+    pub closed spec fn block_size_range(&self) -> HalfOpenRangeOnRat
         recommends self.wf()
     {
         let BlockIndex(fl, sl) = self;
         // This is at least GRANULARITY
         let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
 
-        // This is at least GRANULARITY / SLLEN (possibly smaller than 1)
+        // This is at least `GRANULARITY / SLLEN` (possibly smaller than 1)
         // NOTE: using rational numbers here to prevent second-level block size to be zero.
         let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
 
@@ -113,12 +99,6 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         //requires self.wf(), vstd::relations::is_minimal(Set::full(), |i: Self, j: Self| block_index_lt(i, j), self)
         //ensures vstd::relations::is_minimal(self.block_size_range_set(), |i: int, j: int| i < j, GRANULARITY as int)
     //{}
-
-    pub closed spec fn block_size_range(&self) -> HalfOpenRangeOnRat
-        recommends self.wf()
-    {
-        self.calculate_block_size_range_alt()
-    }
 
     proof fn lemma_block_size_range_is_valid_half_open_range(&self)
         requires self.wf()
@@ -141,13 +121,10 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     proof fn example_ranges() {
         let idx = BlockIndex::<28, 64>(0, 0);
-        assert(idx.wf());
+        assert(idx.wf()) by (compute);
         reveal(log);
         reveal(pow2);
         assert(pow2(Self::granularity_log2_spec() as nat) == GRANULARITY) by (compute);
-        vstd::set_lib::lemma_int_range(GRANULARITY as int, GRANULARITY as int + GRANULARITY as int);
-        assert(!idx.block_size_range_set().is_empty());
-        assert(idx.block_size_range_set().len() == GRANULARITY);
     }
 
     // TODO
@@ -162,7 +139,9 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             let r2 = idx2.block_size_range();
             r1.wf() && r2.wf() && r1.disjoint(r2) })
     {
-        admit()
+        // assuming sl1 < sl2
+        // it suffice to prove
+        // [0, SLB)⊥ [SLB*(sl2-sl1),SLB*(sl2-sl1+1))
     }
 
     // TODO
@@ -175,7 +154,10 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         ({  let r1 = idx1.block_size_range();
             let r2 = idx2.block_size_range();
             r1.wf() && r2.wf() && r1.disjoint(r2) })
-    { admit() }
+    {
+        // when first-level index differs they fall into different "first-level range [2^fl, 2^(fl+1))"
+        admit()
+    }
 
     // TODO: Proof all sub lemma
     /// Correspoinding size ranges for distict indices are not overwrapping.

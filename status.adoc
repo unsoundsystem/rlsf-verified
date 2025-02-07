@@ -513,5 +513,10 @@ proof fn ex() {
 
 == 2025/02/03
 
-* `Pos` を使ったリファクタリング(branch: `pos-type-refactor`)
+* [[pos_refactor]] `Pos` を使ったリファクタリング(branch: `pos-type-refactor`)
     ** `Pos` に自動化が効かないため、四則演算について分母と分子への影響を整数で書いた補題をbroadcastする作業中
+
+== 2025/02/07
+
+* xref:pos_refactor[リファクタリング]が完了(自動化もある程度動くようになった)
+* `half_open_range` に一意性の証明で利用する補題を整備

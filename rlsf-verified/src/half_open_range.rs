@@ -6,8 +6,10 @@ use crate::rational_numbers::{
     Rational, lemma_from_int_adequate,
     lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split,
     rational_number_facts, lemma_lte_nonneg_add, lemma_hor_empty, lemma_lt_eq_equiv,
-    lemma_add_eq_zero,
+    lemma_add_eq_zero, lemma_add_lte_mono, rational_number_add_properties,
+    rational_number_inequality
 };
+use vstd::calc;
 
 verus! {
 /// Type for left half-open range on Q
@@ -38,7 +40,6 @@ impl HalfOpenRangeOnRat {
         &&& self.start().lte(e)
         &&& e.lt(self.end())
     }
-
 
     ///  Interval is disjoint when one of then is empty or they are in the following situation
     ///
@@ -154,26 +155,21 @@ impl HalfOpenRangeOnRat {
     }
 
     pub proof fn lemma_disjoint_hor_disjoint_set(r1: Self, r2: Self)
-        requires r1.wf(), r2.wf()
+        requires r1.wf(), r2.wf(), r1.disjoint(r2)
         ensures
-            r1.disjoint(r2) <==> r1.to_set().disjoint(r2.to_set())
+            r1.to_set().disjoint(r2.to_set())
     {
-        assert(r1.disjoint(r2) ==> r1.to_set().disjoint(r2.to_set())) by (nonlinear_arith);
+        assert forall|r: Rational|
+            r1.to_set().contains(r) implies !r2.to_set().contains(r) by {
+                Self::lemma_hor_set_equiv(r1, r);
+                Self::lemma_disjoint_not_contains(r1, r2);
+        }
     }
 
     pub proof fn lemma_hor_set_equiv(r: Self, e: Rational)
         requires r.wf()
         ensures r.to_set().contains(e) <==> r.contains(e)
     {}
-
-    pub proof fn lemma_hor_disjoint(r1: Self, r2: Self)
-        requires r1.wf(), r2.wf()
-        ensures #[trigger] r1.disjoint(r2) <==>
-            forall |e: Rational|
-                #[trigger] r1.contains(e) <==> #[trigger] r2.contains(e) == false
-    {
-        assert(r1.disjoint(r2) <==> forall |e: Rational| #[trigger] r1.contains(e) <==> #[trigger] r2.contains(e) == false);
-    }
 
     pub proof fn lemma_empty_range_disjoint(r1: Self, r2: Self)
         requires r1.is_empty() || r2.is_empty()
@@ -211,6 +207,7 @@ impl HalfOpenRangeOnRat {
         };
         empty_set_not_contains(r.to_set());
     }
+
     proof fn lemma_empty_range_not_contains(r: Self)
         requires r.wf(), r.is_empty()
         ensures forall|e: Rational| !r.contains(e)
@@ -226,6 +223,66 @@ impl HalfOpenRangeOnRat {
             assert(!r.contains(a));
         }
     }
+
+    spec fn slide(self, delta: Rational) -> Self {
+        Self(self.start().add(delta), self.end().add(delta))
+    }
+
+    proof fn lemma_slide_wf(r: Self, p: Rational) by (nonlinear_arith)
+        requires r.wf()
+        ensures r.slide(p).wf()
+    {
+        broadcast use rational_number_facts;
+        lemma_add_lte_mono(r.start(), r.end(), p);
+    }
+
+    proof fn lemma_empty_slide_empty(r: Self, p: Rational) by (nonlinear_arith)
+        requires r.is_empty()
+        ensures r.slide(p).is_empty()
+    {
+        broadcast use rational_number_facts;
+    }
+
+    proof fn lemma_disjoint_add_equiv(r1: Self, r2: Self, delta: Rational) by (nonlinear_arith)
+        requires r1.wf(), r2.wf()
+        ensures r1.disjoint(r2) <==> r1.slide(delta).disjoint(r2.slide(delta))
+    {
+        Self::lemma_slide_wf(r1, delta);
+        Self::lemma_slide_wf(r2, delta);
+        if r1.is_empty() || r2.is_empty() {
+            if r1.is_empty() {
+                Self::lemma_empty_slide_empty(r1, delta);
+                Self::lemma_empty_range_disjoint(r1, r2);
+            } else {
+                Self::lemma_empty_slide_empty(r2, delta);
+                Self::lemma_empty_range_disjoint(r1, r2);
+            }
+        }
+    }
+
+    pub open spec fn subrange_of(self, rhs: Self) -> bool
+        recommends self.wf(), rhs.wf()
+    {
+        rhs.start().lte(self.start()) && self.end().lte(rhs.end())
+    }
+
+    // TODO
+    proof fn lemma_subrange_of_contains(r1: Self, r2: Self) by (nonlinear_arith)
+        requires r1.wf(), r2.wf()
+        ensures r1.subrange_of(r2) <==>
+            forall|r: Rational| r1.contains(r) ==> r2.contains(r)
+    {
+        broadcast use rational_number_facts;
+        broadcast use rational_number_add_properties;
+    }
+
+    // TODO
+    proof fn lemma_superrange_disjoint_subrange_disjoint(r1: Self, r2: Self, r3: Self, r4: Self)
+        requires
+            r1.wf(), r2.wf(), r3.wf(), r4.wf(),
+            r1.subrange_of(r2), r3.subrange_of(r4)
+        ensures r2.disjoint(r4) ==> r1.disjoint(r3)
+    {}
 }
 
 proof fn empty_set_not_contains<T>(s: Set<T>)

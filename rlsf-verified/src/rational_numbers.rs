@@ -387,10 +387,9 @@ pub broadcast proof fn lemma_div_pos_to_int(p: Rational, q: Rational) by (nonlin
     lemma_mul_pos_to_int(p, q.inv());
 }
 
-pub proof fn lemma_add_comm(lhs: Rational, rhs: Rational)
+pub broadcast proof fn lemma_add_comm(lhs: Rational, rhs: Rational)
     ensures lhs.add(rhs).eq(rhs.add(lhs))
-{
-}
+{}
 
 pub proof fn lemma_rat_range_split(rhs: Rational, lhs: Rational) by (nonlinear_arith)
     ensures lhs.lt(rhs) <==> !rhs.lte(lhs)
@@ -402,8 +401,7 @@ proof fn lemma_mul_pos_is_pos(i: int, j: int) by (nonlinear_arith)
 {}
 
 pub broadcast proof fn lemma_add_lt_mono(p: Rational, q: Rational, r: Rational)
-    requires p.lt(q)
-    ensures p.add(r).lt(q.add(r))
+    ensures p.lt(q) <==> p.add(r).lt(q.add(r))
 {
     broadcast use rational_number_facts;
     lemma_add_pos_to_int(p, r);
@@ -415,9 +413,8 @@ pub broadcast proof fn lemma_add_lt_mono(p: Rational, q: Rational, r: Rational)
     assert(d > 0);
     assert(f > 0);
 
-    assert(a * d < c * b);
     calc! {
-        (==>)
+        (<==>)
         a * d < c * b; {
             assert(f > 0);
             broadcast use group_mul_properties;
@@ -432,9 +429,44 @@ pub broadcast proof fn lemma_add_lt_mono(p: Rational, q: Rational, r: Rational)
         d * f * (a * f + e * b) < b * f * (c * f + e * d); (<==>) {}
         p.add(r).lt(q.add(r));
     }
-
-    assert(p.add(r).lt(q.add(r)));
 }
+
+pub broadcast proof fn lemma_lt_lte_implies(p: Rational, q: Rational)
+    requires p.lt(q)
+    ensures p.lte(q)
+{}
+
+pub broadcast proof fn lemma_add_lte_mono(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    ensures p.lte(q) <==> p.add(r).lte(q.add(r))
+{
+    broadcast use rational_number_facts;
+    lemma_add_pos_to_int(p, r);
+    lemma_add_pos_to_int(q, r);
+    let (a, b) = (p.num(), p.den());
+    let (c, d) = (q.num(), q.den());
+    let (e, f) = (r.num(), r.den());
+    assert(b > 0);
+    assert(d > 0);
+    assert(f > 0);
+
+    calc! {
+        (<==>)
+        a * d <= c * b; {
+            assert(f > 0);
+            broadcast use group_mul_properties;
+        }
+        d * a * f <= b * c * f; {
+            broadcast use group_mul_properties;
+            assert(d * e * b == b * e * d);
+        }
+        d * a * f + d * e * b <= b * c * f + b * e * d; {
+            broadcast use group_mul_properties;
+        }
+        d * f * (a * f + e * b) <= b * f * (c * f + e * d); (<==>) {}
+        p.add(r).lte(q.add(r));
+    }
+}
+
 
 proof fn lemma_strict_inequality_mono(x: int, y: int, a: int, b: int) by (nonlinear_arith)
     requires x + a < y + b, a == b
@@ -445,7 +477,7 @@ proof fn lemma_mul_comm_3arity(x: int, y: int, z: int)
     ensures x * y * z == y * x * z
 {}
 
-pub proof fn lemma_sub_lt_mono(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_sub_lt_mono(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     requires p.lt(q)
     ensures p.sub(r).lt(q.sub(r))
 {
@@ -461,7 +493,7 @@ pub proof fn lemma_neg_lt_inverse(p: Rational, q: Rational) by (nonlinear_arith)
 
 // Lemmas for rewriting equations
 
-pub proof fn lemma_add_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
+pub broadcast proof fn lemma_add_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
     requires p.eq(q), r.eq(s)
     ensures p.add(r).eq(q.add(s))
  {
@@ -705,7 +737,7 @@ pub proof fn lemma_hor_empty(p: Rational, q: Rational)
     ensures !(#[trigger] p.lte(q) && q.lt(p))
 {}
 
-pub proof fn lemma_lt_eq_equiv(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_lt_eq_equiv(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     requires q.eq(r)
     ensures p.lt(q) <==> p.lt(r)
 {
@@ -846,6 +878,10 @@ pub broadcast proof fn lemma_eq_refl(p: Rational) by (nonlinear_arith)
     ensures #[trigger] p.eq(p)
 {}
 
+//pub proof fn lemma_mul_silly(p: Rational, q: Rational, i: int, j: int)
+    //requires i > j
+    //ensures p.add(q.mul(i)).eq(p.add(q.mul(j-i))).add(q.mul(j))
+
 //proof fn examples() {
     //lemma_from_int_adequate(0);
     //lemma_from_int_adequate(1);
@@ -887,7 +923,13 @@ pub broadcast group rational_number_equality {
     lemma_eq_sym,
     lemma_eq_refl
 }
-pub broadcast group rational_number_inequality {}
+pub broadcast group rational_number_inequality {
+    lemma_add_lt_mono,
+    lemma_add_lte_mono,
+    lemma_lte_trans,
+    lemma_lt_eq_equiv,
+    lemma_lt_lte_implies
+}
 pub broadcast group rational_number_div_mul_properties {
     lemma_div_mul_eq,
     rational_number_mul_properties,
@@ -908,7 +950,8 @@ pub broadcast group rational_number_add_properties {
     lemma_add_pos_to_int,
     lemma_add_eq_preserve,
     lemma_add_lt_mono,
-    lemma_add_eq_zero
+    lemma_add_eq_zero,
+    lemma_add_comm,
 }
 
 } // verus!
