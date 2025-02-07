@@ -208,11 +208,12 @@ impl Rational {
         self.lt(Self::from_int(i))
     }
 
-    // TODO
-    proof fn lemma_eq_from_int_equiv(i: int, j: int)
+    proof fn lemma_eq_from_int_equiv(i: int, j: int) by (nonlinear_arith)
         ensures
             i == j <==> Self::from_int(i).eq(Self::from_int(j))
-    {}
+    {
+        broadcast use rational_number_facts;
+    }
 
     /// Addition, multiplication, opposite and inverse (division)
 
@@ -343,12 +344,19 @@ pub broadcast proof fn lemma_mul_pos_to_int(p: Rational, q: Rational)
 }
 
 pub broadcast proof fn lemma_inv_pos_to_int(p: Rational)
-    requires p.num() != 0
-    ensures abs(p.inv().num()) == p.den(),
-            p.inv().den() == abs(p.num()),
-            p.num() > 0 <==> p.inv().num() > 0
+    ensures ({
+        if p.num() == 0 {
+            p.inv().num() == 0
+        } else {
+            &&& abs(p.inv().num()) == p.den()
+            &&& p.inv().den() == abs(p.num())
+            &&& p.num() > 0 <==> p.inv().num() > 0
+        }
+    })
 {
-    if p.num() < 0 {
+    if p.num() == 0 {
+        assert(p.inv().num() == 0);
+    } else if p.num() < 0 {
         assert(p.inv().num() == -(p.den()));
         lemma_denominator_is_positive(p);
         assert(abs(p.inv().num()) == p.den());
@@ -440,12 +448,16 @@ proof fn lemma_mul_comm_3arity(x: int, y: int, z: int)
 pub proof fn lemma_sub_lt_mono(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     requires p.lt(q)
     ensures p.sub(r).lt(q.sub(r))
-{}
+{
+    lemma_add_lt_mono(p, q, r.neg());
+}
 
 pub proof fn lemma_neg_lt_inverse(p: Rational, q: Rational) by (nonlinear_arith)
     requires p.lt(q)
     ensures q.neg().lt(p.neg())
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 // Lemmas for rewriting equations
 
@@ -534,11 +546,40 @@ pub proof fn lemma_mul_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rat
     assert(p.mul(r).eq(q.mul(s)));
 }
 
-// TODO
+pub proof fn lemma_zero_inv_eq_zero(p: Rational) by (nonlinear_arith)
+    requires p.eq(Rational::zero())
+    ensures p.inv().eq(Rational::zero())
+{
+    broadcast use rational_number_facts;
+}
+
 pub proof fn lemma_inv_eq_preserve(p: Rational, q: Rational)
+    by (nonlinear_arith)
     requires p.eq(q)
     ensures p.inv().eq(q.inv())
-{}
+{
+    if p.eq(Rational::zero()) || q.eq(Rational::zero()) {
+        if p.eq(Rational::zero()) {
+            lemma_zero_inv_eq_zero(p);
+            lemma_eq_sym(p, Rational::zero());
+            lemma_eq_trans(Rational::zero(), p, q);
+            assert(q.eq(Rational::zero()));
+            lemma_zero_inv_eq_zero(q);
+            assert(p.inv().eq(q.inv()));
+        } else {
+            lemma_zero_inv_eq_zero(q);
+            lemma_eq_sym(p, q);
+            lemma_eq_sym(q, Rational::zero());
+            lemma_eq_trans(Rational::zero(), q, p);
+            assert(p.eq(Rational::zero()));
+            lemma_zero_inv_eq_zero(p);
+            assert(p.inv().eq(q.inv()));
+        }
+    } else {
+        lemma_inv_pos_to_int(p);
+        lemma_inv_pos_to_int(q);
+    }
+}
 
 
 pub proof fn lemma_div_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational) by (nonlinear_arith)
@@ -552,7 +593,9 @@ pub proof fn lemma_div_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rat
 pub proof fn lemma_neg_eq_preserve(p: Rational, q: Rational) by (nonlinear_arith)
     requires p.eq(q)
     ensures p.neg().eq(q.neg())
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 pub proof fn lemma_sub_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
     requires p.eq(q), r.eq(s)
@@ -568,19 +611,24 @@ pub broadcast proof fn lemma_from_int_adequate(i: int)
         #[trigger] Rational::from_int(i).eq_int(i),
 {}
 
-pub proof fn lemma_add_zero(p: Rational)
+pub proof fn lemma_add_zero(p: Rational) by (nonlinear_arith)
     ensures p.add(Rational::zero()).eq(p)
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 pub broadcast proof fn lemma_add_eq_zero(p: Rational, q: Rational) by (nonlinear_arith)
     requires #[trigger] q.eq(Rational::zero())
     ensures #[trigger] p.add(q).eq(p)
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 
 proof fn lemma_equivalence_transitive() by (nonlinear_arith)
     ensures transitive(|p: Rational, q: Rational| p.eq(q))
 {
+    broadcast use rational_number_facts;
 }
 
 proof fn lemma_equivalence()
@@ -598,6 +646,7 @@ proof fn lemma_equivalence()
 proof fn lemma_lt_is_transitive() by (nonlinear_arith)
     ensures transitive(|p: Rational, q: Rational| p.lt(q))
 {
+    broadcast use rational_number_facts;
 }
 
 proof fn lemma_lt_is_strict_total()
@@ -610,6 +659,7 @@ proof fn lemma_lt_is_strict_total()
 pub proof fn lemma_lte_is_transitive() by (nonlinear_arith)
     ensures transitive(|p: Rational, q: Rational| p.lte(q))
 {
+    broadcast use rational_number_facts;
 }
 
 pub proof fn lemma_lte_is_partial_ordering()
@@ -621,22 +671,30 @@ pub proof fn lemma_lte_is_partial_ordering()
 
 pub proof fn lemma_lt_lte_trans(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     ensures p.lt(q) && q.lte(r) ==> p.lt(r)
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 // in another style
 pub broadcast proof fn lemma_lte_trans(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     ensures #[trigger] p.lte(q) && #[trigger] q.lte(r) ==> #[trigger] p.lte(r)
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 pub proof fn lemma_lte_nonneg_add(p: Rational, q: Rational) by (nonlinear_arith)
     requires q.is_nonneg()
     ensures p.lte(p.add(q))
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 pub proof fn lemma_nonneg_div(p: Rational, q: Rational)
     requires q.is_nonneg(), p.is_nonneg()
     ensures p.div(q).is_nonneg()
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 pub proof fn lemma_rat_int_lte_equiv(p: int, q: int) by (nonlinear_arith)
     ensures
@@ -650,7 +708,9 @@ pub proof fn lemma_hor_empty(p: Rational, q: Rational)
 pub proof fn lemma_lt_eq_equiv(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     requires q.eq(r)
     ensures p.lt(q) <==> p.lt(r)
-{}
+{
+    broadcast use rational_number_facts;
+}
 
 // silly lemma about integer arith
 
@@ -673,11 +733,11 @@ proof fn lemma_mul_strict_inequality_imp(x: int, y: int, z: int) by (nonlinear_a
         x < y && z > 0 ==> #[trigger] (z * x) < #[trigger] (z * y)
 {}
 
-pub broadcast proof fn lemma_mul_associative(p: Rational, q: Rational, r: Rational)
+pub broadcast proof fn lemma_mul_associative(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
     ensures #[trigger] p.mul(q).mul(r).eq(#[trigger] p.mul(q.mul(r)))
 {
     broadcast use rational_number_facts;
-    assert(p.mul(q).mul(r).eq(p.mul(q.mul(r)))) by (nonlinear_arith);
+    //assert(p.mul(q).mul(r).eq(p.mul(q.mul(r)))) by (nonlinear_arith);
 }
 
 pub broadcast proof fn lemma_mul_commutative(p: Rational, q: Rational)
@@ -695,6 +755,7 @@ proof fn lemma_inv_mul_is_one(p: Rational)
             let one = Rational::one();
             let (a, b) = (p.num(), p.den());
             let (c, d) = (p.inv().num(), p.inv().den());
+            lemma_inv_pos_to_int(p);
             assert(c == -b);
             assert(d == -a);
             assert(one.den() == one.num() == 1);
@@ -717,6 +778,7 @@ proof fn lemma_inv_mul_is_one(p: Rational)
             let one = Rational::one();
             let (a, b) = (p.num(), p.den());
             let (c, d) = (p.inv().num(), p.inv().den());
+            lemma_inv_pos_to_int(p);
             assert(c == b);
             assert(d == a);
             assert(one.den() == one.num() == 1);
@@ -809,6 +871,7 @@ pub broadcast group positive_number_facts {
 pub broadcast group rational_number_facts {
     lemma_denominator_is_positive,
     lemma_from_int_adequate,
+    lemma_neg_pos_to_int,
     lemma_add_pos_to_int,
     lemma_sub_pos_to_int,
     lemma_mul_pos_to_int,
