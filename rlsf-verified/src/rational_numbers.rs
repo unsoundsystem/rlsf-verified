@@ -714,10 +714,23 @@ pub broadcast proof fn lemma_lte_trans(p: Rational, q: Rational, r: Rational) by
     broadcast use rational_number_facts;
 }
 
+// FIXME: naming: it's reflexivity
 pub broadcast proof fn lemma_lte_sym(p: Rational, q: Rational) by (nonlinear_arith)
     requires p.eq(q)
     ensures p.lte(q)
 {}
+
+pub broadcast proof fn lemma_lte_antisym(p: Rational, q: Rational) by (nonlinear_arith)
+    requires p.lte(q), q.lte(p)
+    ensures p.eq(q)
+{}
+
+pub broadcast proof fn lemma_lte_eq_between(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    requires p.eq(r), p.lte(q), q.lte(r)
+    ensures p.eq(q)
+{
+    broadcast use rational_number_facts;
+}
 
 pub proof fn lemma_lte_nonneg_add(p: Rational, q: Rational) by (nonlinear_arith)
     requires q.is_nonneg()
@@ -935,7 +948,8 @@ pub broadcast group rational_number_inequality {
     lemma_lte_trans,
     lemma_lt_eq_equiv,
     lemma_lt_lte_implies,
-    lemma_lte_sym
+    lemma_lte_sym,
+    lemma_lte_antisym
 }
 pub broadcast group rational_number_div_mul_properties {
     lemma_div_mul_eq,

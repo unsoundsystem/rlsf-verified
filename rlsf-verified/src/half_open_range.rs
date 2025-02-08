@@ -7,7 +7,7 @@ use crate::rational_numbers::{
     lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split,
     rational_number_facts, lemma_lte_nonneg_add, lemma_hor_empty, lemma_lt_eq_equiv,
     lemma_add_eq_zero, lemma_add_lte_mono, rational_number_add_properties,
-    rational_number_inequality, lemma_lte_sym
+    rational_number_inequality, lemma_lte_sym, lemma_lte_eq_between, lemma_eq_trans, lemma_eq_sym
 };
 use vstd::calc;
 
@@ -328,13 +328,63 @@ impl HalfOpenRangeOnRat {
         assert(!r1.subrange_of(r2) ==> exists|r: Rational| r1.contains(r) && !r2.contains(r));
     }
 
-    // TODO
     proof fn lemma_superrange_disjoint_subrange_disjoint(r1: Self, r2: Self, r3: Self, r4: Self)
         requires
             r1.wf(), r2.wf(), r3.wf(), r4.wf(),
             r1.subrange_of(r2), r3.subrange_of(r4)
         ensures r2.disjoint(r4) ==> r1.disjoint(r3)
-    {}
+    {
+        if r2.is_empty() || r4.is_empty() {
+            if r2.is_empty() {
+                Self::lemma_subrange_of_empty(r1, r2);
+                assert(r1.disjoint(r3))
+            } else {
+                Self::lemma_subrange_of_empty(r3, r4);
+                assert(r1.disjoint(r3))
+            }
+        }
+        // r1:    o---o       r3:     o---o
+        // r2: o----------o   r4: o------------o
+        if r2.disjoint(r4) {
+            if r2.end().lte(r4.start()) {
+                assert(r1.end().lte(r2.end()));
+                assert(r4.start().lte(r3.start()));
+                lemma_lte_trans(r1.end(), r2.end(), r4.start());
+                lemma_lte_trans(r1.end(), r4.start(), r3.start());
+                assert(r1.end().lte(r3.start()));
+            }
+
+            if r4.end().lte(r2.start()) {
+                assert(r3.end().lte(r4.end()));
+                assert(r2.start().lte(r1.start()));
+                lemma_lte_trans(r3.end(), r4.end(), r2.start());
+                lemma_lte_trans(r3.end(), r2.start(), r1.start());
+                assert(r3.end().lte(r1.start()));
+            }
+        }
+    }
+
+    proof fn lemma_subrange_of_empty(r1: Self, r2: Self)
+        requires r1.wf(), r2.wf(), r2.is_empty(), r1.subrange_of(r2)
+        ensures  r1.is_empty()
+    {
+        assert(r2.start().eq(r2.end()));
+        assert(r2.start().lte(r1.start()));
+        assert(r1.end().lte(r2.end()));
+        lemma_lte_trans(r1.start(), r1.end(), r2.end());
+        assert(r1.start().lte(r2.end()));
+        lemma_lte_eq_between(r2.start(), r1.start(), r2.end());
+        assert(r2.start().eq(r1.start()));
+
+        lemma_lte_trans(r2.start(), r1.start(), r1.end());
+        assert(r2.start().lte(r1.end()));
+        lemma_lte_eq_between(r2.start(), r1.end(), r2.end());
+        assert(r2.start().eq(r1.end()));
+
+        lemma_eq_sym(r2.start(), r1.start());
+        lemma_eq_trans(r1.start(), r2.start(), r1.end());
+        assert(r1.start().eq(r1.end()));
+    }
 }
 
 proof fn empty_set_not_contains<T>(s: Set<T>)
