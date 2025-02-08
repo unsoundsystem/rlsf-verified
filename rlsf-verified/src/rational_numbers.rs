@@ -550,7 +550,7 @@ pub broadcast proof fn lemma_add_eq_preserve(p: Rational, q: Rational, r: Ration
     assert(p.add(r).eq(q.add(s)));
 }
 
-pub proof fn lemma_mul_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
+pub broadcast proof fn lemma_mul_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
     requires p.eq(q), r.eq(s)
     ensures p.mul(r).eq(q.mul(s))
 {
@@ -614,7 +614,7 @@ pub proof fn lemma_inv_eq_preserve(p: Rational, q: Rational)
 }
 
 
-pub proof fn lemma_div_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational) by (nonlinear_arith)
+pub broadcast proof fn lemma_div_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational) by (nonlinear_arith)
     requires p.eq(q), r.eq(s)
     ensures p.div(r).eq(q.div(s))
 {
@@ -629,7 +629,7 @@ pub proof fn lemma_neg_eq_preserve(p: Rational, q: Rational) by (nonlinear_arith
     broadcast use rational_number_facts;
 }
 
-pub proof fn lemma_sub_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
+pub broadcast proof fn lemma_sub_eq_preserve(p: Rational, q: Rational, r: Rational, s: Rational)
     requires p.eq(q), r.eq(s)
     ensures p.sub(r).eq(q.sub(s))
 {
@@ -713,6 +713,11 @@ pub broadcast proof fn lemma_lte_trans(p: Rational, q: Rational, r: Rational) by
 {
     broadcast use rational_number_facts;
 }
+
+pub broadcast proof fn lemma_lte_sym(p: Rational, q: Rational) by (nonlinear_arith)
+    requires p.eq(q)
+    ensures p.lte(q)
+{}
 
 pub proof fn lemma_lte_nonneg_add(p: Rational, q: Rational) by (nonlinear_arith)
     requires q.is_nonneg()
@@ -924,11 +929,13 @@ pub broadcast group rational_number_equality {
     lemma_eq_refl
 }
 pub broadcast group rational_number_inequality {
+    rational_number_equality,
     lemma_add_lt_mono,
     lemma_add_lte_mono,
     lemma_lte_trans,
     lemma_lt_eq_equiv,
-    lemma_lt_lte_implies
+    lemma_lt_lte_implies,
+    lemma_lte_sym
 }
 pub broadcast group rational_number_div_mul_properties {
     lemma_div_mul_eq,

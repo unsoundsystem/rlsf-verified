@@ -7,7 +7,7 @@ use crate::rational_numbers::{
     lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split,
     rational_number_facts, lemma_lte_nonneg_add, lemma_hor_empty, lemma_lt_eq_equiv,
     lemma_add_eq_zero, lemma_add_lte_mono, rational_number_add_properties,
-    rational_number_inequality
+    rational_number_inequality, lemma_lte_sym
 };
 use vstd::calc;
 
@@ -266,14 +266,66 @@ impl HalfOpenRangeOnRat {
         rhs.start().lte(self.start()) && self.end().lte(rhs.end())
     }
 
-    // TODO
-    proof fn lemma_subrange_of_contains(r1: Self, r2: Self) by (nonlinear_arith)
-        requires r1.wf(), r2.wf()
+    proof fn lemma_subrange_of_contains(r1: Self, r2: Self)
+        requires r1.wf(), r2.wf(), /*NOTE*/ !r1.is_empty()
         ensures r1.subrange_of(r2) <==>
             forall|r: Rational| r1.contains(r) ==> r2.contains(r)
     {
-        broadcast use rational_number_facts;
-        broadcast use rational_number_add_properties;
+        // ==>
+        if r1.subrange_of(r2) {
+            assert forall|r: Rational| r1.contains(r) implies r2.contains(r) by {
+                assert(r1.start().lte(r) && r2.start().lte(r1.start()));
+                assert(r.lt(r1.end()) && r1.end().lte(r2.end()));
+                lemma_lte_trans(r2.start(), r1.start(), r);
+                lemma_lt_lte_trans(r, r1.end(), r2.end());
+                assert(r2.start().lte(r) && r.lt(r2.end()));
+            }
+        }
+
+        // <==
+        if !r1.subrange_of(r2) {
+            // i.e. r1.start().lt(r2.start()) || r2.end().lt(r1.end())
+            // we have witness `r` for each situations
+            //
+            // case 1: r1.start() <  r2.start()
+            // r1: o-------------------o      o----------o          o--------o
+            // r2:      o--------o               o------------o                o--------o
+            // witness: e.g. r1.start()
+            //
+            // case 2: r2.end() < r1.end()
+            // r1: o-------------------o         o------------o                o--------o
+            // r2:      o--------o            o----------o          o--------o
+            // witness: e.g. r2.end()
+            //
+            // case 3: empty ranges
+            // NOTE: left is the reason of forbidding r1 to be empty range
+            // r1: o             o             o-------o
+            // r2:    o-------o            o               o
+            // witness: (right) r1.start()
+            //
+
+            if r2.is_empty() {
+                Self::lemma_empty_range_not_contains(r2);
+                assert(r1.contains(r1.start()) && !r2.contains(r1.start()));
+            }
+
+            if r1.disjoint(r2) {
+                Self::lemma_disjoint_not_contains(r1, r2);
+                assert(r1.contains(r1.start()) && !r2.contains(r1.start()));
+            } else if r1.start().lt(r2.start()) {
+                lemma_lte_sym(r1.start(), r1.start());
+                assert(r1.start().lte(r1.start()));
+                assert(r1.contains(r1.start()));
+                assert(r1.contains(r1.start()) && !r2.contains(r1.start()));
+            } else if r2.end().lt(r1.end()) {
+                assert(r1.start().lte(r2.end()) && r2.end().lt(r1.end()));
+                assert(r1.contains(r2.end()) && !r2.contains(r2.end()));
+            }
+
+            assert(exists|r: Rational| r1.contains(r) && !r2.contains(r));
+        }
+
+        assert(!r1.subrange_of(r2) ==> exists|r: Rational| r1.contains(r) && !r2.contains(r));
     }
 
     // TODO
