@@ -762,6 +762,39 @@ pub broadcast proof fn lemma_lt_eq_equiv(p: Rational, q: Rational, r: Rational) 
     broadcast use rational_number_facts;
 }
 
+// TODO
+pub broadcast proof fn lemma_lte_eq_equiv(p: Rational, q: Rational, r: Rational, s: Rational)
+    requires p.eq(q), r.eq(s)
+    ensures p.lte(r) <==> q.lte(s)
+{
+    let (a, b) = (p.num(), p.den());
+    let (c, d) = (q.num(), q.den());
+    let (e, f) = (r.num(), r.den());
+    let (g, h) = (s.num(), s.den());
+    lemma_denominator_is_positive(p);
+    lemma_denominator_is_positive(q);
+    lemma_denominator_is_positive(r);
+    lemma_denominator_is_positive(s);
+    assert(b > 0 && d > 0 && f > 0 && h > 0);
+
+    calc! {
+        (<==>)
+        a * f <= e * b; {
+            broadcast use group_mul_properties;
+        }
+        a * f * d * h <= e * b * d * h; {
+            broadcast use group_mul_properties;
+        }
+        a * d * f * h <= h * e * b * d; {
+            broadcast use group_mul_properties;
+        }
+        b * c * f * h <= f * g * b * d; {
+            broadcast use group_mul_properties;
+        }
+        c * h <= g * d;
+    }
+}
+
 // silly lemma about integer arith
 
 proof fn lemma_mul_zero_choose(x: int, y: int) by (nonlinear_arith)

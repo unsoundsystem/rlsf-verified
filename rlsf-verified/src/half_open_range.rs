@@ -67,6 +67,24 @@ impl HalfOpenRangeOnRat {
         self.start().eq(self.end())
     }
 
+    pub proof fn lemma_disjoint_start_end_eq(r1: Self, r2: Self, start: Rational, end: Rational)
+        requires r1.wf(), r2.wf()
+        ensures
+            r1.end().eq(end) && r2.start().eq(start) && end.lte(start) ==> r1.disjoint(r2),
+            r2.end().eq(end) && r1.start().eq(start) && end.lte(start) ==> r1.disjoint(r2)
+    {
+        if r1.is_empty() || r2.is_empty() {
+
+        } else {
+            if r1.end().eq(end) && r2.start().eq(start) && end.lte(start) {
+                broadcast use rational_number_facts;
+            }
+            if r2.end().eq(end) && r1.start().eq(start) && end.lte(start) {
+                broadcast use rational_number_facts;
+            }
+        }
+    }
+
     pub proof fn lemma_disjoint_not_contains(r1: Self, r2: Self)
         requires r1.wf(), r2.wf()
         ensures r1.disjoint(r2) <==> forall|e: Rational| r1.contains(e) ==> !r2.contains(e)
@@ -224,11 +242,11 @@ impl HalfOpenRangeOnRat {
         }
     }
 
-    spec fn slide(self, delta: Rational) -> Self {
+    pub closed spec fn slide(self, delta: Rational) -> Self {
         Self(self.start().add(delta), self.end().add(delta))
     }
 
-    proof fn lemma_slide_wf(r: Self, p: Rational) by (nonlinear_arith)
+    pub proof fn lemma_slide_wf(r: Self, p: Rational) by (nonlinear_arith)
         requires r.wf()
         ensures r.slide(p).wf()
     {
@@ -243,7 +261,7 @@ impl HalfOpenRangeOnRat {
         broadcast use rational_number_facts;
     }
 
-    proof fn lemma_disjoint_add_equiv(r1: Self, r2: Self, delta: Rational) by (nonlinear_arith)
+    pub proof fn lemma_disjoint_add_equiv(r1: Self, r2: Self, delta: Rational) by (nonlinear_arith)
         requires r1.wf(), r2.wf()
         ensures r1.disjoint(r2) <==> r1.slide(delta).disjoint(r2.slide(delta))
     {
