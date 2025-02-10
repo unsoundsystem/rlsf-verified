@@ -391,6 +391,12 @@ pub broadcast proof fn lemma_add_comm(lhs: Rational, rhs: Rational)
     ensures lhs.add(rhs).eq(rhs.add(lhs))
 {}
 
+pub broadcast proof fn lemma_add_comm2(a: Rational, b: Rational, c: Rational) by (nonlinear_arith)
+    ensures a.add(b).add(c).eq(a.add(c).add(b))
+{
+    broadcast use rational_number_facts;
+}
+
 pub proof fn lemma_rat_range_split(rhs: Rational, lhs: Rational) by (nonlinear_arith)
     ensures lhs.lt(rhs) <==> !rhs.lte(lhs)
 {}

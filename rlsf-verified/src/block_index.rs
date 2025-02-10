@@ -5,8 +5,11 @@ use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
-use crate::half_open_range::{HalfOpenRangeOnRat};
-use crate::rational_numbers::{Rational, rational_number_facts, lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv};
+use crate::half_open_range::HalfOpenRangeOnRat;
+use crate::rational_numbers::{
+    Rational, rational_number_facts, rational_number_equality, rational_number_inequality,
+    lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv
+};
 
 verus! {
 // TODO: const generics fixed, rewrite
@@ -160,7 +163,16 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             let r1_slide = r1.slide(r1.start().neg());
             let r2_slide = r2.slide(r1.start().neg());
             //TODO
-            assume(r1_slide.end().eq(/* SLB */ sl_block_bytes1));
+            assert(r1_slide.end().eq(/* SLB */ sl_block_bytes1)) by {
+                r1.lemma_slide_start(r1.start().neg());
+                r1.lemma_slide_end(r1.start().neg());
+                assert(r1_slide.end().eq(r1_slide.start().add(sl_block_bytes1))) by {
+                    // FIXME: why the simulation of block_size_range here doesnt working
+                    HalfOpenRangeOnRat::lemma_slide_new_size(r1.start(), sl_block_bytes1, r1.start().neg());
+                    assert(r1
+                        == HalfOpenRangeOnRat::new(fl_block_bytes1.add(sl_block_bytes1.mul(Rational::from_int(idx1.1 as int))), sl_block_bytes1));
+                };
+            };
             assume(r2_slide.start().eq(/* SLB */ sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1))));
 
             //TODO
@@ -179,7 +191,12 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
                 };
 
                 //TODO
-                assume(r1_slide.end().lte(r2_slide.start()));
+                assume(sl_block_bytes1.lte(sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1))));
+
+                broadcast use rational_number_equality;
+                lemma_lte_eq_equiv(sl_block_bytes1, r1_slide.end(),
+                    sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1)), r2_slide.start());
+                assert(r1_slide.end().lte(r2_slide.start()));
             };
             HalfOpenRangeOnRat::lemma_disjoint_add_equiv(r1, r2, r1.start().neg());
             assert(r1.disjoint(r2));

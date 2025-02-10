@@ -520,3 +520,10 @@ proof fn ex() {
 
 * xref:pos_refactor[リファクタリング]が完了(自動化もある程度動くようになった)
 * `half_open_range` に一意性の証明で利用する補題を整備
+
+== 2025/02/10
+
+* サーベイ
+    ** FSMによるアプローチがある
+        *** Coq上のFSM形式化によるもの: Li, Shaofeng, Lei Qiao, and Mengfei Yang. "Memory state verification based on inductive and deductive reasoning." IEEE Transactions on Reliability 70.3 (2021): 1026-1039.
+        *** BIPを用いたモデルベースのもの: Lu, Xiutai, et al. "Towards Formal Verification of Dynamic Memory Allocator Properties Using BIP Framework." Proceedings of the 5th International Conference on Computer Science and Application Engineering. 2021.

@@ -206,8 +206,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //    Free list index calculation & bitmap properties
     //-------------------------------------------------------
 
-    /// TODO: state and proof more detailed property about index calculation and relate with
-    /// `map_ceil` / `map_floor`
     //#[verifier::external_body] // debug
     pub fn map_ceil(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>)
         requires

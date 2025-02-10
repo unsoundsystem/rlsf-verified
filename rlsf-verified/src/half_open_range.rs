@@ -7,7 +7,8 @@ use crate::rational_numbers::{
     lemma_add_zero, lemma_lt_lte_trans, lemma_lte_trans, lemma_rat_range_split,
     rational_number_facts, lemma_lte_nonneg_add, lemma_hor_empty, lemma_lt_eq_equiv,
     lemma_add_eq_zero, lemma_add_lte_mono, rational_number_add_properties,
-    rational_number_inequality, lemma_lte_sym, lemma_lte_eq_between, lemma_eq_trans, lemma_eq_sym
+    rational_number_inequality, lemma_lte_sym, lemma_lte_eq_between, lemma_eq_trans, lemma_eq_sym,
+    rational_number_equality, lemma_add_comm2
 };
 use vstd::calc;
 
@@ -244,6 +245,33 @@ impl HalfOpenRangeOnRat {
 
     pub closed spec fn slide(self, delta: Rational) -> Self {
         Self(self.start().add(delta), self.end().add(delta))
+    }
+
+    pub proof fn lemma_slide_start(self, delta: Rational)
+        ensures self.slide(delta).start().eq(self.start().add(delta))
+    {}
+
+    pub proof fn lemma_slide_end(self, delta: Rational)
+        ensures self.slide(delta).end().eq(self.end().add(delta))
+    {}
+
+    pub proof fn lemma_slide_new_size(start: Rational, size: Rational, delta: Rational) by (nonlinear_arith)
+        ensures ({
+            let r_slide = Self::new(start, size).slide(delta);
+            r_slide.end().eq(r_slide.start().add(size))
+        })
+    {
+        let r = Self::new(start, size);
+        let r_slide = r.slide(delta);
+        r.lemma_slide_start(delta);
+        r.lemma_slide_end(delta);
+        assert(r.end() == r.start().add(size));
+        assert(r_slide.end().eq(r.end().add(delta)));
+        lemma_add_comm2(r.start(), size, delta);
+        assert(r_slide.end().eq(r.start().add(size).add(delta)));
+        assert(r_slide.end().eq(r.start().add(delta).add(size)));
+
+        assert(r_slide.end().eq(r_slide.start().add(size)));
     }
 
     pub proof fn lemma_slide_wf(r: Self, p: Rational) by (nonlinear_arith)
