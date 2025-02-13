@@ -121,6 +121,8 @@ struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
     //TODO: We need a way to obtain permission from block to adjacent
     // List of all BlockHdrs ordered by their addresses.
     tracked all_block_headers: Seq<PointsTo<BlockHdr>>,
+
+    ghost valid_range: Set<int>, // represents region managed by this allocator
 }
 
 impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf <FLLEN, SLLEN> {
@@ -179,6 +181,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             gs: Ghost(GhostTlsf {
                 ghost_free_list: Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| Seq::empty())),
                 all_block_headers: Seq::empty(),
+                valid_range: Set::empty(),
             }),
             _phantom: PhantomData
         }
@@ -198,8 +201,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap | (1usize << fl);
-        self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl); // FIXME: Verus doesn't allow lhs
-                                                                  // mutation
+        let tmp = self.sl_bitmap[fl] | (1usize << sl);
+        self.sl_bitmap.set(fl, tmp);
+        //self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl);
     }
 
     //-------------------------------------------------------
@@ -684,6 +688,15 @@ impl !Copy for DeallocToken {}
 /// FIXME: Consider merging block in deallocate(), it's going to be impossible to 
 ///        peek usedness and merge if we give permission for hole header to the user
 ///        option: use header address as an ID
+//TODO: add pointer to start of the allocated region & size of that block
+//      * wf-ness:
+//          * pointer
+//              * the pointer is in the managed region 
+//              * has same provenance with initial block
+//              * aligned to GRANULARITY
+//          * size
+//              * valid size
+//              * aligned to GRANULARITY
 struct DeallocToken {
     header: PointsTo<UsedBlockHdr>
 }

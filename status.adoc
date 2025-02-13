@@ -527,3 +527,8 @@ proof fn ex() {
     ** FSMによるアプローチがある
         *** Coq上のFSM形式化によるもの: Li, Shaofeng, Lei Qiao, and Mengfei Yang. "Memory state verification based on inductive and deductive reasoning." IEEE Transactions on Reliability 70.3 (2021): 1026-1039.
         *** BIPを用いたモデルベースのもの: Lu, Xiutai, et al. "Towards Formal Verification of Dynamic Memory Allocator Properties Using BIP Framework." Proceedings of the 5th International Conference on Computer Science and Application Engineering. 2021.
+
+== 2025/02/13
+
+* `update_bitmap()` のFIXMEを解決
+    ** `arr[index] = val` のような要素の変更は未サポートで、 `arr.set(index, val)` のように書く

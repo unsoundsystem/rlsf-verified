@@ -95,7 +95,26 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         HalfOpenRangeOnRat::new(start, size)
     }
 
+    // TODO
+    proof fn lemma_block_size_range_size(self) by (nonlinear_arith)
+        requires self.wf()
+        ensures ({
+            let BlockIndex(fl, sl) = self;
+            let fl_block_bytes =
+                Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
+            let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
+            self.block_size_range().size().eq(sl_block_bytes)
+        })
+    {
+        //broadcast use rational_number_equality;
+        //broadcast use rational_number_facts;
+        admit()
+    }
 
+    proof fn lemma_block_size_range_for_same_fl(idx1: Self, idx2: Self)
+        requires idx1.wf(), idx2.wf(), idx1.0 == idx2.0
+        ensures idx1.block_size_range().size().eq(idx2.block_size_range().size())
+    {}
 
     // minimal index fall into minimal block size (=GRANULARITY)
     //pub proof fn lemma_block_size_range_min(self)
@@ -159,6 +178,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             let sl_block_bytes1 = fl_block_bytes1.div(Rational::from_int(SLLEN as int));
             let sl_block_bytes2 = fl_block_bytes2.div(Rational::from_int(SLLEN as int));
             assert(sl_block_bytes1 == sl_block_bytes2);
+            // TODO
+            assume(sl_block_bytes1.is_nonneg());
 
             let r1_slide = r1.slide(r1.start().neg());
             let r2_slide = r2.slide(r1.start().neg());
@@ -166,11 +187,23 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             assert(r1_slide.end().eq(/* SLB */ sl_block_bytes1)) by {
                 r1.lemma_slide_start(r1.start().neg());
                 r1.lemma_slide_end(r1.start().neg());
-                assert(r1_slide.end().eq(r1_slide.start().add(sl_block_bytes1))) by {
-                    // FIXME: why the simulation of block_size_range here doesnt working
-                    HalfOpenRangeOnRat::lemma_slide_new_size(r1.start(), sl_block_bytes1, r1.start().neg());
-                    assert(r1
-                        == HalfOpenRangeOnRat::new(fl_block_bytes1.add(sl_block_bytes1.mul(Rational::from_int(idx1.1 as int))), sl_block_bytes1));
+
+                assert(r1_slide.size().eq(sl_block_bytes1)) by {
+                    
+                    assert(r1.size().eq(sl_block_bytes1)) by {
+                        idx1.lemma_block_size_range_size()
+                    };
+
+                    assert(r1_slide.size().eq(r1.size()));
+                };
+
+                
+                assert(r1_slide.end().eq(
+                        r1_slide.start().add(r1_slide.size())
+                ));
+                assert(r1_slide.end().eq(sl_block_bytes1)) by {
+                    assert(r1_slide.start().eq(Rational::zero()));
+                    // by trans
                 };
             };
             assume(r2_slide.start().eq(/* SLB */ sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1))));

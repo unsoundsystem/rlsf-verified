@@ -939,6 +939,43 @@ pub broadcast proof fn lemma_eq_refl(p: Rational) by (nonlinear_arith)
     //requires i > j
     //ensures p.add(q.mul(i)).eq(p.add(q.mul(j-i))).add(q.mul(j))
 
+pub proof fn lemma_neg_add_zero(p: Rational) by (nonlinear_arith)
+    ensures p.add(p.neg()).eq(Rational::zero())
+{
+    broadcast use rational_number_facts;
+}
+
+pub proof fn lemma_sub_is_add_neg(p: Rational, q: Rational)
+    ensures p.sub(q) == p.add(q.neg())
+{}
+
+pub proof fn lemma_neg_distr_add(p: Rational, q: Rational) by (nonlinear_arith)
+    ensures p.add(q).neg() == p.neg().add(q.neg())
+{
+    broadcast use rational_number_facts;
+}
+
+pub proof fn lemma_add_distr_add(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    ensures p.add(q.add(r)) == p.add(q).add(r)
+{
+    broadcast use rational_number_facts;
+}
+
+pub proof fn lemma_add_sub_eq1(p: Rational, q: Rational, r: Rational)
+    ensures p.add(r).sub(q.add(r)).eq(p.sub(q))
+{
+    lemma_sub_is_add_neg(p, q);
+    assert(p.add(r).sub(q.add(r)).eq(p.sub(q))
+        <==> p.add(r).add(q.add(r).neg()).eq(p.sub(q)));
+    lemma_neg_distr_add(q, r);
+    assert(p.add(r).add(q.add(r).neg()).eq(p.sub(q))
+        <==> p.add(r).add(q.neg().add(r.neg())).eq(p.sub(q)));
+    lemma_add_distr_add(p.add(r), q.neg(), r.neg());
+    assert(p.add(r).add(q.neg().add(r.neg())).eq(p.sub(q))
+        <==> p.add(r).add(q.neg().add(r.neg())).eq(p.sub(q)));
+    // TODO: add comm -> r.add(r.neg()).eq(zero())
+}
+
 //proof fn examples() {
     //lemma_from_int_adequate(0);
     //lemma_from_int_adequate(1);
