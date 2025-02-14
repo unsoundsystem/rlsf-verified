@@ -42,6 +42,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
         *** 理論的性質
             **** [x] 有理数上の半開区間に移植する
             **** [x] 有理数の形式化
+                *** [ ] optional: 四則演算に関する自動化を整備する e.g. more broadcast
             **** [ ] `index_unique_range`
             **** [ ] `index_exists_for_valid_size`
             **** [ ] `lemma_block_size_range_mono` (optional)

@@ -961,6 +961,28 @@ pub proof fn lemma_add_distr_add(p: Rational, q: Rational, r: Rational) by (nonl
     broadcast use rational_number_facts;
 }
 
+pub proof fn lemma_add_associative(p: Rational, q: Rational, r: Rational) by (nonlinear_arith)
+    ensures p.add(q).add(r).eq(p.add(q.add(r)))
+{
+    broadcast use rational_number_facts;
+}
+
+pub proof fn lemma_add_suffle(p: Rational, q: Rational, r: Rational)
+    ensures p.add(q).add(r).eq(p.add(r).add(q))
+{
+    lemma_add_associative(p, q, r);
+    assert(p.add(q).add(r).eq(p.add(q.add(r))));
+    lemma_add_comm(q, r);
+    lemma_eq_refl(p);
+    assert(p.eq(p) && q.add(r).eq(r.add(q)));
+    lemma_add_eq_preserve(p, p, q.add(r), r.add(q));
+    assert(p.add(q.add(r)).eq(p.add(r.add(q))));
+    lemma_eq_trans(p.add(q).add(r), p.add(q.add(r)), p.add(r.add(q)));
+    assert(p.add(q).add(r).eq(p.add(r.add(q))));
+    lemma_add_associative(p, r, q);
+    lemma_eq_trans(p.add(q).add(r), p.add(r.add(q)), p.add(r).add(q));
+}
+
 pub proof fn lemma_add_sub_eq1(p: Rational, q: Rational, r: Rational)
     ensures p.add(r).sub(q.add(r)).eq(p.sub(q))
 {
@@ -974,6 +996,98 @@ pub proof fn lemma_add_sub_eq1(p: Rational, q: Rational, r: Rational)
     assert(p.add(r).add(q.neg().add(r.neg())).eq(p.sub(q))
         <==> p.add(r).add(q.neg().add(r.neg())).eq(p.sub(q)));
     // TODO: add comm -> r.add(r.neg()).eq(zero())
+    lemma_add_associative(p, r, q.neg().add(r.neg()));
+    assert(p.add(r).add(q.neg().add(r.neg())).eq(p.sub(q))
+        <==> p.add(r).add(q.neg()).add(r.neg()).eq(p.sub(q)));
+    assert(p.add(r).add(q.neg()).add(r.neg()).eq(p.add(q.neg()).add(r).add(r.neg()))) by {
+        lemma_add_suffle(p, r, q.neg());
+        lemma_eq_refl(r.neg());
+        lemma_add_eq_preserve(p.add(r).add(q.neg()), p.add(q.neg()).add(r), r.neg(), r.neg());
+    };
+    assert(p.add(q.neg()).add(r).add(r.neg()).eq(p.add(q.neg()))) by {
+        lemma_add_associative(p.add(q.neg()), r, r.neg());
+        assert(p.add(q.neg()).add(r).add(r.neg()).eq(
+                p.add(q.neg()).add(r.add(r.neg()))
+        ));
+        lemma_neg_add_zero(r);
+        lemma_add_eq_preserve(p.add(q.neg()), p.add(q.neg()),
+            r.add(r.neg()), Rational::zero());
+        assert(p.add(q.neg()).add(r.add(r.neg())).eq(p.add(q.neg()).add(Rational::zero())));
+        lemma_add_basics(p.add(q.neg()));
+        assert(p.add(q.neg()).add(Rational::zero()).eq(p.add(q.neg())));
+        lemma_eq_trans(p.add(q.neg()).add(r.add(r.neg())),
+            p.add(q.neg()).add(Rational::zero()), p.add(q.neg()));
+
+        lemma_eq_trans(p.add(q.neg()).add(r).add(r.neg()),
+            p.add(q.neg()).add(r.add(r.neg())), p.add(q.neg()));
+    };
+    lemma_eq_trans(p.add(r).add(q.neg()).add(r.neg()), p.add(q.neg()).add(r).add(r.neg()), p.add(q.neg()));
+}
+
+pub proof fn lemma_add_basics(p: Rational) by (nonlinear_arith)
+    ensures
+        p.add(Rational::zero()).eq(p),
+        Rational::zero().add(p).eq(p),
+        p.sub(Rational::zero()).eq(p),
+{
+    broadcast use rational_number_facts;
+}
+
+pub broadcast proof fn lemma_mul_distr_add(p: Rational, q: Rational, r: Rational)
+    ensures
+        p.mul(q.add(r)).eq(p.mul(q).add(p.mul(r)))
+{
+    let (a, b) = (p.num(), p.den());
+    let (c, d) = (q.num(), q.den());
+    let (e, f) = (r.num(), r.den());
+    lemma_denominator_is_positive(p);
+    lemma_denominator_is_positive(q);
+    lemma_denominator_is_positive(r);
+
+    let lhs = p.mul(q.add(r));
+    let rhs = p.mul(q).add(p.mul(r));
+
+    assert(lhs.num() == a * (c * f + e * d)) by (compute);
+    assert(lhs.den() == b * (d * f)) by {
+        lemma_mul_pos_to_int(p, q.add(r));
+        lemma_add_pos_to_int(q, r);
+    };
+
+    assert(rhs.num() == (a * c) * (b * f) + (a * e) * (b * d)) by {
+        lemma_mul_pos_to_int(p, q);
+        lemma_mul_pos_to_int(p, r);
+        lemma_add_pos_to_int(p.mul(q), p.mul(r));
+    };
+    assert(rhs.den() == (b * d) * (b * f)) by {
+        lemma_mul_pos_to_int(p, q);
+        lemma_mul_pos_to_int(p, r);
+        lemma_add_pos_to_int(p.mul(q), p.mul(r));
+    };
+
+    assert((a * (c * f + e * d)) * ((b * d) * (b * f))
+        == (b * (d * f)) * ((a * c) * (b * f) + (a * e) * (b * d))) by {
+        broadcast use group_mul_properties;
+    };
+
+    assert(lhs.num() * rhs.den() == lhs.den() * rhs.num());
+}
+
+pub broadcast proof fn lemma_mul_negation(p: Rational, q: Rational) by (nonlinear_arith)
+    ensures
+        p.neg().mul(q).eq(p.mul(q.neg())),
+        p.neg().mul(q).eq(p.mul(q).neg()),
+{
+    broadcast use rational_number_facts;
+}
+
+pub broadcast proof fn lemma_mul_basics(p: Rational) by (nonlinear_arith)
+    ensures
+        p.mul(Rational::zero()).eq(Rational::zero()),
+        Rational::zero().mul(p).eq(Rational::zero()),
+        p.mul(Rational::one()).eq(p),
+        Rational::one().mul(p).eq(p),
+{
+    broadcast use rational_number_facts;
 }
 
 //proof fn examples() {
@@ -1020,6 +1134,7 @@ pub broadcast group rational_number_equality {
 pub broadcast group rational_number_inequality {
     rational_number_equality,
     lemma_add_lt_mono,
+    lemma_sub_lt_mono,
     lemma_add_lte_mono,
     lemma_lte_trans,
     lemma_lt_eq_equiv,
@@ -1037,7 +1152,9 @@ pub broadcast group rational_number_mul_properties {
     lemma_mul_eq_preserve,
     lemma_mul_associative,
     lemma_mul_is_commutative,
-    lemma_mul_one_noop
+    lemma_mul_basics,
+    lemma_mul_distr_add,
+    lemma_mul_negation
 }
 pub broadcast group rational_number_div_properties {
     lemma_div_pos_to_int,
@@ -1049,6 +1166,13 @@ pub broadcast group rational_number_add_properties {
     lemma_add_lt_mono,
     lemma_add_eq_zero,
     lemma_add_comm,
+}
+
+pub broadcast group rational_number_properties {
+    rational_number_equality,
+    rational_number_inequality,
+    rational_number_add_properties,
+    rational_number_div_mul_properties
 }
 
 } // verus!

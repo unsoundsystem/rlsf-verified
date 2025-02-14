@@ -7,8 +7,8 @@ use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
 use crate::half_open_range::HalfOpenRangeOnRat;
 use crate::rational_numbers::{
-    Rational, rational_number_facts, rational_number_equality, rational_number_inequality,
-    lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv
+    Rational, rational_number_facts, rational_number_equality, rational_number_inequality, rational_number_properties,
+    lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv, lemma_eq_trans, lemma_neg_add_zero, lemma_add_eq_preserve, lemma_add_basics, lemma_from_int_inj
 };
 
 verus! {
@@ -169,8 +169,10 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             let r1 = idx1.block_size_range();
             let r2 = idx2.block_size_range();
 
-            idx1.lemma_block_size_range_is_valid_half_open_range();
-            idx2.lemma_block_size_range_is_valid_half_open_range();
+            assert(r1.wf() && r2.wf()) by {
+                idx1.lemma_block_size_range_is_valid_half_open_range();
+                idx2.lemma_block_size_range_is_valid_half_open_range();
+            };
 
             let fl_block_bytes1 = Rational::from_int(pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int);
             let fl_block_bytes2 = Rational::from_int(pow2((idx2.0 + Self::granularity_log2_spec()) as nat) as int);
@@ -181,57 +183,95 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             // TODO
             assume(sl_block_bytes1.is_nonneg());
 
-            let r1_slide = r1.slide(r1.start().neg());
-            let r2_slide = r2.slide(r1.start().neg());
-            //TODO
+            let delta = r1.start().neg();
+            let r1_slide = r1.slide(delta);
+            let r2_slide = r2.slide(delta);
+
             assert(r1_slide.end().eq(/* SLB */ sl_block_bytes1)) by {
-                r1.lemma_slide_start(r1.start().neg());
-                r1.lemma_slide_end(r1.start().neg());
+                r1.lemma_slide_start(delta);
+                r1.lemma_slide_end(delta);
+                HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
 
                 assert(r1_slide.size().eq(sl_block_bytes1)) by {
-                    
+
                     assert(r1.size().eq(sl_block_bytes1)) by {
                         idx1.lemma_block_size_range_size()
                     };
 
+                    HalfOpenRangeOnRat::lemma_slide_size_eq(r1, delta);
+                    lemma_eq_trans(r1_slide.size(), r1.size(), sl_block_bytes1);
+
                     assert(r1_slide.size().eq(r1.size()));
                 };
 
-                
+                HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
+                r1_slide.lemma_size_is_size();
                 assert(r1_slide.end().eq(
                         r1_slide.start().add(r1_slide.size())
                 ));
                 assert(r1_slide.end().eq(sl_block_bytes1)) by {
-                    assert(r1_slide.start().eq(Rational::zero()));
-                    // by trans
+                    assert(r1_slide.start().eq(Rational::zero())) by {
+                        assert(r1_slide.start().eq(r1.start().add(delta)));
+                        lemma_neg_add_zero(r1.start());
+                        assert(r1.start().add(delta).eq(Rational::zero()));
+                        lemma_eq_trans(r1_slide.start(), r1.start().add(delta), Rational::zero());
+                    };
+
+                    assert(r1_slide.start().add(r1_slide.size()).eq(r1_slide.size())) by {
+                        lemma_add_basics(r1_slide.size());
+                        lemma_add_eq_preserve(r1_slide.start(), Rational::zero(), r1_slide.size(), r1_slide.size());
+                        broadcast use rational_number_equality;
+                    };
+                    HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
+                    lemma_eq_trans(r1_slide.end(), r1_slide.start().add(r1_slide.size()), r1_slide.size());
+                    lemma_eq_trans(r1_slide.end(), r1_slide.size(), sl_block_bytes1);
                 };
             };
-            assume(r2_slide.start().eq(/* SLB */ sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1))));
+
+            //TODO
+            assert(r2_slide.start().eq(/* SLB */
+                    sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int))))) by {
+                // r2.start() - r1.start()
+                // r2 == idx2.block_size_range()
+                //    == new(fl_block_bytes2 + sl_block_bytes2 * idx2.1, sl_block_bytes2)
+                // r2.start() == fl_block_bytes2 + sl_block_bytes2 * idx2.1
+                // r2_slide.start() == fl_block_bytes2 + sl_block_bytes2 * idx2.1 - r1.start()
+                //                  == fl_block_bytes2 + sl_block_bytes2 * idx2.1
+                //                       - fl_block_bytes1 + sl_block_bytes1 * idx1.1
+                //                  == sl_block_bytes2 * idx2.1 - sl_block_bytes1 * idx1.1
+                r2.lemma_slide_start(delta);
+                assert(r2_slide.start().eq(r2.start().add(delta)));
+                // FIXME
+                assert(r2.start().eq(fl_block_bytes2.add(sl_block_bytes2.mul(Rational::from_int(idx2.1 as int))))) by {
+                    lemma_from_int_inj(idx2.0 as int, idx2.0 as int);
+                };
+                admit();
+            };
 
             //TODO
             assert(r1_slide.disjoint(r2_slide)) by {
                 lemma_lte_eq_equiv(r1_slide.end(),
                     sl_block_bytes1, r2_slide.start(),
-                    sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1)));
+                    sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int))));
 
                 assert(r1_slide.wf()) by {
                     assert(r1.wf() && r2.wf());
-                    HalfOpenRangeOnRat::lemma_slide_wf(r1, r1.start().neg());
+                    HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
                 };
                 assert(r2_slide.wf()) by {
                     assert(r1.wf() && r2.wf());
-                    HalfOpenRangeOnRat::lemma_slide_wf(r2, r1.start().neg());
+                    HalfOpenRangeOnRat::lemma_slide_wf(r2, delta);
                 };
 
                 //TODO
-                assume(sl_block_bytes1.lte(sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1))));
+                assume(sl_block_bytes1.lte(sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int)))));
 
                 broadcast use rational_number_equality;
                 lemma_lte_eq_equiv(sl_block_bytes1, r1_slide.end(),
-                    sl_block_bytes1.mul(Rational::from_int(idx2.1 - idx1.1)), r2_slide.start());
+                    sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int))), r2_slide.start());
                 assert(r1_slide.end().lte(r2_slide.start()));
             };
-            HalfOpenRangeOnRat::lemma_disjoint_add_equiv(r1, r2, r1.start().neg());
+            HalfOpenRangeOnRat::lemma_disjoint_add_equiv(r1, r2, delta);
             assert(r1.disjoint(r2));
         } else {
             // TODO

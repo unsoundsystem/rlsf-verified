@@ -8,7 +8,7 @@ use crate::rational_numbers::{
     rational_number_facts, lemma_lte_nonneg_add, lemma_hor_empty, lemma_lt_eq_equiv,
     lemma_add_eq_zero, lemma_add_lte_mono, rational_number_add_properties,
     rational_number_inequality, lemma_lte_sym, lemma_lte_eq_between, lemma_eq_trans, lemma_eq_sym,
-    rational_number_equality, lemma_add_comm2, lemma_neg_add_zero
+    rational_number_equality, lemma_add_comm2, lemma_neg_add_zero, lemma_add_sub_eq1
 };
 use vstd::calc;
 
@@ -301,15 +301,15 @@ impl HalfOpenRangeOnRat {
         broadcast use rational_number_facts;
     }
 
-    proof fn lemma_slide_size_eq(r: Self, delta: Rational) by (nonlinear_arith)
+    pub proof fn lemma_slide_size_eq(r: Self, delta: Rational) by (nonlinear_arith)
         requires r.wf()
         ensures r.slide(delta).size().eq(r.size())
     {
         r.lemma_slide_start(delta);
         r.lemma_slide_end(delta);
         let r_slide = r.slide(delta);
-        broadcast use rational_number_facts;
-        broadcast use rational_number_equality;
+
+        lemma_add_sub_eq1(r.end(), r.start(), delta);
         assert(r.end().add(delta).sub(r.start().add(delta)).eq(r.end().sub(r.start())));
         assert(r_slide.end().sub(r_slide.start()).eq(r.end().sub(r.start())));
     }

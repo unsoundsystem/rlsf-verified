@@ -532,3 +532,10 @@ proof fn ex() {
 
 * `update_bitmap()` のFIXMEを解決
     ** `arr[index] = val` のような要素の変更は未サポートで、 `arr.set(index, val)` のように書く
+
+== 2025/02/14
+
+* Q: 有理数の四則演算に関する証明をある程度自動化したい
+    ** 同値関係がビルトインのものではないため、等式変形による証明が冗長
+    ** `vstd::arithmetic::mul` を参考にbroadcast proofを構成すれば達成できそう
+        *** Q: メソッドチェインにうまくtriggerを指定できなさそう
