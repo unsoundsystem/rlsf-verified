@@ -115,7 +115,9 @@ struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
     ///
     /// Remark: ghost_free_list[fl][sl] contains size of blocks in
     ///     BlockIndex(fl, sl).block_size_range()
-    tracked ghost_free_list: Seq<Seq<Seq<PointsTo<FreeBlockHdr>>>>,
+    tracked ghost_free_list: Seq<Seq<Seq<
+        PointsToRaw // FreeBlockHdr + block size of the list
+    >>>,
 
     //FIXME: the PointsTo here overwraps with above ghost_free_list
     //TODO: We need a way to obtain permission from block to adjacent

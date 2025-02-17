@@ -539,3 +539,8 @@ proof fn ex() {
     ** 同値関係がビルトインのものではないため、等式変形による証明が冗長
     ** `vstd::arithmetic::mul` を参考にbroadcast proofを構成すれば達成できそう
         *** Q: メソッドチェインにうまくtriggerを指定できなさそう
+
+== 2025/02/17
+
+* アロケータの実装に近い形のリンクリストの検証PoC `verus-ex/dll-ex.rs`
+    ** Q: `wf_node_ptr` を事前条件とすると不整合が起こる
