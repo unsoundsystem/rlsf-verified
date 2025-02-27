@@ -543,4 +543,8 @@ proof fn ex() {
 == 2025/02/17
 
 * アロケータの実装に近い形のリンクリストの検証PoC `verus-ex/dll-ex.rs`
-    ** Q: `wf_node_ptr` を事前条件とすると不整合が起こる
+    ** [[wf_node_ptr_inconsistency]] Q: `wf_node_ptr` を事前条件とすると不整合が起こる
+
+== 2025/02/17
+
+* A: xref:./wf_node_ptr_inconsistency[この不整合]は `wf_node` 中で含意と連言を取り違えて書いていたことが原因だった
