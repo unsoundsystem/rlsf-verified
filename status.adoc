@@ -542,7 +542,7 @@ proof fn ex() {
 
 == 2025/02/17
 
-* アロケータの実装に近い形のリンクリストの検証PoC `verus-ex/dll-ex.rs`
+* [[realistic_dll]]アロケータの実装に近い形のリンクリストの検証PoC `verus-ex/dll-ex.rs`
     ** [[wf_node_ptr_inconsistency]] Q: `wf_node_ptr` を事前条件とすると不整合が起こる
 
 == 2025/02/27
@@ -554,3 +554,9 @@ proof fn ex() {
 * `insert` の実装と形式仕様が固まった
     ** 証明用のメタデータの設計に関して気づいたことがあるため、このままPoCの検証を継続する
         *** Mapのキーとして `*mut T` を `int` で代用するのがうまく行かなかった(コメント参照)
+
+== 
+
+* Q: `insert` の事前条件として `self.ptrs@` のすべての要素と異なっていることが必要だが、メモリ開放処理内で使う際にどのように証明できるか？
+    ** A: DeallocTokenにtype_invariantとproof methodとしてもっておく
+* xref:./realistic_dll[リンクリストの検証PoC]で `insert` の証明が完了
