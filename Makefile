@@ -7,7 +7,8 @@ SRCS := prop2verif.adoc \
 								status.adoc \
 								verus.adoc \
 								verus-rlsf.adoc \
-								rlsf-index-calc.adoc
+								rlsf-index-calc.adoc \
+								literature.adoc
 HTMLS := $(addprefix $(OUTDIR)/, index.html $(subst .adoc,.html,$(SRCS)))
 
 all: $(HTMLS)

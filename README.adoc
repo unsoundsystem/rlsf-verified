@@ -82,6 +82,7 @@ ifdef::env-name[:relfilesuffix: .adoc]
 == references
 
 * xref:./status.adoc[現状]
+* xref:./literature.adoc[先行研究]
 * xref:./rlsf-index-calc.adoc[TLSFのインデックス計算に関する正当化]
 * xref:prop2verif.adoc[検証の対象とする性質の検討]
 * xref:rlsf.adoc[rlsfに関するメモ]

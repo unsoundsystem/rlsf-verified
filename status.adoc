@@ -555,8 +555,17 @@ proof fn ex() {
     ** 証明用のメタデータの設計に関して気づいたことがあるため、このままPoCの検証を継続する
         *** Mapのキーとして `*mut T` を `int` で代用するのがうまく行かなかった(コメント参照)
 
-== 
+== 2025/03/03
 
 * Q: `insert` の事前条件として `self.ptrs@` のすべての要素と異なっていることが必要だが、メモリ開放処理内で使う際にどのように証明できるか？
     ** A: DeallocTokenにtype_invariantとproof methodとしてもっておく
 * xref:./realistic_dll[リンクリストの検証PoC]で `insert` の証明が完了
+
+== 2025/03/05
+
+* PoCの移植開始
+    ** Q: `PointsTo<FreeBlockHdr>` からの `PointsTo<BlockHdr>` への変換
+        *** 必要に応じて `PointsTo<FreeBlockHdr>` から `p.value().common` で情報を見ることでworkaroundできそう
+        *** Q: `prev_phys_block` による単方向リストの構造を記憶する方法
+            **** option 1: PointsTo<FreeBlockHdr>の箇所を(PointsTo<BlockHdr>, PointsToRaw)で持つ
+                ***** next_free,prev_freeを忘れてしまう問題がある
