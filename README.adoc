@@ -26,7 +26,6 @@ ifdef::env-name[:relfilesuffix: .adoc]
         *** [ ] usecase
         *** [ ] TCB
         *** [ ] about rational_numbers module
-    ** [ ] `DeallocToken` の再考: deallocateで前後のブロックを結合する際にヘッダ全体の権限をユーザーが持っていると問題になりそう
     ** global directiveの管理
         *** プラットフォーム毎に唯一の `usize` 幅を想定してほしい
         *** cfgで公理を含むモジュールのインポートを分岐させる
@@ -48,10 +47,12 @@ ifdef::env-name[:relfilesuffix: .adoc]
             **** [ ] `lemma_block_size_range_mono` (optional)
             **** [ ] optional: interval orderによるブロックサイズ範囲の整列
                     https://en.wikipedia.org/wiki/Interval_order
-    ** メモリ領域の正当性の公理化・伝播
-        *** Tlsf構造体内の情報に関する証明内追跡用の構造体の設計(各 `(.*)Block` によるリンクリストの情報など)
-        *** Deallocation tokenの設計
-            **** mimallocの検証コードベース内の `MimDealloc` の調査
+    ** メモリ操作
+        ** メモリ領域の正当性の公理化・伝播
+            *** [ ] Tlsf構造体内の情報に関する証明内追跡用の構造体の設計
+                **** [ ] realisticなリンクリストの検証PoCを移植する
+            *** [ ] Deallocation tokenの設計
+                **** [ ] `DeallocToken` の再考: deallocateで前後のブロックを結合する際にヘッダ全体の権限をユーザーが持っていると問題になりそう
 // * Verusのmimalloc検証に関する調査記事
 // * RefinedRustの記法に関するインフォーマルな説明を xref:./refinedrust.adoc[追加する]
 // * const generics/lifetime parameterが使えない問題のworkaround

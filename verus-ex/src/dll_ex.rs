@@ -162,7 +162,6 @@ impl GhostDLL {
         forall|i: int| 0 <= i < self.ptrs@.len() ==> self.ptrs@[i] != node
     }
 
-    // TODO: proof
     fn insert(&mut self, n1: *mut Node, n2: *mut Node, new_node: *mut Node,
                 Tracked(perm_new_node): Tracked<PointsToRaw>)
         requires

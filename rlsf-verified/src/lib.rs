@@ -6,6 +6,7 @@ mod block_index;
 mod rational_numbers;
 mod relation_utils;
 mod half_open_range;
+mod linked_list;
 
 use vstd::prelude::*;
 
@@ -23,6 +24,7 @@ use crate::bits::{
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
+use crate::linked_list::GhostFreeList;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     fl_bitmap: usize,
@@ -71,7 +73,8 @@ impl BlockHdr {
     ///
     /// `self` must have a next block (it must not be the sentinel block in a
     /// pool).
-    /// TODO: must consider the cases that non-continuous chunks are added
+    ///
+    /// e.g. splitting a large block into two (continuous) small blocks 
     #[inline(always)]
     #[verifier::external] // debug
     unsafe fn next_phys_block(&self) -> *mut BlockHdr {
@@ -105,38 +108,39 @@ struct FreeBlockHdr {
 //}
 
 /// A proof constract tracking information about Tlsf struct
+///
+/// Things we have to track
+/// * all `PointsTo`s related to registered blocks
+/// * things needed to track the list views 
+///     * singly linked list by prev_phys_block chain 
+///      NOTE: This contains allocated blocks
+///     * doubly linked list by FreeBlockHdr fields
+///
+/// Remark: ghost_free_list[fl][sl] contains size of blocks in
+///     BlockIndex(fl, sl).block_size_range()
 struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
-    /// Things we have to track
-    /// * all `PointsTo`s related to registered blocks
-    /// * things needed to track the list views 
-    ///     * singly linked list by prev_phys_block chain 
-    ///      NOTE: This contains allocated blocks
-    ///     * doubly linked list by FreeBlockHdr fields
-    ///
-    /// Remark: ghost_free_list[fl][sl] contains size of blocks in
-    ///     BlockIndex(fl, sl).block_size_range()
-    tracked ghost_free_list: Seq<Seq<Seq<
-        PointsToRaw // FreeBlockHdr + block size of the list
-    >>>,
+    ghost valid_range: Set<int>, // represents region managed by this allocator
+
+    // ghost free list for each block indices 
+    tracked gfl: Map<(int, int), GhostFreeList>,
+
+    // ordered by address
+    ghost all_ptrs: Seq<*mut BlockHdr>,
 
     //FIXME: the PointsTo here overwraps with above ghost_free_list
     //TODO: We need a way to obtain permission from block to adjacent
     // List of all BlockHdrs ordered by their addresses.
-    tracked all_block_headers: Seq<PointsTo<BlockHdr>>,
+    //tracked all_block_headers: Seq<PointsTo<BlockHdr>>,
 
-    ghost valid_range: Set<int>, // represents region managed by this allocator
 }
 
 impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf <FLLEN, SLLEN> {
     //FIXME: error: external_type_specification: Const params not yet supported
     //#[verifier::type_invariant]
     spec fn wf(self) -> bool {
-        // TODO: sync with actual implementation: recursive predicate on list
-        &&& self.ghost_free_list.len() == FLLEN
-        &&& self.ghost_free_list.fold_right::<bool>(|sl_list: Seq<Seq<_>>, b: bool|
-            sl_list.len() == (SLLEN as nat) && b,
-            true
-        )
+        &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
+                ==> self.gfl[(i, j)].wf()
+        // TODO: elements of gfl[(fl, sl)] have pointer start from same address containded in all_ptrs
     }
 }
 
@@ -181,8 +185,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             sl_bitmap: [0; FLLEN],
             first_free: [[None; SLLEN]; FLLEN],
             gs: Ghost(GhostTlsf {
-                ghost_free_list: Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| Seq::empty())),
-                all_block_headers: Seq::empty(),
+                gfl: Map::empty(),
+                all_ptrs: Seq::empty(),
                 valid_range: Set::empty(),
             }),
             _phantom: PhantomData
