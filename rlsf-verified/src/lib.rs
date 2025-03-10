@@ -193,7 +193,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    #[verifier::external_body] // debug
+    //#[verifier::external_body] // debug
     #[inline(always)]
     fn update_bitmap(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires idx.wf(),
@@ -207,9 +207,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap | (1usize << fl);
-        let tmp = self.sl_bitmap[fl] | (1usize << sl);
-        self.sl_bitmap.set(fl, tmp);
-        //self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl);
+        // TODO: Confirm that this workaround not needed anymore
+        //let tmp = self.sl_bitmap[fl] | (1usize << sl);
+        //self.sl_bitmap.set(fl, tmp);
+        self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl);
     }
 
     //-------------------------------------------------------

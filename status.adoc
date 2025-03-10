@@ -530,7 +530,7 @@ proof fn ex() {
 
 == 2025/02/13
 
-* `update_bitmap()` のFIXMEを解決
+* [[update_bitmap_fixme]] `update_bitmap()` のFIXMEを解決
     ** `arr[index] = val` のような要素の変更は未サポートで、 `arr.set(index, val)` のように書く
 
 == 2025/02/14
@@ -564,8 +564,22 @@ proof fn ex() {
 == 2025/03/05
 
 * PoCの移植開始
-    ** Q: `PointsTo<FreeBlockHdr>` からの `PointsTo<BlockHdr>` への変換
+    ** [[overwrapping_headers]] Q: `PointsTo<FreeBlockHdr>` からの `PointsTo<BlockHdr>` への変換
         *** 必要に応じて `PointsTo<FreeBlockHdr>` から `p.value().common` で情報を見ることでworkaroundできそう
         *** Q: `prev_phys_block` による単方向リストの構造を記憶する方法
             **** option 1: PointsTo<FreeBlockHdr>の箇所を(PointsTo<BlockHdr>, PointsToRaw)で持つ
                 ***** next_free,prev_freeを忘れてしまう問題がある
+
+== 2025/03/10
+
+* リンクリスト検証PoCに `push_front` を追加
+    ** 追加するノードへの権限を `PointsToRaw` ではなく `PointsTo` で指定するように変更(初期化済みであることを強制)
+* xref:overwrapping_headers[この問題]を解決するアイデア: ghost stateとして以下のようにhlistを持っておく
+
+[source,rust]
+----
+enum Hdrs { FBH(*mut FreeBlockHdr), UBH(*mut UsedBlockHdr) }
+struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
+----
+
+* xref:update_bitmap_fixme[この問題]はVerusの開発によって修正された模様

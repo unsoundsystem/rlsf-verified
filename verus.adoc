@@ -316,6 +316,8 @@ impl LList {
 
 ----
 
+TODO: raw pointer を使ったリンクリスト検証例 `verus-ex/dll-ex.rs` を使った解説
+
 == Verusによる並行プログラムの検証
 
 == mimallocの検証
@@ -354,7 +356,6 @@ mimallocの検証コードベースのうち、特に挑戦的な目標に絞っ
 <<verus_raw_ptr>>でも読み書きの際に `PointsTo<T>` を要求するため、基本的な扱いは `PPtr` と同様となる。
 大きな違いとして、 `PPtr` はアロケーション (`PPtr::<T>::new`)の際に `PointsTo` を発行するが、これに相当するインタフェースが存在しないことである。
 従って、raw pointerを読み書きするには他の手段で `PointsTo` トークンを取得しなければならない。
-
 
 [source,rust]
 ----

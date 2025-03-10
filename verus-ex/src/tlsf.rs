@@ -160,7 +160,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    #[verifier::external_body]
+    //#[verifier::external_body]
     #[inline]
     fn update_bitmap(&mut self, fl: usize, sl: usize)
         requires Self::valid_block_index((fl, sl)),

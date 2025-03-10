@@ -1,0 +1,6 @@
+= Verusを使う際に困ったことまとめ
+
+== `error[E0080]: evaluation of constant value failed`
+
+* エラーメッセージ: `evaluated program panicked at 'does not have the expected size'`
+* `global layout ... is size = N, align = M` というレイアウトの指定機能を使う際、実際のレイアウトと違うことが原因だった
