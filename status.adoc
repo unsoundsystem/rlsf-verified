@@ -583,3 +583,11 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
 ----
 
 * xref:update_bitmap_fixme[この問題]はVerusの開発によって修正された模様
+
+== 2025/03/11
+
+* DeallocTokenの設計検討
+    ** `deallocate()` でDeallocTokenをムーブアウトすることでdouble freeを防ぐ
+* 執筆環境構築
+    ** 3ヶ月後を目処に文章を書いていく
+

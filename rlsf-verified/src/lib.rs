@@ -681,7 +681,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // TODO: update ghost_free_list in allocate()
 
     #[verifier::external_body] // for spec debug
-    pub fn deallocate(&mut self, ptr: *mut u8, align: usize, Tracked(token): Tracked<DeallocToken>)
+    pub fn deallocate(&mut self,
+        ptr: *mut u8, align: usize,
+        tracked mut token: Tracked<DeallocToken> // NOTE: `mut` is for preventing double free
+    )
     requires old(self).wf(), token.wf()
     ensures self.wf()
     { unimplemented!() }
@@ -704,6 +707,7 @@ impl !Copy for DeallocToken {}
 //          * size
 //              * valid size
 //              * aligned to GRANULARITY
+// TODO: exculsiveness: return (tok: mut DeallocToken)
 struct DeallocToken {
     header: PointsTo<UsedBlockHdr>
 }

@@ -238,10 +238,6 @@ impl DLL {
             old(self).wf_node_ptr(n1),
             old(self).wf_node_ptr(n2),
             old(self).is_next_ptr_of(n1, n2),
-            // Pointer to different addresses
-            n1.addr() != n2.addr(),
-            n1.addr() != new_node.addr(),
-            n2.addr() != new_node.addr(),
             // n1 & n2 are nodes already contained in this list
             n1 == old(self).perms@[n1].ptr(),
             n2 == old(self).perms@[n2].ptr(),
