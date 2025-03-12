@@ -34,7 +34,6 @@ struct Node {
 
 global layout Node is size == 40, align == 8;
 
-
 pub proof fn size_of_node()
     ensures size_of::<Node>() == 40
         && align_of::<Node>() == 8
@@ -76,12 +75,6 @@ impl DLL {
             Some(self.ptrs@[i + 1])
         }
     }
-
-    proof fn next_of_silly(self, i: int)
-        requires self.wf(), 0 <= i < self.ptrs@.len() - 1
-        ensures
-            self.next_of(i) matches Some(n) && n == self.ptrs@[i + 1]
-    {}
 
     spec fn prev_of(self, i: int) -> Option<*mut Node> {
         if i == 0 || self.ptrs@.len() <= i - 1 {
@@ -128,11 +121,6 @@ impl DLL {
         &&& Some(n1) == self.prev_of(n2_idx)
     }
 
-    proof fn contains_key_if_wf_node_ptr(self, n: *mut Node)
-        requires self.wf_node_ptr(n)
-        ensures self.perms@.contains_key(n)
-    {}
-
     proof fn lemma_next_of_index(self, n1: *mut Node, n2: *mut Node, n1_idx: int, n2_idx: int)
         requires
             self.ptrs@.no_duplicates(),
@@ -154,11 +142,6 @@ impl DLL {
     spec fn has_no_duplicate(self, node: *mut Node) -> bool {
         forall|i: int| 0 <= i < self.ptrs@.len() ==> self.ptrs@[i] != node
     }
-
-    proof fn first_is_some_if_len_gt_0(self)
-        requires self.wf(), self@.len() > 0
-        ensures self.wf(), self.first.is_some()
-    {}
 
     fn push_front(&mut self, new_node: *mut Node, Tracked(perm_new_node): Tracked<PointsTo<Node>>)
         requires
@@ -338,17 +321,82 @@ impl DLL {
         }
     }
 
+
+    fn pop_front(&mut self) -> (r: Option<(*mut Node, Tracked<PointsTo<Node>>)>)
+        requires old(self).wf()
+        ensures self.wf(),
+            old(self)@.len() == 0 ==> r.is_none() && self@ == Seq::<usize>::empty(),
+            old(self)@.len() > 0 ==>
+                self@ == old(self)@.drop_first() &&
+                (r matches Some((node, perm)) &&
+                    // Node is detached
+                    // not in ptrs/perms
+                    !self.ptrs@.contains(node) && !self.perms@.contains_key(node) &&
+                    // unlinked
+                    perm@.ptr() == node &&
+                    perm@.is_init()
+                ),
+    {
+        if let Some(head) = self.first {
+            assert(old(self).wf_node(0));
+            let tracked head_perm = self.perms.borrow_mut().tracked_remove(head);
+            let (head_payload, head_next) = {
+                let n = ptr_mut_read(head, Tracked(&mut head_perm));
+                (n.x, n.next)
+            };
+
+            if let Some(new_head) = head_next {
+                // doing *new_head.prev = None
+                assert(old(self).wf_node(1));
+                let tracked new_head_perm = self.perms.borrow_mut().tracked_remove(new_head);
+                let (new_head_payload, new_head_next) = {
+                    // NOTE: In ordinary Rust code this is unnecessary read
+                    let n = ptr_mut_read(new_head, Tracked(&mut new_head_perm));
+                    (n.x, n.next)
+                };
+                ptr_mut_write(new_head, Tracked(&mut new_head_perm), Node {
+                    next: new_head_next,
+                    prev: None,
+                    x: new_head_payload
+                });
+
+                self.first = Some(new_head);
+
+                proof {
+                    self.perms.borrow_mut().tracked_insert(new_head, new_head_perm);
+                    self.ptrs@ = old(self).ptrs@.drop_first();
+
+                    assert forall |i: int| 0 <= i && i < self.ptrs@.len()
+                        implies #[trigger] self.wf_node(i)
+                    by {
+                        if i > 0 {
+                            assert(old(self).wf_node(i + 1));
+                        } 
+                    };
+
+                    assert(self@ == old(self)@.drop_first());
+                }
+            } else {
+                proof {
+                    self.ptrs@ = self.ptrs@.drop_first();
+                }
+                self.first = None;
+
+                assert(self@ == old(self)@.drop_first());
+            };
+
+            ptr_mut_write(head, Tracked(&mut head_perm), Node {
+                next: None,
+                prev: None,
+                x: head_payload
+            });
+            Some((head, Tracked(head_perm)))
+        } else {
+            assert(self@ == Seq::<usize>::empty());
+            None
+        }
+    }
 }
-
-proof fn add_new_elem_preserve_nodup<T>(l: Seq<T>, e: T, pos: int)
-    requires
-        0 <= pos < l.len(),
-        forall |i: int| 0 <= i < l.len() ==> l[i] != e,
-        l.no_duplicates()
-    ensures
-        l.insert(pos, e).no_duplicates()
-{}
-
 
 /// External interface for `core::mem::replace`
 /// NOTE: It's seems to easy to verify equivalent implementation of `replace` but Verus currently
