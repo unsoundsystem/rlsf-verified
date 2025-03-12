@@ -24,13 +24,13 @@ use crate::bits::{
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
-use crate::linked_list::GhostFreeList;
+use crate::linked_list::DLL;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     sl_bitmap: [usize; FLLEN],
-    first_free: [[Option<*mut FreeBlockHdr>; SLLEN]; FLLEN],
+    first_free: [[DLL; SLLEN]; FLLEN],
     gs: Ghost<GhostTlsf<FLLEN, SLLEN>>,
     _phantom: PhantomData<&'pool ()>,
 }
@@ -121,9 +121,6 @@ struct FreeBlockHdr {
 struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
     ghost valid_range: Set<int>, // represents region managed by this allocator
 
-    // ghost free list for each block indices 
-    tracked gfl: Map<(int, int), GhostFreeList>,
-
     // ordered by address
     ghost all_ptrs: Seq<*mut BlockHdr>,
 
@@ -138,8 +135,7 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf <FLLEN, SLLEN> {
     //FIXME: error: external_type_specification: Const params not yet supported
     //#[verifier::type_invariant]
     spec fn wf(self) -> bool {
-        &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
-                ==> self.gfl[(i, j)].wf()
+        true
         // TODO: elements of gfl[(fl, sl)] have pointer start from same address containded in all_ptrs
     }
 }
@@ -175,6 +171,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& self.gs@.wf()
         &&& self.bitmap_wf()
         &&& is_power_of_two(SLLEN as int) && SLLEN <= usize::BITS
+        &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
+                ==> self.first_free[i][j].wf()
     }
 
     pub const fn new() -> (r: Self)
@@ -183,14 +181,21 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         Self {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
-            first_free: [[None; SLLEN]; FLLEN],
+            first_free: Self::initial_free_lists(),
             gs: Ghost(GhostTlsf {
-                gfl: Map::empty(),
                 all_ptrs: Seq::empty(),
                 valid_range: Set::empty(),
             }),
             _phantom: PhantomData
         }
+    }
+
+    /// Due to `error: The verifier does not yet support the following Rust feature: array-fill expresion with non-copy type`
+    #[verifier::external_body]
+    const fn initial_free_lists() -> (r: [[DLL; SLLEN]; FLLEN])
+        ensures forall|i: int, j: int| r[i][j]@.len() == 0 && r[i][j].wf()
+    {
+        [const { [const { DLL::empty() }; SLLEN] }; FLLEN]
     }
 
     //#[verifier::external_body] // debug
@@ -311,7 +316,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
         forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
             nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
-                <==> self.first_free[idx.0 as int][idx.1 as int].is_some()
+                <==> !self.first_free[idx.0 as int][idx.1 as int].is_empty()
     }
 
 
@@ -509,7 +514,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires self.wf()
         ensures
             r matches Some(idx) ==> idx.wf() &&
-                self.first_free[idx.0 as int][idx.1 as int].is_some()
+                !self.first_free[idx.0 as int][idx.1 as int].is_empty()
         // None ==> invalid size requested or there no free entry
     {
         let BlockIndex(mut fl, mut sl) = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
@@ -685,7 +690,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         ptr: *mut u8, align: usize,
         tracked mut token: Tracked<DeallocToken> // NOTE: `mut` is for preventing double free
     )
-    requires old(self).wf(), token.wf()
+    requires old(self).wf(), token@.wf()
     ensures self.wf()
     { unimplemented!() }
 
