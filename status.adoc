@@ -591,3 +591,7 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
 * 執筆環境構築
     ** 3ヶ月後を目処に文章を書いていく
 
+
+== 2025/03/13
+
+* Q: `ensures` 節でプライベートなフィールドを使っているという旨のエラーが出たが心当たりがない(ref. FIXME@ `linked_list.rs` )

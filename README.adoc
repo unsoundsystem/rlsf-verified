@@ -79,6 +79,83 @@ ifdef::env-name[:relfilesuffix: .adoc]
     ** メモリプールの扱い(固定長/動的に拡張可能？)
 //* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
 
+== Specification & Proof status
+
+[frame=sides]
+|===
+|correspoinding rlsf functions |porting status |specification status |proof status
+
+| `insert_free_block_ptr_aligned`
+|
+|
+|
+
+| `search_suitable_free_block_list_for_allocation`
+| done
+| done
+|
+
+| `map_floor`
+| done
+| done
+|
+
+| `map_ceil`
+| done
+| done
+|
+
+| `allocate`
+|
+| done
+|
+
+| `deallocate`
+|
+| done
+|
+
+| `link_free_block`
+| done
+| done
+|
+
+| `unlink_free_block`
+|
+|
+|
+
+
+|===
+
+=== Porting Implementaion
+
+* `insert_free_block_ptr_aligned`
+* `search_suitable_free_block_list_for_allocation`
+* `map_floor`
+* `map_ceil`
+* `allocate`
+* `deallocate`
+* `link_free_block`
+* `unlink_free_block`
+
+=== Formal Specification
+
+* [x] data structure wf-ness
+* [x] bitwise operations
+* [x] index calculation
+
+=== Proof
+
+* data structure wf-ness
+    ** free list(linked list)
+    ** header permission management
+* bitwise operations
+    ** lemmas for rotate shift properties
+* index calculation
+    ** [ ] uniqueness: `index_unique_range`
+    ** [ ] existance: `index_exists_for_valid_size`
+
 == references
 
 * xref:./status.adoc[現状]

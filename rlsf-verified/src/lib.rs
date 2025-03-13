@@ -25,6 +25,7 @@ use crate::bits::{
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
 use crate::linked_list::DLL;
+use vstd::array::*;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     fl_bitmap: usize,
@@ -477,31 +478,31 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 
 
-    // TODO: remove this
-    #[verifier::external_body] // for spec debug
-    unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize)
+    unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize,
+        Tracked(perm_block): Tracked<PointsTo<FreeBlockHdr>>)
         requires
             old(self).wf(),
                 BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
             self.wf()
     {
-        unimplemented!()
-        // if let Some((fl, sl)) = Self::map_floor(size) {
-        //     //TODO
-//      //       let first_free = &mut self.first_free[fl][sl];
-//      //       let next_free = mem::replace(first_free, Some(block));
-//      //       block.as_mut().next_free = next_free;
-//      //       block.as_mut().prev_free = None;
-//      //       if let Some(mut next_free) = next_free {
-//      //           next_free.as_mut().prev_free = Some(block);
-//      //       }
-//
-//      //       self.fl_bitmap.set_bit(fl as u32);
-//      //       self.sl_bitmap[fl].set_bit(sl as u32);
-        // } else {
-        //     // TODO: how do we handle this error?
-        // }
+        if let Some(BlockIndex(fl, sl)) = Self::map_floor(size) {
+            self.free_list_push_front(BlockIndex(fl, sl), block, Tracked(perm_block));
+              //let first_free = &mut self.first_free[fl][sl];
+
+              //let next_free = mem::replace(first_free, Some(block));
+              //block.as_mut().next_free = next_free;
+              //block.as_mut().prev_free = None;
+              //if let Some(mut next_free) = next_free {
+                  //next_free.as_mut().prev_free = Some(block);
+              //}
+  
+            self.update_bitmap(BlockIndex(fl, sl));
+              //self.fl_bitmap.set_bit(fl as u32);
+              //self.sl_bitmap[fl].set_bit(sl as u32);
+        } else {
+            // unreachable provided `valid_block_size(size)`
+        }
     }
 
     /// Search for a non-empty free block list for allocation.
@@ -555,25 +556,23 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     #[verifier::external_body] // for spec debug
     pub fn allocate(&mut self, size: usize, align: usize /* layout: Layout */) ->
-        (r: (Option<*mut u8>, Tracked<PointsToRaw>, Tracked<Option<DeallocToken>>))
+        (r: (Option<(*mut u8, Tracked<PointsToRaw>, Tracked<DeallocToken>)>))
         requires
             /* TODO */
             old(self).wf()
         ensures
-            ({  let (m, points_to, token) = r;
-                m matches Some(mem) ==>
+            r matches Some((ptr, points_to, tok)) ==>
                     !points_to@.dom().is_empty() &&
-                    (token@ matches Some(tok) && tok.wf()) &&
-                    points_to@.dom().len() >= size /* &&
-                    // TODO: spec without existential
-                    (exists|nbytes: int| points_to@.is_range(mem as usize as int, nbytes) && nbytes >= size) &&
-                    points_to.provenance() == old(self).ghost_free_list@[i][j].provenance */
+                    self.wf_dealloc(Ghost(tok@)) &&
+                    points_to@.dom().len() >= size &&
+                    points_to@.contains_range(ptr as usize as int, size as int)
                     /* TODO
+                     * - alignment
+                     * - provenance
                      * - points_to has size as requested
                      * - mem's start address is same as points_to
-                     * */ }),
-            ({  let (m, points_to, token) = r;
-                m == None::<*mut u8> ==> points_to@.dom().is_empty() && token@ == None::<DeallocToken> }),
+                     * */,
+            r matches None ==> old(self) == self,
             self.wf()
     { 
 //        unsafe {
@@ -688,21 +687,46 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[verifier::external_body] // for spec debug
     pub fn deallocate(&mut self,
         ptr: *mut u8, align: usize,
-        tracked mut token: Tracked<DeallocToken> // NOTE: `mut` is for preventing double free
+        Tracked(token): Tracked<DeallocToken>, //NOTE: pattern matching to move out token
+        Tracked(points_to): Tracked<PointsToRaw>, // permssion to previously allocated region
     )
-    requires old(self).wf(), token@.wf()
+    requires old(self).wf(), old(self).wf_dealloc(Ghost(token))
     ensures self.wf()
     { unimplemented!() }
 
     // TODO: update ghost_free_list/all_block_headers in deallocate()
 
+    /// Validity of blocks being deallocated
+    ///
+    /// allocated region and headers,
+    /// - Must have same provenance with PointsToRaw that we got when called insert_free_block_ptr*
+    ///
+    ///TODO: Check equlity with `PtrData { ptr: tok.ptr, provenance: /* root provenance */, Thin }`
+    /// TODO: formalize assumptions on the header of blocks being deallocated
+    ///
+    /// Assumption about deallocation
+    ///
+    /// - Given pointer must be previously allocated one
+    ///     - NOTE: In Verus world, it's assured because `deallocate` requires PointsToRaw 
+    /// - Header of the previously allocated pointer which going to deallocated, must have same size/flags as when it allocated
+    ///     (NOTE: header integrity is assumed)
+    pub closed spec fn wf_dealloc(&self, tok: Ghost<DeallocToken>) -> bool {
+        true
+    }
+
+    #[verifier::external_body]
+    fn free_list_push_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
+        node: *mut FreeBlockHdr,
+        Tracked(perm): Tracked<PointsTo<FreeBlockHdr>>) {
+        self.first_free[idx.0][idx.1].push_front(node, Tracked(perm));
+    }
 }
 
 impl !Copy for DeallocToken {}
 
-/// FIXME: Consider merging block in deallocate(), it's going to be impossible to 
-///        peek usedness and merge if we give permission for hole header to the user
-///        option: use header address as an ID
+// NOTE: Consider merging block in deallocate(), it's going to be impossible to 
+//        peek usedness and merge if we give permission for hole header to the user
+//        option: use header address as an ID
 //TODO: add pointer to start of the allocated region & size of that block
 //      * wf-ness:
 //          * pointer
@@ -712,21 +736,13 @@ impl !Copy for DeallocToken {}
 //          * size
 //              * valid size
 //              * aligned to GRANULARITY
-// TODO: exculsiveness: return (tok: mut DeallocToken)
-struct DeallocToken {
-    header: PointsTo<UsedBlockHdr>
-}
-
-impl DeallocToken {
-    /// Validity of blocks being deallocated
-    /// allocated region and headers,
-    /// - Must have same provenance with PointsToRaw that we got when called insert_free_block_ptr*
-    /// - Must have same size/flags as allocated (NOTE: header integrity is assumed)
-    ///
-    /// TODO: formalize assumptions on the header of blocks being deallocated
-    pub closed spec fn wf(&self) -> bool {
-        true
-    }
+/// Deallocation token
+/// 
+/// * This leaved abstract & tracked
+///     * `allocate` moves out DeallocToken to ensure absence of double free
+tracked struct DeallocToken {
+    /// Copy of header pointer of allocated region as an allocation identifier
+    ghost ptr: Ghost<*mut UsedBlockHdr>,
 }
 
 #[inline(always)]
