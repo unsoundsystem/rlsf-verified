@@ -46,6 +46,7 @@ impl DLL {
         &&& forall |i: int| 0 <= i && i < self.ptrs@.len()
             ==> #[trigger] self.wf_node(i)
         &&& self.ptrs@.no_duplicates()
+        //&&& self.ptrs@.to_set() == self.perms@.dom()
         &&& if self.ptrs@.len() == 0 {
             self.first.is_none()
         } else {
@@ -102,6 +103,11 @@ impl DLL {
             && (node.prev == <Option<*mut Node>>::None ==> self.prev_of(i) == <Option<*mut Node>>::None)
             // TODO: assert that free block has approprate region by e.g. PointsToRaw
     }
+
+    proof fn wf_node_is_init(self, ptr: *mut Node)
+        requires self.wf(), self.wf_node_ptr(ptr)
+        ensures self.perms@[ptr].is_init()
+    {}
 
     spec fn wf_node_ptr(self, p: *mut Node) -> bool {
         let node_addr = p as usize as int;
@@ -394,6 +400,91 @@ impl DLL {
         } else {
             assert(self@ == Seq::<usize>::empty());
             None
+        }
+    }
+
+    pub(crate) fn unlink(&mut self, node: *mut Node)
+        requires old(self).wf(),
+            old(self).wf_node_ptr(node)
+        ensures self.wf(),
+            ({
+                let i = choose|i: int| 0 <= i < old(self).ptrs@.len()
+                    && old(self).ptrs@[i] == node && #[trigger] old(self).wf_node(i);
+                &&& old(self)@.len() > 0 ==> self@ == old(self)@.remove(i)
+                &&& old(self)@.len() == 0 ==> self@.len() == 0
+            })
+    {
+        let ghost node_index = choose|i: int| 0 <= i < old(self).ptrs@.len()
+            && self.ptrs@[i] == node && #[trigger] self.wf_node(i);
+        let tracked perm = self.perms.borrow_mut().tracked_remove(node);
+        let Node { next: node_next, prev: node_prev, x: node_payload } =
+            ptr_mut_read(node, Tracked(&mut perm));
+
+        if let Some(node_next) = node_next {
+            //assert(node == old(self).ptrs[node_index]);
+            assert(old(self).next_of(node_index) matches Some(node_next));
+            assert(old(self).wf_node(node_index + 1));
+            let tracked mut perm_node_next = self.perms.borrow_mut().tracked_remove(node_next);
+            // FIXME: unnecessary read in ordinary Rust
+            let (node_next_next, node_next_payload) = {
+                let n = ptr_mut_read(node_next, Tracked(&mut perm_node_next));
+                (n.next, n.x)
+            };
+            ptr_mut_write(node_next, Tracked(&mut perm_node_next), Node {
+                next: node_next_next,
+                prev: node_prev,
+                x: node_next_payload
+            });
+
+            proof {
+                self.perms.borrow_mut().tracked_insert(node_next, perm_node_next);
+            }
+        } // NOTE: else: node is tail!
+
+        if let Some(node_prev) = node_prev {
+            assert(old(self).prev_of(node_index) matches Some(node_prev));
+            assert(old(self).wf_node(node_index-1));
+            let tracked mut perm_node_prev = self.perms.borrow_mut().tracked_remove(node_prev);
+            // FIXME: unnecessary read in ordinary Rust
+            let (node_prev_prev, node_prev_payload) = {
+                let n = ptr_mut_read(node_prev, Tracked(&mut perm_node_prev));
+                (n.prev, n.x)
+            };
+            ptr_mut_write(node_prev, Tracked(&mut perm_node_prev), Node {
+                next: node_next,
+                prev: node_prev_prev,
+                x: node_prev_payload
+            });
+
+            proof {
+                self.perms.borrow_mut().tracked_insert(node_prev, perm_node_prev);
+                self.ptrs@ = old(self).ptrs@.remove(node_index);
+                assert(self@ == old(self)@.remove(node_index));
+            }
+        } else {
+            // NOTE: node is head! i.e. ptrs[0] == node == self.first
+            assert(self.first matches Some(node));
+
+            self.first = node_next;
+            assert(node_index == 0);
+            proof {
+                if old(self)@.len() > 0 {
+                    self.ptrs@ = old(self).ptrs@.remove(node_index);
+                    assert(self@ == old(self)@.remove(node_index));
+                }
+            }
+        }
+
+        proof {
+            assert forall|i: int| 0 <= i < self.ptrs@.len()
+                implies self.wf_node(i)
+            by {
+                if node_index > i {
+                    assert(old(self).wf_node(i));
+                } else if node_index <= i {
+                    assert(old(self).wf_node(i+1));
+                }
+            }
         }
     }
 }

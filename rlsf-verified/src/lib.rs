@@ -201,8 +201,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     //#[verifier::external_body] // debug
     #[inline(always)]
-    fn update_bitmap(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
-        requires idx.wf(),
+    fn set_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
+        requires old(self).wf(), idx.wf(),
         ensures ({ let BlockIndex(fl, sl) = idx;
                 &&& self.fl_bitmap == (old(self).fl_bitmap | (1usize << fl as int))
                 &&& self.sl_bitmap[fl as int] == (old(self).sl_bitmap[fl as int] | (1usize << sl as int))
@@ -218,6 +218,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //self.sl_bitmap.set(fl, tmp);
         self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl);
     }
+
+    #[inline(always)]
+    fn clear_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
+        requires old(self).wf(), idx.wf()
+        ensures ({ let BlockIndex(fl, sl) = idx;
+                &&& self.sl_bitmap[fl as int]
+                    == (old(self).sl_bitmap[fl as int] ^ (1usize << sl as int))
+                &&& self.wf() })
+                // NOTE: this function should be used to fix the inconsistency bitween
+                //       freelist & bitmaps (thus the postcondition)
+    {}
 
     //-------------------------------------------------------
     //    Free list index calculation & bitmap properties
@@ -314,10 +325,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
+
         // `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
-        forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
+        &&& forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
             nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
                 <==> !self.first_free[idx.0 as int][idx.1 as int].is_empty()
+        //TODO: state *inner bitmap consistency*
+        //      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
+        &&& true
     }
 
 
@@ -442,7 +457,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 //                //next_free.prev_free = Some(block);
 //            }
 //            // Update bitmaps
-//            self.update_bitmap(fl, sl);
+//            self.set_bit_for_index(fl, sl);
 //            //self.set_fl_bitmap(fl as u32);
 //            //self.sl_bitmap[fl].set_bit(sl as u32);
 //
@@ -482,9 +497,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         Tracked(perm_block): Tracked<PointsTo<FreeBlockHdr>>)
         requires
             old(self).wf(),
-                BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
         ensures
-            self.wf()
+            self.wf(),
+            // TODO: ensure that free list properly updated
     {
         if let Some(BlockIndex(fl, sl)) = Self::map_floor(size) {
             self.free_list_push_front(BlockIndex(fl, sl), block, Tracked(perm_block));
@@ -497,12 +513,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                   //next_free.as_mut().prev_free = Some(block);
               //}
   
-            self.update_bitmap(BlockIndex(fl, sl));
+            self.set_bit_for_index(BlockIndex(fl, sl));
               //self.fl_bitmap.set_bit(fl as u32);
               //self.sl_bitmap[fl].set_bit(sl as u32);
         } else {
             // unreachable provided `valid_block_size(size)`
         }
+    }
+
+    unsafe fn unlink_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize,
+        Tracked(perm_block): Tracked<PointsTo<FreeBlockHdr>>)
+        requires
+            old(self).wf(),
+            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+        ensures
+            self.wf(),
+            // TODO: ensure that free list properly updated
+    {
+        //TODO: self.first_free.unlink() & set_bit_for_index
     }
 
     /// Search for a non-empty free block list for allocation.
@@ -717,7 +745,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[verifier::external_body]
     fn free_list_push_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
         node: *mut FreeBlockHdr,
-        Tracked(perm): Tracked<PointsTo<FreeBlockHdr>>) {
+        Tracked(perm): Tracked<PointsTo<FreeBlockHdr>>)
+        requires self.wf(),
+            node == perm.ptr(),
+            perm.is_init()
+        ensures self.wf()
+            // TODO: propagate push_front postcondition
+    {
         self.first_free[idx.0][idx.1].push_front(node, Tracked(perm));
     }
 }

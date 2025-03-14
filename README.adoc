@@ -81,13 +81,34 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 == Specification & Proof status
 
-[frame=sides]
 |===
-|correspoinding rlsf functions |porting status |specification status |proof status
+|symbol |status
+
+|wip
+|実装・証明に取り組み中(未完)
+
+|done
+|完了(以後問題が発覚しなければ)
+
+|(empty)
+|他のタスクを優先中、あるいはブロッキングタスクがあるため手を付けていない
+
+|===
+
+以下、関数単位での進捗状況
+
+* この表に現れないブロッキングタスク
+    ** 仕様記述は、実行可能関数に依らないモデル化のタスクによってブロックされている可能性がある
+    ** Verusの非対応機能に対するworkaround、その他Verusのプラクティス上の問題
+    ** 補題の証明
+
+//[frame=sides]
+|===
+|rlsfの関数 |実装の移植 |形式仕様記述 |証明
 
 | `insert_free_block_ptr_aligned`
 |
-|
+| wip
 |
 
 | `search_suitable_free_block_list_for_allocation`
@@ -98,12 +119,12 @@ ifdef::env-name[:relfilesuffix: .adoc]
 | `map_floor`
 | done
 | done
-|
+| wip
 
 | `map_ceil`
 | done
 | done
-|
+| wip
 
 | `allocate`
 |
@@ -117,12 +138,12 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 | `link_free_block`
 | done
-| done
-|
+| wip
+| wip
 
 | `unlink_free_block`
-|
-|
+| wip
+| wip
 |
 
 
