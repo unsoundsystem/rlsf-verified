@@ -403,8 +403,13 @@ impl DLL {
         }
     }
 
-    pub(crate) fn unlink(&mut self, node: *mut Node)
+    /// Dettach node through given pointer
+    ///
+    /// * Returns `PointsTo<Node>`.
+    ///   It ensures the node pointer won't modified by DLL anymore
+    pub(crate) fn unlink(&mut self, node: *mut Node) -> (r: Tracked<PointsTo<Node>>)
         requires old(self).wf(),
+            // NOTE: this ensures the list is not empty
             old(self).wf_node_ptr(node)
         ensures self.wf(),
             ({
@@ -486,6 +491,8 @@ impl DLL {
                 }
             }
         }
+
+        Tracked(perm)
     }
 }
 

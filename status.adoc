@@ -594,4 +594,12 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
 
 == 2025/03/13
 
-* Q: `ensures` 節でプライベートなフィールドを使っているという旨のエラーが出たが心当たりがない(ref. FIXME@ `linked_list.rs` )
+* [[verus_visibility]] Q: `ensures` 節でプライベートなフィールドを使っているという旨のエラーが出たが心当たりがない(ref. FIXME@ `linked_list.rs` )
+
+== 2025/03/14
+
+* A: xref:verus_visibility[この可視性のエラーは] パブリックな関数の `ensures` 節で言及される構造体は、すべてのフィールドがパブリックでなくてはいけないという意味で、今回はフィールドが一つプライベートだったため起こった
+* 進捗状況をREADMEにまとめ始めた
+    ** 関数ごとの仕様・実装・証明の状況を示す表を追加した
+* リンクリストのPoCの移植(done)
+    ** `unlink` (ノードへのraw pointerを使ってDLLから切り離す)の検証(done)

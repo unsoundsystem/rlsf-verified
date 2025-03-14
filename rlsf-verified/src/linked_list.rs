@@ -5,7 +5,7 @@ use vstd::raw_ptr::{MemContents, PointsTo, PointsToRaw, ptr_mut_read, ptr_mut_wr
 verus! {
 
 pub(crate) struct DLL {
-    first: Option<*mut FreeBlockHdr>,
+    pub(crate) first: Option<*mut FreeBlockHdr>,
     // TODO: add more information about managed region to perms
     pub(crate) perms: Tracked<Map<*mut FreeBlockHdr, PointsTo<FreeBlockHdr>>>,
     pub(crate) ptrs: Ghost<Seq<*mut FreeBlockHdr>> // node addrs ordered by list order
@@ -21,7 +21,7 @@ pub(crate) struct DLL {
 
 global layout FreeBlockHdr is size == 56, align == 8;
 
-pub proof fn size_of_node()
+pub(crate) proof fn size_of_node()
     ensures size_of::<FreeBlockHdr>() == 56
         && align_of::<FreeBlockHdr>() == 8
 {
@@ -71,7 +71,7 @@ impl DLL {
         }
     }
 
-    spec fn wf_node(self, i: int) -> bool {
+    pub closed spec fn wf_node(self, i: int) -> bool {
         let node_addr = self.ptrs@[i];
         &&& 0 <= i < self.ptrs@.len()
         &&& self.perms@.contains_key(node_addr)
@@ -90,31 +90,16 @@ impl DLL {
             // TODO: assert that free block has approprate region by e.g. PointsToRaw
     }
 
-    spec fn wf_node_ptr(self, p: *mut FreeBlockHdr) -> bool {
+    pub(crate) closed spec fn wf_node_ptr(self, p: *mut FreeBlockHdr) -> bool {
         let node_addr = p as usize as int;
         exists|i: int| 0 <= i < self.ptrs@.len()
             && self.ptrs@[i] == p && #[trigger] self.wf_node(i)
     }
 
-    spec fn is_next_ptr_of(self, n1: *mut FreeBlockHdr, n2: *mut FreeBlockHdr) -> bool
-        recommends
-            self.wf_node_ptr(n1),
-            self.wf_node_ptr(n2),
-    {
-        let n1_idx = choose|i: int| self.ptrs@[i] == n1 && #[trigger] self.wf_node(i);
-        let n2_idx = choose|i: int| self.ptrs@[i] == n2 && #[trigger] self.wf_node(i);
-
-        &&& Some(n2) == self.next_of(n1_idx)
-        &&& Some(n1) == self.prev_of(n2_idx)
-    }
-
-
     pub(crate) closed spec fn has_no_duplicate(self, node: *mut FreeBlockHdr) -> bool {
         forall|i: int| 0 <= i < self.ptrs@.len() ==> self.ptrs@[i] != node
     }
 
-    //TODO
-    #[verifier::external_body] // debug
     pub(crate) fn push_front(&mut self, new_node: *mut FreeBlockHdr, Tracked(perm_new_node): Tracked<PointsTo<FreeBlockHdr>>)
         requires
             old(self).wf(),
@@ -124,7 +109,7 @@ impl DLL {
         ensures
            self.wf(),
            //FIXME: visibility
-           //self@ == seq![self.perms@[new_node].value().common].add(old(self)@)
+           self@ == seq![self.perms@[new_node].value().common].add(old(self)@)
     {
         let tracked mut perm_new_node = perm_new_node;
         let new_node_payload = {
@@ -197,7 +182,7 @@ impl DLL {
                     // FreeBlockHdr is detached
                     // not in ptrs/perms
                     // FIXME: visibility
-                    // !self.ptrs@.contains(node) && !self.perms@.contains_key(node) &&
+                     !self.ptrs@.contains(node) && !self.perms@.contains_key(node) &&
                     // unlinked
                     perm@.ptr() == node &&
                     perm@.is_init()
@@ -279,6 +264,103 @@ impl DLL {
             perms: Tracked(Map::tracked_empty()),
             ptrs: Ghost(Seq::<*mut FreeBlockHdr>::empty())
         }
+    }
+
+
+    /// Dettach node through given pointer
+    ///
+    /// * Returns `PointsTo<FreeBlockHdr>`.
+    ///   It ensures the node pointer won't modified by DLL anymore
+    /// * the contents of given pointer is forgotten
+    pub(crate) fn unlink(&mut self, node: *mut FreeBlockHdr) -> (r: Tracked<PointsTo<FreeBlockHdr>>)
+        requires old(self).wf(),
+            // NOTE: this ensures the list is not empty
+            old(self).wf_node_ptr(node)
+        ensures self.wf(),
+            ({
+
+                //FIXME: visibility
+                let i = choose|i: int| 0 <= i < old(self).ptrs@.len()
+                    && old(self).ptrs@[i] == node && #[trigger] old(self).wf_node(i);
+                &&& old(self)@.len() > 0 ==> self@ == old(self)@.remove(i)
+                    && r@.ptr() == node
+                &&& old(self)@.len() == 0 ==> self@.len() == 0
+            })
+    {
+        let ghost node_index = choose|i: int| 0 <= i < old(self).ptrs@.len()
+            && self.ptrs@[i] == node && #[trigger] self.wf_node(i);
+        let tracked perm = self.perms.borrow_mut().tracked_remove(node);
+        let FreeBlockHdr { next_free: node_next, prev_free: node_prev, common: node_payload } =
+            ptr_mut_read(node, Tracked(&mut perm));
+
+        if let Some(node_next) = node_next {
+            //assert(node == old(self).ptrs[node_index]);
+            assert(old(self).next_of(node_index) matches Some(node_next));
+            assert(old(self).wf_node(node_index + 1));
+            let tracked mut perm_node_next = self.perms.borrow_mut().tracked_remove(node_next);
+            // TODO: unnecessary read in ordinary Rust
+            let (node_next_next, node_next_payload) = {
+                let n = ptr_mut_read(node_next, Tracked(&mut perm_node_next));
+                (n.next_free, n.common)
+            };
+            ptr_mut_write(node_next, Tracked(&mut perm_node_next), FreeBlockHdr {
+                next_free: node_next_next,
+                prev_free: node_prev,
+                common: node_next_payload
+            });
+
+            proof {
+                self.perms.borrow_mut().tracked_insert(node_next, perm_node_next);
+            }
+        } // NOTE: else: node is tail!
+
+        if let Some(node_prev) = node_prev {
+            assert(old(self).prev_of(node_index) matches Some(node_prev));
+            assert(old(self).wf_node(node_index-1));
+            let tracked mut perm_node_prev = self.perms.borrow_mut().tracked_remove(node_prev);
+            // TODO: unnecessary read in ordinary Rust
+            let (node_prev_prev, node_prev_payload) = {
+                let n = ptr_mut_read(node_prev, Tracked(&mut perm_node_prev));
+                (n.prev_free, n.common)
+            };
+            ptr_mut_write(node_prev, Tracked(&mut perm_node_prev), FreeBlockHdr {
+                next_free: node_next,
+                prev_free: node_prev_prev,
+                common: node_prev_payload
+            });
+
+            proof {
+                self.perms.borrow_mut().tracked_insert(node_prev, perm_node_prev);
+                self.ptrs@ = old(self).ptrs@.remove(node_index);
+                assert(self@ == old(self)@.remove(node_index));
+            }
+        } else {
+            // NOTE: node is head! i.e. ptrs[0] == node == self.first
+            assert(self.first matches Some(node));
+
+            self.first = node_next;
+            assert(node_index == 0);
+            proof {
+                if old(self)@.len() > 0 {
+                    self.ptrs@ = old(self).ptrs@.remove(node_index);
+                    assert(self@ == old(self)@.remove(node_index));
+                }
+            }
+        }
+
+        proof {
+            assert forall|i: int| 0 <= i < self.ptrs@.len()
+                implies self.wf_node(i)
+            by {
+                if node_index > i {
+                    assert(old(self).wf_node(i));
+                } else if node_index <= i {
+                    assert(old(self).wf_node(i+1));
+                }
+            }
+        }
+
+        Tracked(perm)
     }
 }
 

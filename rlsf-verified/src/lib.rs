@@ -26,6 +26,7 @@ use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
 use crate::linked_list::DLL;
 use vstd::array::*;
+use core::hint::unreachable_unchecked;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     fl_bitmap: usize,
@@ -531,6 +532,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // TODO: ensure that free list properly updated
     {
         //TODO: self.first_free.unlink() & set_bit_for_index
+        if let Some(idx) = Self::map_floor(size) {
+            self.free_list_unlink(idx, block)
+        } else {
+            // FIXME: how to use this: require false
+            unreachable_unchecked()
+        }
     }
 
     /// Search for a non-empty free block list for allocation.
@@ -746,13 +753,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     fn free_list_push_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
         node: *mut FreeBlockHdr,
         Tracked(perm): Tracked<PointsTo<FreeBlockHdr>>)
-        requires self.wf(),
+        requires old(self).wf(),
             node == perm.ptr(),
             perm.is_init()
         ensures self.wf()
             // TODO: propagate push_front postcondition
     {
         self.first_free[idx.0][idx.1].push_front(node, Tracked(perm));
+    }
+
+    #[verifier::external_body]
+    fn free_list_unlink(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
+        node: *mut FreeBlockHdr)
+        requires old(self).wf(),
+            old(self).first_free[idx.0 as int][idx.1 as int].wf_node_ptr(node)
+        ensures self.wf()
+            // TODO: propagate unlink postcondition
+    {
+        self.first_free[idx.0][idx.1].unlink(node);
     }
 }
 
