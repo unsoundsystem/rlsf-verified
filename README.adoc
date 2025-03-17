@@ -128,22 +128,22 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 | `allocate`
 |
-| done
+| wip
 |
 
 | `deallocate`
 |
-| done
+| wip
 |
 
 | `link_free_block`
 | done
-| wip
-| wip
+| done
+|
 
 | `unlink_free_block`
-| wip
-| wip
+| done
+| done
 |
 
 

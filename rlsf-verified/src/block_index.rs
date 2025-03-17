@@ -338,7 +338,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     /// idealized map_floor
-    spec fn calculate_index_from_block_size(size: usize) -> Self
+    pub closed spec fn calculate_index_from_block_size(size: usize) -> Self
         recommends Self::valid_block_size(size as int)
     {
         let fl = log(2, size as int) - Self::granularity_log2_spec();

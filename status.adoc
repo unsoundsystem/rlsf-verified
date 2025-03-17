@@ -603,3 +603,11 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
     ** 関数ごとの仕様・実装・証明の状況を示す表を追加した
 * リンクリストのPoCの移植(done)
     ** `unlink` (ノードへのraw pointerを使ってDLLから切り離す)の検証(done)
+
+== 2025/03/17
+
+* Rustのアラインメントに関する調査: ref. https://doc.rust-lang.org/reference/type-layout.html#size-and-alignment
+    ** Q: `alloc::Layout` に異常なアラインメントを指定できるか/RLSFではどのように扱われるか
+        *** A: `size` を丸めたあとに `isize` の範囲に収まれば、自由な2の冪を指定できる
+        *** A: RLSFでは先にオーバヘッドを計算し要求サイズを算出した後、空きブロックの探索に入るため、要求サイズが大きすぎて単純に探索が失敗する
+
