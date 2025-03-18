@@ -19,6 +19,111 @@ ifdef::env-name[:relfilesuffix: .adoc]
 
 //image::verif-arch.drawio.svg[Embedded,800,opts=inline]
 
+== Specification & Proof status
+
+|===
+|symbol |status
+
+|wip
+|実装・証明に取り組み中(未完)
+
+|done
+|完了(以後問題が発覚しなければ)
+
+|(empty)
+|他のタスクを優先中、あるいはブロッキングタスクがあるため手を付けていない
+
+|===
+
+//[frame=sides]
+|===
+|rlsfの関数 |実装の移植 |形式仕様記述 |証明
+
+| `insert_free_block_ptr_aligned`
+|
+| wip
+|
+
+| `search_suitable_free_block_list_for_allocation`
+| done
+| done
+|
+
+| `map_floor`
+| done
+| done
+| wip
+
+| `map_ceil`
+| done
+| done
+| wip
+
+| `allocate`
+| wip
+| done
+|
+
+| `deallocate`
+|
+| wip
+|
+
+| `link_free_block`
+| done
+| done
+|
+
+| `unlink_free_block`
+| done
+| done
+|
+
+
+|===
+
+* この表に現れないブロッキングタスク
+    ** 仕様記述は、実行可能関数に依らないモデル化のタスクによってブロックされている可能性がある
+    ** Verusの非対応機能に対するworkaround、その他Verusのプラクティス上の問題
+    ** 補題の証明
+
+=== Porting Implementaion
+
+=== Formal Specification
+
+* [ ] data structure wf-ness
+    ** [x] correctness doubly linked list on free block headers
+    ** [ ] singly-linked list on all headers
+* [x] bitwise operations
+    ** [x] rotate shift 
+    ** [x] relation between spec mode math & bitwise ops
+* [x] index calculation
+    ** [x] BlockIndex type
+    ** [x] state lemmas for uniqueness/existance of block size classes cf. zhang et.al.
+
+=== Proof
+
+* [ ] data structure wf-ness
+    ** [x] correctness doubly linked list on free block headers
+    ** [ ] singly-linked list on all headers
+* bitwise operations
+    ** 
+    ** [ ] lemmas for rotate shift properties
+        *** [x] `lemma_usize_rotate_right_0_eq`
+        *** [ ] `lemma_usize_rotate_right_low_mask_shl`
+        *** [x] `lemma_usize_rotate_right_mod0_noop`
+        *** [ ] `lemma_usize_rotate_right_distr`
+        *** [ ] `lemma_usize_rotate_right_reversible`
+    ** [ ] relation between spec mode math & bitwise ops
+        *** [ ] `usize_trailing_zeros_is_log2_when_pow2_given`
+* index calculation
+    ** [ ] uniqueness: `index_unique_range`
+        *** [ ] `lemma_index_unique_range_fl`
+        *** [ ] `lemma_index_unique_range_sl`
+    ** [ ] existance: `index_exists_for_valid_size`
+
+
+
 == TODO
 
 * Verusで `Tlsf::allocate` を検証する
@@ -33,11 +138,6 @@ ifdef::env-name[:relfilesuffix: .adoc]
         *** bits
             **** [ ] `usize_trailing_zeros_is_log2_when_pow2_given`
         *** rotate_rightの形式仕様
-            **** [x] `lemma_usize_rotate_right_0_eq`
-            **** [ ] `lemma_usize_rotate_right_low_mask_shl`
-            **** [x] `lemma_usize_rotate_right_mod0_noop`
-            **** [ ] `lemma_usize_rotate_right_distr`
-            **** [ ] `lemma_usize_rotate_right_reversible`
         *** 理論的性質
             **** [x] 有理数上の半開区間に移植する
             **** [x] 有理数の形式化
@@ -79,103 +179,6 @@ ifdef::env-name[:relfilesuffix: .adoc]
     ** メモリプールの扱い(固定長/動的に拡張可能？)
 //* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
 
-== Specification & Proof status
-
-|===
-|symbol |status
-
-|wip
-|実装・証明に取り組み中(未完)
-
-|done
-|完了(以後問題が発覚しなければ)
-
-|(empty)
-|他のタスクを優先中、あるいはブロッキングタスクがあるため手を付けていない
-
-|===
-
-以下、関数単位での進捗状況
-
-* この表に現れないブロッキングタスク
-    ** 仕様記述は、実行可能関数に依らないモデル化のタスクによってブロックされている可能性がある
-    ** Verusの非対応機能に対するworkaround、その他Verusのプラクティス上の問題
-    ** 補題の証明
-
-//[frame=sides]
-|===
-|rlsfの関数 |実装の移植 |形式仕様記述 |証明
-
-| `insert_free_block_ptr_aligned`
-|
-| wip
-|
-
-| `search_suitable_free_block_list_for_allocation`
-| done
-| done
-|
-
-| `map_floor`
-| done
-| done
-| wip
-
-| `map_ceil`
-| done
-| done
-| wip
-
-| `allocate`
-|
-| wip
-|
-
-| `deallocate`
-|
-| wip
-|
-
-| `link_free_block`
-| done
-| done
-|
-
-| `unlink_free_block`
-| done
-| done
-|
-
-
-|===
-
-=== Porting Implementaion
-
-* `insert_free_block_ptr_aligned`
-* `search_suitable_free_block_list_for_allocation`
-* `map_floor`
-* `map_ceil`
-* `allocate`
-* `deallocate`
-* `link_free_block`
-* `unlink_free_block`
-
-=== Formal Specification
-
-* [x] data structure wf-ness
-* [x] bitwise operations
-* [x] index calculation
-
-=== Proof
-
-* data structure wf-ness
-    ** free list(linked list)
-    ** header permission management
-* bitwise operations
-    ** lemmas for rotate shift properties
-* index calculation
-    ** [ ] uniqueness: `index_unique_range`
-    ** [ ] existance: `index_exists_for_valid_size`
 
 == references
 

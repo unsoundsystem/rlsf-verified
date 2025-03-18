@@ -611,3 +611,15 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
         *** A: `size` を丸めたあとに `isize` の範囲に収まれば、自由な2の冪を指定できる
         *** A: RLSFでは先にオーバヘッドを計算し要求サイズを算出した後、空きブロックの探索に入るため、要求サイズが大きすぎて単純に探索が失敗する
 
+
+== 2025/03/18
+
+* `allocate()` の移植
+    ** `next_phys_block()` ヘッダの情報からメモリ上で隣接するブロック(Free/Used)へのポインタを取得する
+        *** この機能の検証が現状の課題 xref:overwrapping_headers[以前] のアプローチを試している
+            **** e.g. `fn next_phys_block(h: Hdrs) -> Hdrs` として、FreeBlockHdrが隣接しないという不変条件からUsedBlockHdrからはFreeBlockHdrしか返さないような実装とする
+                ***** wf()かつnext_of(i).is_some()ならば権限も一緒に返す
+                ***** wf()ではないユースケースでは、その場でポインタ演算によって対応する
+        *** Q: Verusが構造体へのraw pointerと権限をそのフィールドについて分割できれば、話が単純になる
+            **** e.g. `struct T { x: S, y: U }` について `PointsTo<T>` から `PointsTo<S>` と `PointsTo<U>` を取得
+* xref:./README.adoc#_specification_proof_status[形式化・証明などの進捗状況に関するセクションを追加]

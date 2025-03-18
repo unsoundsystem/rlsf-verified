@@ -8,6 +8,7 @@ mod rational_numbers;
 mod relation_utils;
 mod half_open_range;
 mod linked_list;
+mod ghost_tlsf;
 
 use vstd::prelude::*;
 
@@ -28,6 +29,7 @@ use crate::rational_numbers::Rational;
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
+use ghost_tlsf::GhostTlsf;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
@@ -98,13 +100,12 @@ struct UsedBlockPad {
 }
 
 impl UsedBlockPad {
-    #[verifier::external_body]
+    //#[verifier::external_body] // debug
     #[inline]
     fn get_for_allocation(ptr: *mut u8, Tracked(points_to): Tracked<PointsToRaw>) -> (r: (*mut Self, Tracked<PointsTo<Self>>))
 
     {
-        unimplemented!()
-        //(ptr as *mut Self).wrapping_sub(1)
+        (ptr as *mut Self).wrapping_sub(1)
     }
 }
 
@@ -114,54 +115,6 @@ struct FreeBlockHdr {
     common: BlockHdr,
     next_free: Option<*mut FreeBlockHdr>,
     prev_free: Option<*mut FreeBlockHdr>,
-}
-
-
-pub enum HeaderPointer {
-    Used(*mut UsedBlockHdr),
-    Free(*mut FreeBlockHdr),
-}
-
-pub enum HeaderPointsTo {
-    Used(PointsTo<UsedBlockHdr>),
-    Free(int, int),
-}
-
-
-/// A proof constract tracking information about Tlsf struct
-///
-/// Things we have to track
-/// * all `PointsTo`s related to registered blocks
-/// * things needed to track the list views 
-///     * singly linked list by prev_phys_block chain 
-///      NOTE: This contains allocated blocks
-///     * doubly linked list by FreeBlockHdr fields
-///
-/// Remark: ghost_free_list[fl][sl] contains size of blocks in
-///     BlockIndex(fl, sl).block_size_range()
-struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
-    pub ghost valid_range: Set<int>, // represents region managed by this allocator
-
-    // ordered by address
-    pub ghost all_ptrs: Seq<HeaderPointer>,
-
-    // provenance of initially added blocks
-    // NOTE: Using Seq for extending to allow multiple `insert_free_block_ptr` call
-    pub ghost root_provenances: Seq<Provenance>,
-    //FIXME: the PointsTo here overwraps with above ghost_free_list
-    //TODO: We need a way to obtain permission from block to adjacent
-    // List of all BlockHdrs ordered by their addresses.
-    tracked all_block_headers: Map<HeaderPointer, HeaderPointsTo>,
-
-}
-
-impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf <FLLEN, SLLEN> {
-    //FIXME: error: external_type_specification: Const params not yet supported
-    //#[verifier::type_invariant]
-    spec fn wf(self) -> bool {
-        true
-        // TODO: elements of gfl[(fl, sl)] have pointer start from same address containded in all_ptrs
-    }
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -192,7 +145,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * bitmap is consistent with the freelist
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(&self) -> bool {
-        &&& self.gs@.wf()
+        &&& self.gs@.wf(self)
         &&& self.bitmap_wf()
         &&& is_power_of_two(SLLEN as int) && SLLEN <= usize::BITS
         &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
@@ -211,6 +164,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 valid_range: Set::empty(),
                 root_provenances: Seq::empty(),
                 all_block_headers: Map::empty(),
+                all_block_perms: Map::empty(),
             }),
             _phantom: PhantomData
         }
@@ -655,6 +609,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                      *      - points_to has size as requested
                      *      - consistent with PointsToRaw
                      *          - start address
+                     *      - TODO: resulting size is multiple of GRANULARITY
                      * */
                     !points_to@.dom().is_empty() &&
                     self.wf_dealloc(Ghost(tok@)) &&
@@ -687,29 +642,31 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let search_size = search_size.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
             let BlockIndex(fl, sl) = self.search_suitable_free_block_list_for_allocation(search_size)?;
 
-            // Get a free block: `block`
+            // Detattch & get a free block from the list
             let first_free = self.free_list_pop_front(BlockIndex(fl, sl));
+            // Get a free block: `block`
             let (block, Tracked(perm_block)) = if let Some(first_free) = first_free {
                 first_free
             } else {
+                // Unreachable provided `search_suitable_free_block_list_for_allocation`'s
+                // postcondition
                 unreachable_unchecked()
             };
-            let mut next_phys_block = ptr_ref2(block, Tracked(&perm_block)).value().common.next_phys_block();
+            let mut next_phys_block =
+                ptr_ref2(block, Tracked(&perm_block)).value().common.next_phys_block();
             let size_and_flags = ptr_ref2(block, Tracked(&perm_block)).value().common.size;
             let size = size_and_flags & SIZE_SIZE_MASK;
             assert(size == size_and_flags & SIZE_SIZE_MASK);
 
             assert(size >= search_size);
 
-            // Unlink the free block. We are not using `unlink_free_block` because
-            // we already know `(fl, sl)` and that `block.prev_free` is `None`.
-            *first_free = block.as_ref().next_free;
-            if let Some(mut next_free) = *first_free {
-                next_free.as_mut().prev_free = None;
-            } else {
+            if self.first_free[fl][sl].is_empty() {
                 // The free list is now empty - update the bitmap
                 self.clear_bit_for_index(BlockIndex(fl, sl));
             }
+
+            // Get permission for region managed by `block`
+            let tracked block_block_perm = self.gs.borrow_mut().all_block_perms.tracked_remove(block);
 
             // Decide the starting address of the payload
             let unaligned_ptr = block.addr() + mem::size_of::<UsedBlockHdr>();
@@ -739,15 +696,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // The allocation partially fills this free block. Create a new
                 // free block header at `block + new_size..block + size`
                 // of length (`new_free_block_size`).
+                let new_block_addr = block.addr() + new_size;
                 let mut new_free_block: *mut FreeBlockHdr =
-                    (block.addr() + new_size) as *mut FreeBlockHdr;
+                    new_block_addr as *mut FreeBlockHdr;
                 let new_free_block_size = size - new_size;
+
+                // Split permission for the new block
+                let tracked (block_block_perm, new_block_perm) =
+                    block_block_perm.split(set_int_range(new_block_addr as int, new_block_addr + new_free_block_size as int));
+                let tracked new_block_header_perm =
+                    new_block_perm.split(set_int_range(new_block_addr as int, new_block_addr as int + size_of::<FreeBlockHdr>() as int));
+                let tracked mut new_block_header_perm = new_block_header_perm.into_typed(new_block_addr);
 
                 // Update `next_phys_block.prev_phys_block` to point to this new
                 // free block
                 // Invariant: No two adjacent free blocks
                 //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
-                next_phys_block.as_mut().prev_phys_block = Some(new_free_block.cast());
+                next_phys_block.prev_phys_block = Some(new_free_block.cast());
+                //let next_phys_block_size = ptr_mut_read(next_phys_block, Tracked(&mut new_block_header_perm));
+                //ptr_mut_write(next_phys_block, Tracked(&mut new_block_header_perm), FreeBlockHdr {
+                    //prev_free: 
+                //});
 
                 // Create the new free block header
                 new_free_block.as_mut().common = BlockHdr {
@@ -806,7 +775,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     fn free_list_pop_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         -> (r: Option<(*mut FreeBlockHdr, Tracked<PointsTo<FreeBlockHdr>>)>)
     {
-        self.first_free[idx.0][idx.1].pop_front();
+        self.first_free[idx.0][idx.1].pop_front()
     }
 
     #[verifier::external_body]
@@ -834,7 +803,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
 
-    #[verifier::external_body]
+    //#[verifier::external_body] //debug
     #[inline]
     unsafe fn used_block_hdr_for_allocation(
         ptr: *mut u8,

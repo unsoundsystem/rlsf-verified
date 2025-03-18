@@ -248,11 +248,17 @@ impl DLL {
         }
     }
 
-    pub(crate) closed spec fn is_empty(&self) -> bool {
+    pub(crate) closed spec fn is_empty_spec(&self) -> bool {
         self@.len() == 0
     }
 
-    // TODO: proof
+    #[verifier::when_used_as_spec(is_empty_spec)]
+    pub(crate) fn is_empty(&self) -> (r: bool)
+        ensures r == self.is_empty_spec()
+    {
+        self.first.is_none()
+    }
+
     proof fn lemma_view_empty_iff_first_none(self)
         requires self.wf()
         ensures self.first.is_none() <==> self@.len() == 0
