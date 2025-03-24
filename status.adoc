@@ -623,3 +623,15 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
         *** Q: Verusが構造体へのraw pointerと権限をそのフィールドについて分割できれば、話が単純になる
             **** e.g. `struct T { x: S, y: U }` について `PointsTo<T>` から `PointsTo<S>` と `PointsTo<U>` を取得
 * xref:./README.adoc#_specification_proof_status[形式化・証明などの進捗状況に関するセクションを追加]
+
+== 2025/03/24
+
+* `allocate()` の移植: 18日にそって `next_phys_block` の実装・検証
+    ** `next_phys_block` のユースケースとしては、
+        1.  first_freeから取り出したFreeBlockHdrから計算するケース
+            *** allocate時の余剰ブロックの分割・再登録処理
+        2. ユーザから返却されたUsedBlockHdrから計算するケース
+            *** deallocate時の隣接ブロックの割当済みフラグ確認
+    ** 各々計算元のヘッダの状態は確認済み
+    ** 空きブロックの非隣接性から*mut Free->*mut Used, *mut Used->*mut Freeというふうにしか計算できないようにし、
+       wf-nessが不完全な箇所は、その場でポインタ演算の議論をする

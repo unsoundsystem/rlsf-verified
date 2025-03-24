@@ -13,7 +13,11 @@ mod ghost_tlsf;
 use vstd::prelude::*;
 
 verus! {
-use vstd::raw_ptr::{ptr_mut_write, ptr_ref2, ptr_ref, PointsToRaw, PointsTo, Metadata, Provenance};
+use vstd::raw_ptr::{
+    ptr_mut_read, ptr_mut_write, ptr_ref2, ptr_ref,
+    PointsToRaw, PointsTo, Metadata, Provenance,
+    expose_provenance, with_exposed_provenance
+};
 use vstd::set_lib::set_int_range;
 use std::marker::PhantomData;
 use vstd::{seq::*, seq_lib::*, bytes::*};
@@ -105,7 +109,8 @@ impl UsedBlockPad {
     fn get_for_allocation(ptr: *mut u8, Tracked(points_to): Tracked<PointsToRaw>) -> (r: (*mut Self, Tracked<PointsTo<Self>>))
 
     {
-        (ptr as *mut Self).wrapping_sub(1)
+        let tracked points_to = points_to.into_typed((ptr as usize - size_of::<Self>()) as usize);
+        ((ptr as *mut Self).wrapping_sub(1), Tracked(points_to))
     }
 }
 
@@ -115,6 +120,9 @@ struct FreeBlockHdr {
     common: BlockHdr,
     next_free: Option<*mut FreeBlockHdr>,
     prev_free: Option<*mut FreeBlockHdr>,
+}
+
+impl FreeBlockHdr {
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -610,6 +618,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                      *      - consistent with PointsToRaw
                      *          - start address
                      *      - TODO: resulting size is multiple of GRANULARITY
+                     *      - TODO: if GRANULARITY <= align, UsedBlockPad works properly
                      * */
                     !points_to@.dom().is_empty() &&
                     self.wf_dealloc(Ghost(tok@)) &&
@@ -645,7 +654,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Detattch & get a free block from the list
             let first_free = self.free_list_pop_front(BlockIndex(fl, sl));
             // Get a free block: `block`
-            let (block, Tracked(perm_block)) = if let Some(first_free) = first_free {
+            let (block, Tracked(perm_block_header)) = if let Some(first_free) = first_free {
                 first_free
             } else {
                 // Unreachable provided `search_suitable_free_block_list_for_allocation`'s
@@ -653,9 +662,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 unreachable_unchecked()
             };
             let mut next_phys_block =
-                ptr_ref2(block, Tracked(&perm_block)).value().common.next_phys_block();
-            let size_and_flags = ptr_ref2(block, Tracked(&perm_block)).value().common.size;
-            let size = size_and_flags & SIZE_SIZE_MASK;
+                ptr_ref2(block, Tracked(&perm_block_header)).value().common.next_phys_block();
+            let size_and_flags = ptr_ref2(block, Tracked(&perm_block_header)).value().common.size;
+            // NOTE: free block header has no flags -- only indicates about size
+            let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
             assert(size == size_and_flags & SIZE_SIZE_MASK);
 
             assert(size >= search_size);
@@ -665,8 +675,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.clear_bit_for_index(BlockIndex(fl, sl));
             }
 
-            // Get permission for region managed by `block`
-            let tracked block_block_perm = self.gs.borrow_mut().all_block_perms.tracked_remove(block);
+            // Get permission for region managed by the header at `block`
+            let tracked mut perm_block_block = self.gs.borrow_mut().all_block_perms.tracked_remove(block);
+            assert(perm_block_block.is_range(block.addr() + GRANULARITY, size as int));
 
             // Decide the starting address of the payload
             let unaligned_ptr = block.addr() + mem::size_of::<UsedBlockHdr>();
@@ -688,6 +699,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
             assert(new_size <= search_size);
 
+            let tracked mut new_block_block_perm;
             if new_size == size {
                 // The allocation completely fills this free block.
                 // Updating `next_phys_block.prev_phys_block` is unnecessary in this
@@ -702,44 +714,54 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let new_free_block_size = size - new_size;
 
                 // Split permission for the new block
-                let tracked (block_block_perm, new_block_perm) =
-                    block_block_perm.split(set_int_range(new_block_addr as int, new_block_addr + new_free_block_size as int));
-                let tracked new_block_header_perm =
+                let tracked (perm_block_block, new_block_perm) =
+                    perm_block_block.split(set_int_range(new_block_addr as int, new_block_addr + new_free_block_size as int));
+                perm_block_block = perm_block_block;
+                let tracked (new_block_header_perm, new_block_block_perm) =
                     new_block_perm.split(set_int_range(new_block_addr as int, new_block_addr as int + size_of::<FreeBlockHdr>() as int));
                 let tracked mut new_block_header_perm = new_block_header_perm.into_typed(new_block_addr);
+                new_block_block_perm = new_block_block_perm;
 
                 // Update `next_phys_block.prev_phys_block` to point to this new
                 // free block
                 // Invariant: No two adjacent free blocks
                 //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
-                next_phys_block.prev_phys_block = Some(new_free_block.cast());
-                //let next_phys_block_size = ptr_mut_read(next_phys_block, Tracked(&mut new_block_header_perm));
-                //ptr_mut_write(next_phys_block, Tracked(&mut new_block_header_perm), FreeBlockHdr {
-                    //prev_free: 
-                //});
+                //TODO:
+                //next_phys_block.prev_phys_block = Some(new_free_block.cast());
 
                 // Create the new free block header
-                new_free_block.as_mut().common = BlockHdr {
-                    size: new_free_block_size,
-                    prev_phys_block: Some(block.cast()),
-                };
-                self.link_free_block(new_free_block, new_free_block_size);
+                // TODO:
+                //new_free_block.as_mut().common = BlockHdr {
+                    //size: new_free_block_size,
+                    //prev_phys_block: Some(block.cast()),
+                //};
+
+                self.link_free_block(new_free_block,
+                    new_free_block_size, Tracked(new_block_header_perm));
             }
 
             // Turn `block` into a used memory block and initialize the used block
             // header. `prev_phys_block` is already set.
-            let mut block = block.cast::<UsedBlockHdr>();
-            block.as_mut().common.size = new_size | SIZE_USED;
+            // TODO:
+            //let mut block = block.cast::<UsedBlockHdr>();
+            //block.as_mut().common.size = new_size | SIZE_USED;
 
             // Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
             if align >= GRANULARITY {
-                (*UsedBlockPad::get_for_allocation(ptr)).block_hdr = block;
+                let (pad_ptr, Tracked(pad_perm)) = UsedBlockPad::get_for_allocation(ptr, new_block_block_perm);
+                ptr_mut_write(pad_ptr, Tracked(&mut pad_perm), UsedBlockPad {
+                    block_hdr: block.cast()
+                });
             }
 
-            Some(ptr)
+            proof {
+                // TODO: update ghost states
+                // * adjast perm_block_block to fit ptr..+(search_size - overhead)
+            }
+
+            Some((ptr, Tracked(perm_block_block), DeallocToken::new(block.cast())))
         }
     }
-    // TODO: update ghost_free_list in allocate()
 
     #[verifier::external_body] // for spec debug
     pub fn deallocate(&mut self,
@@ -808,13 +830,34 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     unsafe fn used_block_hdr_for_allocation(
         ptr: *mut u8,
         align: usize,
+        Tracked(points_to): Tracked<PointsToRaw>
     ) -> *mut UsedBlockHdr {
         if align >= GRANULARITY {
             // Read the header pointer
-            (*UsedBlockPad::get_for_allocation(ptr)).block_hdr
+            //(*UsedBlockPad::get_for_allocation(ptr)).block_hdr
+            let (ptr, Tracked(perm)) =
+                UsedBlockPad::get_for_allocation(ptr, Tracked(points_to));
+            ptr_ref2(ptr, Tracked(&perm)).value().block_hdr
         } else {
             ptr.sub(GRANULARITY / 2) as *mut UsedBlockHdr
         }
+    }
+
+
+    fn next_phys_block_of_fb(&self, fbh: *mut FreeBlockHdr, Tracked(pt): Tracked<PointsTo<FreeBlockHdr>>)
+          -> (r: *mut UsedBlockHdr)
+        requires self.wf(),
+        // NOTE: by the existance of sentinel block, we can conclude that every usual block we can
+        //       pop from the free list, we have following
+            exists|i: int| 0 <= i < self.gs@.all_ptrs.len() - 1 ==> self.gs@.all_ptrs[i] == fbh
+        ensures self.wf(),
+            self.gs@.all_ptrs.contains(ghost_tlsf::HeaderPointer::Used(r))
+    {
+        let size = ptr_ref2(fbh, Tracked(&pt)).value().common.size & SIZE_SIZE_MASK;
+        let next_phys_block_addr = (fbh as *mut u8).add(size);
+        let pv = expose_provenance(fbh);
+
+        with_exposed_provenance(next_phys_block_addr as usize, pv)
     }
 
 }
@@ -840,6 +883,12 @@ impl !Copy for DeallocToken {}
 tracked struct DeallocToken {
     /// Copy of header pointer of allocated region as an allocation identifier
     ghost ptr: Ghost<*mut UsedBlockHdr>,
+}
+
+impl DeallocToken {
+    fn new(ptr: *mut UsedBlockHdr) -> Tracked<Self> {
+        Tracked(Self { ptr: Ghost(ptr) })
+    }
 }
 
 #[inline(always)]

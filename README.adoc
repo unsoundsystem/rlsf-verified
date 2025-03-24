@@ -107,7 +107,6 @@ ifdef::env-name[:relfilesuffix: .adoc]
     ** [x] correctness doubly linked list on free block headers
     ** [ ] singly-linked list on all headers
 * bitwise operations
-    ** 
     ** [ ] lemmas for rotate shift properties
         *** [x] `lemma_usize_rotate_right_0_eq`
         *** [ ] `lemma_usize_rotate_right_low_mask_shl`
