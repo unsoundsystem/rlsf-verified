@@ -33,14 +33,14 @@ use crate::rational_numbers::Rational;
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
-use ghost_tlsf::GhostTlsf;
+use ghost_tlsf::{GhostTlsf, HeaderPointer, HeaderPointsTo};
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[DLL; SLLEN]; FLLEN],
-    pub gs: Ghost<GhostTlsf<FLLEN, SLLEN>>,
+    pub tracked gs: GhostTlsf<FLLEN, SLLEN>,
     pub _phantom: PhantomData<&'pool ()>,
 }
 
@@ -87,8 +87,9 @@ impl BlockHdr {
     ///
     /// e.g. splitting a large block into two (continuous) small blocks 
     #[inline(always)]
-    #[verifier::external] // debug
-    unsafe fn next_phys_block(&self) -> *mut BlockHdr {
+    #[verifier::external_body] // debug
+    unsafe fn next_phys_block(&self) -> *mut BlockHdr
+    {
         ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
     }
 }
@@ -110,7 +111,13 @@ impl UsedBlockPad {
 
     {
         let tracked points_to = points_to.into_typed((ptr as usize - size_of::<Self>()) as usize);
-        ((ptr as *mut Self).wrapping_sub(1), Tracked(points_to))
+        let Tracked(is_exposed) = expose_provenance(ptr);
+        // FIXME: this subtraction was wrapping_sub
+        let ptr = with_exposed_provenance(
+            ptr as usize - size_of::<FreeBlockHdr>(),
+            Tracked(is_exposed));
+        assert(points_to.ptr() == ptr);
+        (ptr, Tracked(points_to))
     }
 }
 
@@ -153,7 +160,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * bitmap is consistent with the freelist
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(&self) -> bool {
-        &&& self.gs@.wf(self)
+        &&& self.gs.wf(self)
         &&& self.bitmap_wf()
         &&& is_power_of_two(SLLEN as int) && SLLEN <= usize::BITS
         &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
@@ -167,13 +174,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
             first_free: Self::initial_free_lists(),
-            gs: Ghost(GhostTlsf {
-                all_ptrs: Seq::empty(),
-                valid_range: Set::empty(),
-                root_provenances: Seq::empty(),
-                all_block_headers: Map::empty(),
-                all_block_perms: Map::empty(),
-            }),
+            gs: GhostTlsf {
+                all_ptrs: Ghost(Seq::empty()),
+                valid_range: Ghost(Set::empty()),
+                root_provenances: Ghost(Seq::empty()),
+                all_block_headers: Tracked(Map::tracked_empty()),
+                all_block_perms: Tracked(Map::tracked_empty()),
+            },
             _phantom: PhantomData
         }
     }
@@ -387,7 +394,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: Is it reasonable to assume the free list is empty as a precondition?
         //       As I read the use case, there wasn't code adding new region twice.
     ensures
-        self.gs@.root_provenances.len() > 0
+        self.gs.root_provenances@.len() > 0
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
     {
@@ -425,7 +432,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 //
 //            // Obtain permssion for writing to the first node in the appropriate
 //            // freelist to insert `block`
-//            let tracked next_free_perm = self.gs@.ghost_free_list[fl as int][sl as int];
+//            let tracked next_free_perm = self.gs.ghost_free_list[fl as int][sl as int];
 //
 //            // Write the header
 //            // NOTE: because Verus doesn't supports field update through raw pointer,
@@ -591,6 +598,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
+    pub closed spec fn is_root_provenance<T>(self, ptr: *mut T) -> bool {
+        self.gs.root_provenances@.contains(ptr@.provenance)
+    }
+
 
     //-------------------------------------------
     //    Allocation & Deallocation interface
@@ -609,25 +620,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             old(self).wf()
         ensures
             // TODO: state that if there suitable block is available, the allocation succeed
-            r matches Some((ptr, points_to, tok)) ==>
-                    /* NOTE: Allocation correctness
-                     * - resulting pointer
-                     *      - alignment
-                     *      - provenance is same as the initial block
-                     *      - points_to has size as requested
-                     *      - consistent with PointsToRaw
-                     *          - start address
-                     *      - TODO: resulting size is multiple of GRANULARITY
-                     *      - TODO: if GRANULARITY <= align, UsedBlockPad works properly
-                     * */
-                    !points_to@.dom().is_empty() &&
-                    self.wf_dealloc(Ghost(tok@)) &&
-                    ptr@.provenance == points_to@.provenance() &&
-                    ptr@.metadata == Metadata::Thin &&
-                    points_to@.is_range(ptr as usize as int, size as int) &&
-                    ptr.addr() % align == 0 &&
-                    self.gs@.root_provenances.contains(ptr@.provenance),
+            r matches Some((ptr, points_to, tok)) ==> ({
+                /* NOTE: Allocation correctness
+                 * - resulting pointer
+                 *      - alignment
+                 *      - provenance is same as the initial block
+                 *      - points_to has size as requested
+                 *      - consistent with PointsToRaw
+                 *          - start address
+                 *      - TODO: resulting size is multiple of GRANULARITY
+                 *      - TODO: if GRANULARITY <= align, UsedBlockPad works properly
+                 * */
+                &&& !points_to@.dom().is_empty()
+                &&& self.wf_dealloc(Ghost(tok@))
+                &&& ptr@.provenance == points_to@.provenance()
+                &&& ptr@.metadata == Metadata::Thin
+                &&& points_to@.is_range(ptr as usize as int, size as int)
+                &&& ptr.addr() % align == 0
+                &&& self.is_root_provenance(ptr)
+            }),
             r matches None ==> old(self) == self,
+
             self.wf()
     {
         unsafe {
@@ -661,9 +674,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // postcondition
                 unreachable_unchecked()
             };
-            let mut next_phys_block =
-                ptr_ref2(block, Tracked(&perm_block_header)).value().common.next_phys_block();
-            let size_and_flags = ptr_ref2(block, Tracked(&perm_block_header)).value().common.size;
+            let Tracked(block_is_exposed) = expose_provenance(block);
+            let (mut next_phys_block, Tracked(mut next_phys_block_pt)) = self.next_phys_block_of_fb(block, Tracked(&perm_block_header));
+            let size_and_flags = ptr_ref(block, Tracked(&perm_block_header)).common.size;
             // NOTE: free block header has no flags -- only indicates about size
             let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
             assert(size == size_and_flags & SIZE_SIZE_MASK);
@@ -676,12 +689,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
 
             // Get permission for region managed by the header at `block`
-            let tracked mut perm_block_block = self.gs.borrow_mut().all_block_perms.tracked_remove(block);
+            let tracked mut perm_block_block = self.gs.remove_block_perm(block);
             assert(perm_block_block.is_range(block.addr() + GRANULARITY, size as int));
 
             // Decide the starting address of the payload
             let unaligned_ptr = block.addr() + mem::size_of::<UsedBlockHdr>();
-            let ptr = (unaligned_ptr.wrapping_add(align - 1) & !(align - 1)) as *mut u8;
+            let ptr: *mut u8 = with_exposed_provenance(
+                unaligned_ptr.wrapping_add(align - 1) & !(align - 1),
+                Tracked(block_is_exposed));
             assert(ptr.addr() != 0);
 
             if align < GRANULARITY {
@@ -699,7 +714,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
             assert(new_size <= search_size);
 
-            let tracked mut new_block_block_perm;
+            let tracked mut new_block_block_perm = PointsToRaw::empty(Provenance::null());
             if new_size == size {
                 // The allocation completely fills this free block.
                 // Updating `next_phys_block.prev_phys_block` is unnecessary in this
@@ -710,27 +725,38 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // of length (`new_free_block_size`).
                 let new_block_addr = block.addr() + new_size;
                 let mut new_free_block: *mut FreeBlockHdr =
-                    new_block_addr as *mut FreeBlockHdr;
+                    with_exposed_provenance(new_block_addr, Tracked(block_is_exposed));
                 let new_free_block_size = size - new_size;
 
                 // Split permission for the new block
-                let tracked (perm_block_block, new_block_perm) =
+                let tracked (perm_bb, new_block_perm) =
                     perm_block_block.split(set_int_range(new_block_addr as int, new_block_addr + new_free_block_size as int));
-                perm_block_block = perm_block_block;
+                proof {
+                    perm_block_block = perm_bb;
+                }
                 let tracked (new_block_header_perm, new_block_block_perm) =
                     new_block_perm.split(set_int_range(new_block_addr as int, new_block_addr as int + size_of::<FreeBlockHdr>() as int));
                 let tracked mut new_block_header_perm = new_block_header_perm.into_typed(new_block_addr);
-                new_block_block_perm = new_block_block_perm;
+                proof {
+                    new_block_block_perm = new_block_block_perm;
+                }
 
                 // Update `next_phys_block.prev_phys_block` to point to this new
                 // free block
                 // Invariant: No two adjacent free blocks
                 //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
-                //TODO:
-                //next_phys_block.prev_phys_block = Some(new_free_block.cast());
+                // TODO: uncomment
+                let old_next_phys_block_size = ptr_ref(next_phys_block, Tracked(&next_phys_block_pt)).common.size;
+                ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_pt), UsedBlockHdr {
+                    common: BlockHdr {
+                        size: old_next_phys_block_size,
+                        prev_phys_block: Some(new_free_block as *mut BlockHdr),
+                    }
+                });
+                //next_phys_block.prev_phys_block = Some(new_free_block as *mut BlockHdr);
 
                 // Create the new free block header
-                // TODO:
+                // TODO: uncomment
                 //new_free_block.as_mut().common = BlockHdr {
                     //size: new_free_block_size,
                     //prev_phys_block: Some(block.cast()),
@@ -748,9 +774,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
             if align >= GRANULARITY {
-                let (pad_ptr, Tracked(pad_perm)) = UsedBlockPad::get_for_allocation(ptr, new_block_block_perm);
+                let (pad_ptr, Tracked(pad_perm)) = UsedBlockPad::get_for_allocation(ptr, Tracked(new_block_block_perm));
                 ptr_mut_write(pad_ptr, Tracked(&mut pad_perm), UsedBlockPad {
-                    block_hdr: block.cast()
+                    block_hdr: block as *mut UsedBlockHdr
                 });
             }
 
@@ -759,7 +785,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // * adjast perm_block_block to fit ptr..+(search_size - overhead)
             }
 
-            Some((ptr, Tracked(perm_block_block), DeallocToken::new(block.cast())))
+            Some((ptr, Tracked(perm_block_block), DeallocToken::new(block as *mut UsedBlockHdr)))
         }
     }
 
@@ -837,27 +863,34 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //(*UsedBlockPad::get_for_allocation(ptr)).block_hdr
             let (ptr, Tracked(perm)) =
                 UsedBlockPad::get_for_allocation(ptr, Tracked(points_to));
-            ptr_ref2(ptr, Tracked(&perm)).value().block_hdr
+            ptr_ref(ptr, Tracked(&perm)).block_hdr
         } else {
-            ptr.sub(GRANULARITY / 2) as *mut UsedBlockHdr
+            let is_exposed = expose_provenance(ptr);
+            let ptr = ptr as usize - (GRANULARITY / 2);
+            with_exposed_provenance(ptr, is_exposed)
         }
     }
 
 
-    fn next_phys_block_of_fb(&self, fbh: *mut FreeBlockHdr, Tracked(pt): Tracked<PointsTo<FreeBlockHdr>>)
-          -> (r: *mut UsedBlockHdr)
+    #[verifier::external_body] //debug
+    fn next_phys_block_of_fb(&self, fbh: *mut FreeBlockHdr, Tracked(pt): Tracked<&PointsTo<FreeBlockHdr>>)
+          -> (r: (*mut UsedBlockHdr, Tracked<PointsTo<UsedBlockHdr>>))
         requires self.wf(),
         // NOTE: by the existance of sentinel block, we can conclude that every usual block we can
         //       pop from the free list, we have following
-            exists|i: int| 0 <= i < self.gs@.all_ptrs.len() - 1 ==> self.gs@.all_ptrs[i] == fbh
+            exists|i: int| 0 <= i < self.gs.all_ptrs@.len() - 1 && #[trigger] self.gs.all_ptrs@[i] matches HeaderPointer::Free(fbh)
         ensures self.wf(),
-            self.gs@.all_ptrs.contains(ghost_tlsf::HeaderPointer::Used(r))
+            self.gs.all_ptrs@.contains(ghost_tlsf::HeaderPointer::Used(r.0)),
+            r.0 == r.1@.ptr(),
     {
-        let size = ptr_ref2(fbh, Tracked(&pt)).value().common.size & SIZE_SIZE_MASK;
-        let next_phys_block_addr = (fbh as *mut u8).add(size);
+        let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
+        let next_phys_block_addr = (fbh as *mut u8) as usize + size;
         let pv = expose_provenance(fbh);
+        let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, pv);
+        //let tracked uhdr_perm = self.gs.remove_block_used_header_perm(ptr);
 
-        with_exposed_provenance(next_phys_block_addr as usize, pv)
+        //(ptr, Tracked(uhdr_perm))
+        unimplemented!()
     }
 
 }

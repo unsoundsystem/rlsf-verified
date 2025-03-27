@@ -4,3 +4,9 @@
 
 * エラーメッセージ: `evaluated program panicked at 'does not have the expected size'`
 * `global layout ... is size = N, align = M` というレイアウトの指定機能を使う際、実際のレイアウトと違うことが原因だった
+
+== `error: expression has mode spec, expected mode proof`
+
+- [ ] 返り値のモードがtracked/ghostになっているか？
+- [ ] `proof { ... }` で囲っているか？
+- [ ] 変数宣言のモードは適切か？
