@@ -159,8 +159,6 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
     //Get permission for the header
     pub proof fn remove_block_used_header_perm(tracked &mut self, ptr: *mut UsedBlockHdr)
         -> (tracked r: Option<PointsTo<UsedBlockHdr>>)
-        //requires self.all_block_headers@.contains_key(HeaderPointer::Used(ptr)),
-        //ensures !self.all_block_headers@.contains_key(HeaderPointer::Used(ptr)),
     {
         match self.all_block_headers.borrow_mut().tracked_remove(HeaderPointer::Used(ptr)) {
             HeaderPermToken::Used(perm) => Some(perm),

@@ -641,3 +641,8 @@ struct GhostTlsf { ..., all_ptrs: Seq<Hdrs>, ... }
 * `allocate()` の移植: 概ね完了
     ** 残りはnext_phys_blockのインタフェース周りとヘッダ更新時のメモリ書き込み
     ** GhostTlsfとヘッダポインタからヘッダへの権限を取り出すための簡単な方法を作ったほうが良さそう
+
+== 2024/03/28
+
+* `allocate()` の移植が完了
+* `deallocate()` の移植

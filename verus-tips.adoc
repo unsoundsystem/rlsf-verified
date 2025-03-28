@@ -10,3 +10,24 @@
 - [ ] 返り値のモードがtracked/ghostになっているか？
 - [ ] `proof { ... }` で囲っているか？
 - [ ] 変数宣言のモードは適切か？
+
+== `Option<T>::unwrap()`
+
+- spec mode
+[source,rust]
+----
+spec fn f<T>(x: Option<T>) -> T {
+    x.unwrap()
+}
+----
+
+- proof mode
+[source,rust]
+----
+proof fn g<T>(tracked x: Option<T>) -> (tracked r: T)
+    requires x is Some
+    ensures x matches Some(v) && r == v
+{
+    x.tracked_unwrap()
+}
+----

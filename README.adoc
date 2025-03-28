@@ -60,12 +60,12 @@ ifdef::env-name[:relfilesuffix: .adoc]
 | wip
 
 | `allocate`
-| wip
+| done
 | done
 |
 
 | `deallocate`
-|
+| wip
 | wip
 |
 
