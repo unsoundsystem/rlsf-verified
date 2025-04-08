@@ -26,7 +26,8 @@ use core::alloc::Layout;
 use core::mem;
 use crate::bits::{
     usize_trailing_zeros, is_power_of_two,
-    bit_scan_forward,
+    bit_scan_forward, usize_leading_trailing_zeros, usize_leading_zeros,
+    granularity_is_power_of_two, mask_higher_bits_leq_mask
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::Rational;
@@ -131,19 +132,29 @@ impl FreeBlockHdr {
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // workaround: verus doesn't support constants definitions in impl.
     //const SLI: u32 = SLLEN.trailing_zeros();
+    #[verifier::when_used_as_spec(sli_spec_usize)]
     const fn sli() -> (r: u32)
         ensures r == Self::sli_spec()
     { SLLEN.trailing_zeros() }
+
+    spec fn sli_spec_usize() -> (r: u32) {
+        usize_leading_zeros(SLLEN)
+    }
 
     spec fn sli_spec() -> int {
         log(2, SLLEN as int)
     }
 
+    #[verifier::when_used_as_spec(granularity_log2_spec_usize)]
     const fn granularity_log2() -> (r: u32)
         requires is_power_of_two(GRANULARITY as int)
         ensures r == Self::granularity_log2_spec()
     {
         GRANULARITY.trailing_zeros()
+    }
+
+    spec fn granularity_log2_spec_usize() -> (r: u32) {
+        usize_trailing_zeros(GRANULARITY)
     }
 
     spec fn granularity_log2_spec() -> int {
@@ -267,7 +278,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        assert(((sl >> Self::sli_spec()) & 1) == 1);
+        assert(((sl >> Self::sli()) & 1) == 1);
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
@@ -293,7 +304,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[inline(always)]
     //#[verifier::external_body] // debug
     fn map_floor(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>)
-        //requires BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+        requires
+            // NOTE: in onriginal code following conditions are encoded as debug_assert!
+            // and confirmed at the call site. But if violated they cause underflow
+            size >= GRANULARITY,
+            size % GRANULARITY == 0
         ensures
         ({
             if BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int) {
@@ -305,22 +320,36 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
         })
     {
-        assert(size >= GRANULARITY);
-        assert(size % GRANULARITY == 0);
-        let mut fl = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
+        //assert(size >= GRANULARITY);
+        //assert(size % GRANULARITY == 0);
+        // 64bit: 64 - 5 - 1 - (at most 58)
+        // 32bit: 32 - 4 - 1 - (at most 27)
+        assume(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64);
+        proof {
+            granularity_is_power_of_two();
+        }
+        let mut fl: u32 = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
 
+        assume(nth_bit!(size, (fl + Self::granularity_log2()) as usize));
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching. Underflowed digits can be simply masked out
         // in `map_floor`.
         let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        assert(((sl >> Self::sli_spec()) & 1) == 1);
+        assume(nth_bit!(sl, Self::sli()));
+        //assert(((sl >> Self::sli_spec()) & 1) == 1);
+
+        // TODO: modulize assumptions about parameters
+        assume(SLLEN > 0);
 
         if fl as usize >= FLLEN {
+            assume(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
         }
 
+
+        proof { mask_higher_bits_leq_mask(sl, SLLEN); }
        Some(BlockIndex(fl as usize, sl & (SLLEN - 1)))
     }
 
@@ -1001,10 +1030,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         (ptr, Tracked(uhdr_perm))
     }
 
-    fn next_phys_block_of_ub(&mut self, ubh: *mut UsedBlockHdr, Tracked(pt): Tracked<&PointsTo<UsedBlockHdr>>)
-          -> (r: (Option<*mut FreeBlockHdr>, Tracked<PointsTo<UsedBlockHdr>>))
-    {
-    }
+    //fn next_phys_block_of_ub(&mut self, ubh: *mut UsedBlockHdr, Tracked(pt): Tracked<&PointsTo<UsedBlockHdr>>)
+          //-> (r: (Option<*mut FreeBlockHdr>, Tracked<PointsTo<UsedBlockHdr>>))
+    //{
+    //}
 }
 
 impl !Copy for DeallocToken {}

@@ -48,22 +48,22 @@ pub open spec fn usize_leading_zeros(x: usize) -> int
 }
 
 #[cfg(target_pointer_width = "64")]
-pub open spec fn usize_leading_zeros(x: usize) -> int
+pub open spec fn usize_leading_zeros(x: usize) -> u32
 {
-    u64_leading_zeros(x as u64)
+    u64_leading_zeros(x as u64) as u32
 }
 
 
 #[cfg(target_pointer_width = "32")]
-pub open spec fn usize_trailing_zeros(x: usize) -> int
+pub open spec fn usize_trailing_zeros(x: usize) -> u32
 {
-    u32_trailing_zeros(x as u32) as int
+    u32_trailing_zeros(x as u32) as u32
 }
 
 #[cfg(target_pointer_width = "64")]
-pub open spec fn usize_trailing_zeros(x: usize) -> int
+pub open spec fn usize_trailing_zeros(x: usize) -> u32
 {
-    u64_trailing_zeros(x as u64) as int
+    u64_trailing_zeros(x as u64) as u32
 }
 
 pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
@@ -328,5 +328,29 @@ pub assume_specification [usize::saturating_sub] (x: usize, y: usize) -> (r: usi
         x as int - y as int > 0 ==> r == x - y,
     opens_invariants none
     no_unwind;
+
+pub proof fn usize_leading_trailing_zeros(x: usize)
+by (nonlinear_arith)
+    requires x != 0
+    ensures usize_leading_zeros(x) + usize_trailing_zeros(x) < 64
+{}
+
+pub proof fn granularity_is_power_of_two()
+    ensures is_power_of_two(size_of::<usize>() * 4)
+{
+    assert(is_power_of_two((4 * 4) as int)) by (compute);
+    assert(is_power_of_two((8 * 4) as int)) by (compute);
+}
+
+use vstd::std_specs::bits::group_bits_axioms;
+pub proof fn mask_higher_bits_leq_mask(x: usize, y: usize)
+    by (bit_vector)
+    requires 0 < y
+    ensures x & ((y - 1) as usize) < y
+{
+}
+
+//pub proof fn usize_leading_trailing_zeros_diff(x)
+    //requires x !=
 
 } // verus!

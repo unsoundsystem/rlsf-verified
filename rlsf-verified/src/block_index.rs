@@ -7,7 +7,7 @@ use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
 use crate::half_open_range::HalfOpenRangeOnRat;
 use crate::rational_numbers::{
-    Rational, rational_number_facts, rational_number_equality, rational_number_inequality, rational_number_properties,
+    Rational, rational_number_facts, rational_number_equality, rational_number_inequality, rational_number_properties, rational_number_mul_properties,
     lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv, lemma_eq_trans, lemma_neg_add_zero, lemma_add_eq_preserve, lemma_add_basics, lemma_from_int_inj
 };
 
@@ -242,8 +242,14 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
                 r2.lemma_slide_start(delta);
                 assert(r2_slide.start().eq(r2.start().add(delta)));
                 // FIXME
-                assert(r2.start().eq(fl_block_bytes2.add(sl_block_bytes2.mul(Rational::from_int(idx2.1 as int))))) by {
-                    lemma_from_int_inj(idx2.0 as int, idx2.0 as int);
+                assert(r2.start().eq(fl_block_bytes2.add(sl_block_bytes2.mul(Rational::from_int(idx2.1 as int)))))
+                by {
+                    //lemma_from_int_inj(idx2.0 as int, idx2.0 as int);
+
+                    broadcast use rational_number_facts;
+                    broadcast use rational_number_equality;
+                    broadcast use rational_number_mul_properties;
+                    //assert(r2.start().eq(fl_block_bytes2.add(sl_block_bytes2.mul(Rational::from_int(idx2.1 as int))))) by (nonlinear_arith);
                 };
                 admit();
             };
