@@ -136,6 +136,30 @@ proof fn usize_trailing_zeros_is_log2_when_pow2_given(x: usize, y: nat)
         assert(log(2, x as int) == 1);
         assert(usize_trailing_zeros(x) == log(2, x as int));
     } else {
+        admit()
+    }
+    //assert(usize_trailing_zeros(x) == log(2, x as int)) by (compute);
+    //TODO
+}
+
+proof fn u64_trailing_zeros_is_log2_when_pow2_given(x: u64)
+    requires x > 0, exists|n: nat| x == pow2(n)
+    ensures u64_trailing_zeros(x) == log(2, x as int)
+    decreases x
+{
+    if x == 1 {
+        reveal(u64_trailing_zeros);
+        assert(u64_trailing_zeros(1) == 0) by (compute);
+        reveal(log);
+        assert(usize_trailing_zeros(1) == log(2, 1));
+    } else {
+        assert(exists|n: nat| x == pow2(n));
+        u64_trailing_zeros_is_log2_when_pow2_given(x / 2);
+
+
+        lemma_div2_trailing_zeros_dec(x);
+
+
     }
     //assert(usize_trailing_zeros(x) == log(2, x as int)) by (compute);
     //TODO
@@ -349,6 +373,118 @@ pub proof fn mask_higher_bits_leq_mask(x: usize, y: usize)
     ensures x & ((y - 1) as usize) < y
 {
 }
+
+proof fn log2_div_sub_distr(x: int, y: int) by (nonlinear_arith)
+    requires  exists|n: int| n >= 0 && x == #[trigger] (n*y)
+    ensures
+        log(2, x) - log(2, y) == log(2, x / y)
+{
+    admit()
+    //let n = choose|n: int| n >= 0 && x == #[trigger] (n*y);
+    //if y == 0 {
+        //assert(x == 0);
+        //assert(log(2, 0) - log(2, 0) == log(2, 0int / 0int));
+    //} else {
+
+    //}
+}
+
+#[cfg(target_pointer_width = "64")]
+proof fn log2_using_leading_zeros_usize(x: usize) by (nonlinear_arith)
+    requires x > 0
+    ensures log(2, x as int) == usize::BITS - usize_leading_zeros(x) - 1
+{
+    log2_using_leading_zeros_u64(x as u64)
+}
+
+proof fn log2_using_leading_zeros_u64(x: u64)
+    requires x > 0
+    ensures log(2, x as int) == u64::BITS - u64_leading_zeros(x) - 1
+    decreases x
+{
+    if x == 1 {
+        reveal(u64_leading_zeros);
+        assert(u64_leading_zeros(1) == 63) by (compute);
+        assert(log(2, 1) == 0) by {
+            reveal(log);
+        };
+        assert(log(2, 1) == u64::BITS - u64_leading_zeros(1) - 1) by (compute);
+    } else {
+            assert(x >= 2);
+            log2_using_leading_zeros_u64(x / 2);
+            assert(log(2, x as int / 2) == u64::BITS - u64_leading_zeros(x / 2) - 1);
+            vstd::arithmetic::logarithm::lemma_log_s(2, x as int);
+
+            assert(1 + log(2, x as int / 2) == 1 + u64::BITS - u64_leading_zeros(x / 2) - 1);
+
+            // 1 + log(2, x as int / 2) = ...
+            assert(1 + log(2, x as int / 2) == log(2, x as int));
+
+            // 1 + u64::BITS - u64_leading_zeros(x / 2) - 1 = ..
+            assert(1 + u64::BITS - u64_leading_zeros(x / 2) - 1 == u64::BITS - (u64_leading_zeros(x / 2) - 1) - 1);
+            assume(u64_leading_zeros(x / 2) - 1 == u64_leading_zeros(x));
+
+            assert(log(2, x as int) == u64::BITS - u64_leading_zeros(x) - 1);
+            //assert(false);
+    }
+}
+
+proof fn lemma_div2_leading_zeros_suc(x: u64)
+    requires x > 1
+    ensures u64_leading_zeros(x / 2) == 1 + u64_leading_zeros(x)
+    decreases x
+{
+    if x == 2 || x == 3 {
+        reveal(u64_leading_zeros);
+        assert(u64_leading_zeros(2) == 62) by (compute);
+        assert(u64_leading_zeros(2u64 / 2) == 1 + u64_leading_zeros(2)) by (compute);
+    } else {
+        assert(x / 2 == x >> 1) by (bit_vector);
+        assert(x >= 4);
+        lemma_div2_leading_zeros_suc(x / 2);
+
+        assert(u64_leading_zeros(x >> 1) == 1 + u64_leading_zeros(x)) by {
+            reveal(u64_leading_zeros);
+            broadcast use vstd::std_specs::bits::group_bits_axioms;
+        };
+    }
+}
+
+
+proof fn lemma_div2_trailing_zeros_dec(x: u64)
+    requires x > 1, exists|n: nat| x == pow2(n)
+    ensures u64_trailing_zeros(x / 2) == u64_trailing_zeros(x) - 1
+    decreases x
+{
+    if x == 2 {
+        reveal(u64_trailing_zeros);
+        assert(u64_trailing_zeros(2) == 1) by (compute);
+        assert(u64_trailing_zeros(1) == 0) by (compute);
+        assert(x / 2 == 1);
+        assert(u64_trailing_zeros(1) == 1 - 1) by (compute);
+    } else {
+        admit()
+        //assert(x / 2 == x >> 1) by (bit_vector);
+
+        //assert(x >= 4) by {
+            //broadcast use vstd::arithmetic::power::group_pow_properties;
+        //};
+        //let n = choose|n: nat| x == pow2(n);
+        //assert(x > 2);
+        //assert(pow2(1) == 2) by (compute);
+        //broadcast use vstd::arithmetic::power::group_pow_properties;
+        //vstd::arithmetic::power2::lemma_pow2_strictly_increases(1, n);
+        //vstd::arithmetic::power2::lemma_pow2_unfold(n);
+        //assert(x / 2 == pow2((n - 1) as nat));
+        //lemma_div2_trailing_zeros_dec(x / 2);
+
+        //assert(u64_trailing_zeros(x >> 1) == u64_trailing_zeros(x) - 1) by {
+            //reveal(u64_trailing_zeros);
+            //broadcast use vstd::std_specs::bits::group_bits_axioms;
+        //};
+    }
+}
+
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=

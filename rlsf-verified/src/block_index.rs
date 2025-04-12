@@ -95,6 +95,12 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         HalfOpenRangeOnRat::new(start, size)
     }
 
+    //pub proof fn lemma_block_size_range_contained(self, size: usize)
+        //requires Self::valid_block_size(size),
+            //Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int).lte(Rational::from_int(size)),
+        //ensures 
+    //{}
+
     // TODO
     proof fn lemma_block_size_range_size(self) by (nonlinear_arith)
         requires self.wf()
@@ -348,7 +354,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         recommends Self::valid_block_size(size as int)
     {
         let fl = log(2, size as int) - Self::granularity_log2_spec();
-        let sl = (size - pow2(fl as nat)) * pow2(min((fl + GRANULARITY - SLLEN), 0) as nat);
+        // FIXME: appearently incorrect
+        let sl: usize = 0;//(size - pow2(fl as nat)) * log(2, SLLEN) / pow2(fl + Self::granularity_log2_spec());
         BlockIndex(fl as usize, sl as usize)
     }
 
@@ -373,11 +380,32 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         }
     }
 
+    pub closed spec fn suc(self) -> Self
+        recommends self.wf()
+    {
+        let BlockIndex(fl, sl) = self;
+        if sl < SLLEN - 1 {
+            BlockIndex(fl, (sl + 1) as usize)
+        } else if sl == SLLEN - 1 {
+            if fl < FLLEN - 1 {
+                BlockIndex((fl + 1) as usize, 0)
+            } else {
+                self
+            }
+        } else {
+            self
+        }
+    }
+
+    pub proof fn lemma_suc_wf(self)
+        requires self.wf()
+        ensures self.suc().wf()
+    {}
+
     proof fn lemma_block_index_lt_is_strict_and_total()
         ensures vstd::relations::strict_total_ordering(|idx1: Self, idx2: Self| idx1.block_index_lt(idx2))
     {
     }
-
 }
 
 proof fn lemma_max_lte_mono(x: int, y: int, c: int)
@@ -407,5 +435,7 @@ proof fn lemma_pow2_mono(x: nat, y: nat)
     lemma_pow2(y);
     vstd::arithmetic::power::lemma_pow_increases(2, x, y);
 }
+
+
 
 } // verus!

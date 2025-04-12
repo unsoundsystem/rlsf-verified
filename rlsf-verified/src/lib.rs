@@ -30,7 +30,7 @@ use crate::bits::{
     granularity_is_power_of_two, mask_higher_bits_leq_mask
 };
 use crate::block_index::BlockIndex;
-use crate::rational_numbers::Rational;
+use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
@@ -244,7 +244,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 r matches Some(idx) && idx.wf() &&
                 // NOTE: ensure `idx` is index of freelist that all of its elements larger or equal to
                 //       the requested size
-                forall|sz: int| idx.block_size_range_set().contains(Rational::from_int(sz)) ==> sz >= size
+                // TODO: This spec is too weak.
+                //      To state the correctness of ceiling operation,
+                //      it's should be like this: (idx - 1).block_size_range().contains(size)
+                //      i.e. the result index is successor index of the one requested size is
+                //      contained.
+                //      But such precise specification, may be not mandatory for functional correctness
+                Rational::from_int(size as int).lte(idx.block_size_range().start())
+                //&& exists|i: BlockIndex<FLLEN,SLLEN>| i.block_size_range().contains(size)
+                    //&& idx == i.suc()
             } else {
                 r is None
             }
@@ -303,7 +311,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     #[inline(always)]
     //#[verifier::external_body] // debug
-    fn map_floor(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>)
+    fn map_floor(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>) //by (nonlinear_arith)
         requires
             // NOTE: in onriginal code following conditions are encoded as debug_assert!
             // and confirmed at the call site. But if violated they cause underflow
@@ -314,7 +322,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             if BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int) {
                 r matches Some(idx) && idx.wf() &&
                     // NOTE: ensuring `r` is index of freelist appropriate to store the block of size requested
-                    idx.block_size_range_set().contains(Rational::from_int(size as int))
+                    idx.block_size_range().contains(Rational::from_int(size as int))
             } else {
                 r is None
             }
@@ -324,34 +332,71 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //assert(size % GRANULARITY == 0);
         // 64bit: 64 - 5 - 1 - (at most 58)
         // 32bit: 32 - 4 - 1 - (at most 27)
-        assume(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64);
+        assert(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64)
+        by {
+            assert(size % GRANULARITY == 0);
+            assert(size >= GRANULARITY);
+            // i.e. size.leading_zeros() < (BITS - GRANULARITY_LOG2)
+            admit()
+        };
         proof {
             granularity_is_power_of_two();
         }
+        // log2(size / GRANULARITY)
         let mut fl: u32 = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
 
-        assume(nth_bit!(size, (fl + Self::granularity_log2()) as usize));
+        //assume(nth_bit!(size, (fl + Self::granularity_log2()) as usize));
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching. Underflowed digits can be simply masked out
         // in `map_floor`.
         let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        assume(nth_bit!(sl, Self::sli()));
+        //assume(nth_bit!(sl, Self::sli()));
         //assert(((sl >> Self::sli_spec()) & 1) == 1);
 
         // TODO: modulize assumptions about parameters
         assume(SLLEN > 0);
 
         if fl as usize >= FLLEN {
+            // TODO proof
             assume(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
         }
 
 
-        proof { mask_higher_bits_leq_mask(sl, SLLEN); }
-       Some(BlockIndex(fl as usize, sl & (SLLEN - 1)))
+       proof { mask_higher_bits_leq_mask(sl, SLLEN); }
+       let idx = BlockIndex(fl as usize, sl & (SLLEN - 1));
+        let sl_shift_amount: u32 = (fl + Self::granularity_log2()).wrapping_sub(Self::sli());
+        proof {
+            assert(idx.0 == log(2, size as int) - Self::granularity_log2_spec());
+
+            if sl_shift_amount > 0 {
+                assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
+                assert(idx.block_size_range().start().lte(Rational::from_int(size as int))) by {
+                    broadcast use rational_number_facts;
+                };
+                assert(Rational::from_int(size as int).lt(idx.block_size_range().end())) by {
+                    broadcast use rational_number_facts;
+                };
+            } else {
+                // negative case is only SLLEN=64, fl=0, GRANULARITY=32
+                // instantiate it
+            }
+        }
+
+       Some(idx)
     }
+
+    //proof fn fl_not_underflow(x: usize)
+        //requires
+            //x % GRANULARITY == 0,
+            //x >= GRANULARITY
+        //ensures
+            //Self::granularity_log2_spec() + usize_leading_zeros(size) < 64
+    //{
+
+    //}
 
     spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
