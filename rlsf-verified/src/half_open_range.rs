@@ -488,4 +488,64 @@ proof fn empty_set_not_contains<T>(s: Set<T>)
     }
     assert(!s.is_empty() ==> exists|e: T| s.contains(e));
 }
+
+
+pub struct HalfOpenRange(int, int);
+
+impl HalfOpenRange {
+    #[verifier::type_invariant]
+    pub open spec fn wf(self) -> bool {
+        self.start() < self.end()
+    }
+
+    pub closed spec fn new(start: int, size: int) -> Self
+        recommends size >= 0
+    {
+        HalfOpenRange(start, start + size)
+    }
+
+    pub open spec fn contains(self, e: int) -> bool
+        recommends self.wf()
+    {
+        &&& self.start() <= e
+        &&& self.end() > e
+    }
+
+    pub closed spec fn start(self) -> int {
+        self.0
+    }
+
+    pub closed spec fn end(self) -> int {
+        self.1
+    }
+
+    pub proof fn lemma_new_wf()
+        ensures forall|x: int, y: int| y >= 0 ==> HalfOpenRange::new(x, y).wf()
+    {}
+
+    pub open spec fn is_empty(self) -> bool
+        recommends self.wf()
+    {
+        self.start() == self.end()
+    }
+
+
+    pub open spec fn disjoint(self, rhs: Self) -> bool
+        recommends self.wf(), rhs.wf()
+    {
+        if self.is_empty() || rhs.is_empty() {
+            true
+            // NOTE: following conditions for disjoint ranges not applies to empty ranges
+            //        e.g. [a, a( ⊥  [b, c( where b ≤  a ∧  a < c
+        } else {
+            &&& self.wf()
+            &&& rhs.wf()
+            &&& self.end() <= rhs.start() || rhs.end() <= self.start()
+        }
+    }
+
+    pub proof fn lemma_is_empty_wf()
+        ensures forall|r: Self| r.is_empty() ==> r.wf()
+    {}
+}
 }

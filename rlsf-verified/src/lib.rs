@@ -638,7 +638,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         ensures
             r matches Some(idx) ==> idx.wf() &&
                 !self.first_free[idx.0 as int][idx.1 as int].is_empty() &&
-                idx.block_size_range().start().lte(min_size)
+                idx.block_size_range().start().lte(Rational::from_int(min_size as int))
         // None ==> invalid size requested or there no free entry
     {
         let BlockIndex(mut fl, mut sl) = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested

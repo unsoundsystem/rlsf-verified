@@ -5,7 +5,7 @@ use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
-use crate::half_open_range::HalfOpenRangeOnRat;
+use crate::half_open_range::{HalfOpenRangeOnRat,HalfOpenRange};
 use crate::rational_numbers::{
     Rational, rational_number_facts, rational_number_equality, rational_number_inequality, rational_number_properties, rational_number_mul_properties,
     lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv, lemma_eq_trans, lemma_neg_add_zero, lemma_add_eq_preserve, lemma_add_basics, lemma_from_int_inj
@@ -93,6 +93,44 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         // NOTE: Although the range specified in rational numbers,
         //      there cannot be stored blocks of aribtrary bytes, because rlsf provides only GRANULARITY aligned allocation.
         HalfOpenRangeOnRat::new(start, size)
+    }
+
+    pub closed spec fn block_size_range_ex(&self) -> HalfOpenRange
+        recommends self.wf()
+    {
+        let BlockIndex(fl, sl) = self;
+        let fl_block_bytes = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+
+        if fl_block_bytes < SLLEN {
+            HalfOpenRange::new(GRANULARITY as int, GRANULARITY as int)
+        } else {
+            // both fl_block_bytes and SLLEN is power of 2,  and fl_block_bytes > SLLEN
+            let sl_block_bytes = fl_block_bytes / SLLEN as int;
+
+            let start = fl_block_bytes + sl_block_bytes * (sl as int);
+            let size = sl_block_bytes;
+            HalfOpenRange::new(start, size)
+        }
+    }
+
+    proof fn lemma_ex_bsr_wf(self) by (nonlinear_arith)
+        requires self.wf()
+        ensures self.block_size_range_ex().wf()
+    {
+        HalfOpenRange::lemma_new_wf();
+    }
+
+    proof fn lemma_ex_index_unique_range(idx1: Self, idx2: Self)
+        requires
+            idx1.wf(),
+            idx2.wf(),
+            idx1 != idx2
+        ensures idx1.block_size_range_ex().disjoint(idx2.block_size_range_ex())
+    {
+        idx1.lemma_ex_bsr_wf();
+        idx2.lemma_ex_bsr_wf();
+        HalfOpenRange::lemma_is_empty_wf();
+
     }
 
     //pub proof fn lemma_block_size_range_contained(self, size: usize)
