@@ -390,7 +390,7 @@ proof fn log2_div_sub_distr(x: int, y: int) by (nonlinear_arith)
 }
 
 #[cfg(target_pointer_width = "64")]
-proof fn log2_using_leading_zeros_usize(x: usize) by (nonlinear_arith)
+pub proof fn log2_using_leading_zeros_usize(x: usize) by (nonlinear_arith)
     requires x > 0
     ensures log(2, x as int) == usize::BITS - usize_leading_zeros(x) - 1
 {
@@ -484,6 +484,24 @@ proof fn lemma_div2_trailing_zeros_dec(x: u64)
         //};
     }
 }
+
+proof fn bit_mask_is_mod_for_pow2(x: usize, m: usize)
+    requires m > 0, is_power_of_two(m as int)
+    ensures x & (m - 1) as usize == x % m 
+    decreases x, m
+{
+    if m == 1 {
+        assert(x & (1 - 1) as usize == 0) by (bit_vector);
+        assert(x % 1 == 0);
+    } else {
+        // TODO
+        admit()
+        // x & (m / 2 - 1) == x % (m / 2)
+        //bit_mask_is_mod_for_pow2(x / 2, m / 2);
+        //broadcast use vstd::arithmetic::div_mod::group_mod_properties;
+    }
+}
+    
 
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)

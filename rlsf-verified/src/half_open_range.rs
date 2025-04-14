@@ -507,8 +507,7 @@ impl HalfOpenRange {
     pub open spec fn contains(self, e: int) -> bool
         recommends self.wf()
     {
-        &&& self.start() <= e
-        &&& self.end() > e
+        self.start() <= e < self.end()
     }
 
     pub closed spec fn start(self) -> int {

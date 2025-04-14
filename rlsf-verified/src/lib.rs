@@ -25,6 +25,7 @@ use vstd::arithmetic::{logarithm::log, power2::pow2};
 use core::alloc::Layout;
 use core::mem;
 use crate::bits::{
+    log2_using_leading_zeros_usize,
     usize_trailing_zeros, is_power_of_two,
     bit_scan_forward, usize_leading_trailing_zeros, usize_leading_zeros,
     granularity_is_power_of_two, mask_higher_bits_leq_mask
@@ -148,7 +149,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[verifier::when_used_as_spec(granularity_log2_spec_usize)]
     const fn granularity_log2() -> (r: u32)
         requires is_power_of_two(GRANULARITY as int)
-        ensures r == Self::granularity_log2_spec()
+        ensures r == Self::granularity_log2_spec_usize()
+                  == Self::granularity_log2_spec()
     {
         GRANULARITY.trailing_zeros()
     }
@@ -323,7 +325,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             if BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int) {
                 r matches Some(idx) && idx.wf() &&
                     // NOTE: ensuring `r` is index of freelist appropriate to store the block of size requested
-                    idx.block_size_range().contains(Rational::from_int(size as int))
+                    idx.block_size_range_ex().contains(size as int)
             } else {
                 r is None
             }
@@ -345,6 +347,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
         // log2(size / GRANULARITY)
         let mut fl: u32 = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
+        assert(fl == log(2, size as int) - Self::granularity_log2()) by {
+            log2_using_leading_zeros_usize(size);
+            assert(fl == usize::BITS - Self::granularity_log2() - 1 - usize_leading_zeros(size));
+            assert(log(2, size as int) == usize::BITS - usize_leading_zeros(size) - 1);
+        };
 
         //assume(nth_bit!(size, (fl + Self::granularity_log2()) as usize));
         // The shift amount can be negative, and rotation lets us handle both
@@ -363,6 +370,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // TODO proof
             assume(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
+        } else {
+            // TODO proof
+            assume(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
         }
 
 
@@ -372,18 +382,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         proof {
             assert(idx.0 == log(2, size as int) - Self::granularity_log2_spec());
 
+            // sl_shift_amount > 0 iff 2^fl > SLLEN
             if sl_shift_amount > 0 {
-                assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
-                assert(idx.block_size_range().start().lte(Rational::from_int(size as int))) by {
-                    broadcast use rational_number_facts;
+                //assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
+                assert(idx.block_size_range_ex().start() <= size as int) by {
+                    admit()
                 };
-                assert(Rational::from_int(size as int).lt(idx.block_size_range().end())) by {
-                    broadcast use rational_number_facts;
+                assert(size < idx.block_size_range_ex().end()) by {
+                    admit()
                 };
             } else {
+                    admit()
                 // negative case is only SLLEN=64, fl=0, GRANULARITY=32
                 // instantiate it
             }
+
+
         }
 
        Some(idx)

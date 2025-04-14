@@ -102,9 +102,13 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         let fl_block_bytes = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
 
         if fl_block_bytes < SLLEN {
+            // only when
+            // - 64bit: fl=0, SLLEN=64, GRANULARITY=32
+            // - 32bit: fl=0, SLLEN=32, GRANULARITY=16
             HalfOpenRange::new(GRANULARITY as int, GRANULARITY as int)
         } else {
             // both fl_block_bytes and SLLEN is power of 2,  and fl_block_bytes > SLLEN
+            // thus the reminder is 0
             let sl_block_bytes = fl_block_bytes / SLLEN as int;
 
             let start = fl_block_bytes + sl_block_bytes * (sl as int);
