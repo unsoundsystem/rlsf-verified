@@ -110,6 +110,7 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
     }
 
 
+    // TODO: Proof those unreachables actually unreachable.
     pub closed spec fn perm_from_pointer(self, tlsf: &Tlsf<FLLEN, SLLEN>, ptr: HeaderPointer) -> Option<HeaderPointsTo>
         recommends self.wf(&tlsf)
     {

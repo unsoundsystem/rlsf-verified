@@ -108,7 +108,6 @@ impl DLL {
             old(self).has_no_duplicate(new_node),
         ensures
            self.wf(),
-           //FIXME: visibility
            self@ == seq![self.perms@[new_node].value().common].add(old(self)@)
     {
         let tracked mut perm_new_node = perm_new_node;
@@ -181,7 +180,6 @@ impl DLL {
                 (r matches Some((node, perm)) &&
                     // FreeBlockHdr is detached
                     // not in ptrs/perms
-                    // FIXME: visibility
                      !self.ptrs@.contains(node) && !self.perms@.contains_key(node) &&
                     // unlinked
                     perm@.ptr() == node &&
@@ -284,8 +282,6 @@ impl DLL {
             old(self).wf_node_ptr(node)
         ensures self.wf(),
             ({
-
-                //FIXME: visibility
                 let i = choose|i: int| 0 <= i < old(self).ptrs@.len()
                     && old(self).ptrs@[i] == node && #[trigger] old(self).wf_node(i);
                 &&& old(self)@.len() > 0 ==> self@ == old(self)@.remove(i)

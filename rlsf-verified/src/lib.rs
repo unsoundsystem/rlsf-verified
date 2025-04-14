@@ -169,7 +169,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     pub closed spec fn wf(&self) -> bool {
         &&& self.gs.wf(self)
         &&& self.bitmap_wf()
-        &&& is_power_of_two(SLLEN as int) && SLLEN <= usize::BITS
+        &&& is_power_of_two(SLLEN as int) && 0 < SLLEN <= usize::BITS
+        &&& 0 < FLLEN < usize::BITS
         &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
                 ==> self.first_free[i][j].wf()
     }
@@ -405,9 +406,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
             nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
                 <==> !self.first_free[idx.0 as int][idx.1 as int].is_empty()
-        //TODO: state *inner bitmap consistency*
+        // state *inner bitmap consistency*
         //      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
-        &&& true
+        &&& forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() &&
+                self.sl_bitmap[idx.0 as int] == 0 ==> !(nth_bit!(self.fl_bitmap, idx.0))
     }
 
 
@@ -635,7 +637,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires self.wf()
         ensures
             r matches Some(idx) ==> idx.wf() &&
-                !self.first_free[idx.0 as int][idx.1 as int].is_empty()
+                !self.first_free[idx.0 as int][idx.1 as int].is_empty() &&
+                idx.block_size_range().start().lte(min_size)
         // None ==> invalid size requested or there no free entry
     {
         let BlockIndex(mut fl, mut sl) = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
