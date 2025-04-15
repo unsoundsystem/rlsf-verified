@@ -189,6 +189,23 @@ proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
     //TODO
 }
 
+/// rotation shift is ordinary shift while looking lower bits.
+proof fn lemma_rotr_mask_lower(x: usize, n: int)
+    requires
+        0 <= n < usize::BITS
+    ensures
+        usize_rotate_right(x, n) & low_mask((usize::BITS - n) as nat)
+            == (x >> n) & low_mask((usize::BITS - n) as nat)
+{
+    if x == 0 {
+        reveal(pow2);
+        lemma_low_bits_mask_values();
+        reveal(usize_rotate_right);
+        assert(usize_rotate_right(0, n) == 0) by (bit_vector);
+        assert(0 >> n == 0);
+    } else { admit() }
+}
+
 proof fn lemma_usize_rotate_right_0_eq(x: usize)
     ensures x == usize_rotate_right(x, 0)
 {}
@@ -501,7 +518,7 @@ proof fn bit_mask_is_mod_for_pow2(x: usize, m: usize)
         //broadcast use vstd::arithmetic::div_mod::group_mod_properties;
     }
 }
-    
+
 
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)

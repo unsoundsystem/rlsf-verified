@@ -366,13 +366,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: modulize assumptions about parameters
         assume(SLLEN > 0);
 
+        assume(fl >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
         if fl as usize >= FLLEN {
             // TODO proof
-            assume(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
+            assert(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
         } else {
             // TODO proof
-            assume(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
+            assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
         }
 
 
@@ -383,8 +384,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(idx.0 == log(2, size as int) - Self::granularity_log2_spec());
 
             // sl_shift_amount > 0 iff 2^fl > SLLEN
-            if sl_shift_amount > 0 {
+            if fl + Self::granularity_log2_spec() < Self::sli_spec() {
                 //assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
+                let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+                let slb = flb / SLLEN as int;
+                assert(sl == (size - flb) / slb);
                 assert(idx.block_size_range_ex().start() <= size as int) by {
                     admit()
                 };

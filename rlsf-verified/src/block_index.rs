@@ -102,6 +102,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         let fl_block_bytes = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
 
         if fl_block_bytes < SLLEN {
+            // no matter `sl` all fall into first range
+            // (because all requests aligned at GRANULARITY, no one using (0,n) n > 0)
             // only when
             // - 64bit: fl=0, SLLEN=64, GRANULARITY=32
             // - 32bit: fl=0, SLLEN=32, GRANULARITY=16
@@ -404,7 +406,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     // TODO: formalize idealized map_ceil & proof it returns block of size at least requested
 
     pub closed spec fn valid_block_size(size: int) -> bool {
-        &&& GRANULARITY <= size && size < (1 << FLLEN + Self::granularity_log2_spec())
+        &&& GRANULARITY <= size && size < (pow2(FLLEN as nat) * GRANULARITY)
         &&& size % (GRANULARITY as int) == 0
     }
 
