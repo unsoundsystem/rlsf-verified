@@ -21,7 +21,7 @@ use vstd::math::abs;
 #[macro_export]
 macro_rules! get_bit {
     ($a:expr, $b:expr) => {{
-        (0x1usize & ($a >> $b)) == 1
+        (0x1 & ($a >> $b)) == 1
     }};
 }
 
@@ -173,20 +173,50 @@ pub open spec fn usize_rotate_right(x: usize, n: int) -> usize {
     if n == 0 {
         x
     } else if n > 0 {
-        (x & high_mask(sa)) >> sa | ((x & low_mask(sa)) << (sa_ctr))
+        (x & high_mask_usize(sa)) >> sa | ((x & low_mask_usize(sa)) << (sa_ctr))
     } else { // n < 0
-        (x & low_mask(sa_ctr)) << sa | ((x & high_mask(sa)) >> (sa_ctr))
+        (x & low_mask_usize(sa_ctr)) << sa | ((x & high_mask_usize(sa)) >> (sa_ctr))
+    }
+}
+
+pub open spec fn u64_rotate_right(x: u64, n: i32) -> u64 {
+    let sa: nat = abs(n as int) as nat % u64::BITS as nat;
+    let sa_ctr: nat = (u64::BITS as nat - sa) as nat;
+    // TODO: justification
+    if n == 0 {
+        x
+    } else if n > 0 {
+        x & high_mask_u64(sa) >> sa | ((x & low_mask_u64(sa)) << sa_ctr)
+    } else { // n < 0
+        x & low_mask_u64(sa_ctr) << sa | ((x & high_mask_u64(sa)) >> sa_ctr)
     }
 }
 
 proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
     requires
         usize::BITS > n >= 0,
-        x == x & high_mask(n as nat)
+        x == x & high_mask_usize(n as nat)
     ensures
         x >> n == usize_rotate_right(x, n)
 {
     //TODO
+}
+
+proof fn lemma_u64_rotr_mask_lower(x: u64, n: i32)
+    requires
+        0 <= n < u64::BITS
+    ensures
+        u64_rotate_right(x, n) & low_mask_u64((u64::BITS - n) as nat)
+            == (x >> n) & low_mask_u64((u64::BITS - n) as nat)
+{
+    if x == 0 {
+        //reveal(pow2);
+        lemma_low_bits_mask_values();
+        //reveal(u64_rotate_right)
+        assert(u64_rotate_right(0, n) == 0);
+        assert(0 >> (n as u32) == 0) by (bit_vector);
+    } else {
+    }
 }
 
 /// rotation shift is ordinary shift while looking lower bits.
@@ -194,14 +224,14 @@ proof fn lemma_rotr_mask_lower(x: usize, n: int)
     requires
         0 <= n < usize::BITS
     ensures
-        usize_rotate_right(x, n) & low_mask((usize::BITS - n) as nat)
-            == (x >> n) & low_mask((usize::BITS - n) as nat)
+        usize_rotate_right(x, n) & low_mask_usize((usize::BITS - n) as nat)
+            == (x >> n) & low_mask_usize((usize::BITS - n) as nat)
 {
     if x == 0 {
-        reveal(pow2);
+        //reveal(pow2);
         lemma_low_bits_mask_values();
         reveal(usize_rotate_right);
-        assert(usize_rotate_right(0, n) == 0) by (bit_vector);
+        //assert(usize_rotate_right(0, n) == 0) by (bit_vector);
         assert(0 >> n == 0);
     } else { admit() }
 }
@@ -234,9 +264,9 @@ proof fn lemma_usize_rotate_right_mod0_noop(x: usize, n: int)
 {
     let sa = 0nat;
     let sa_ctr = usize::BITS as nat;
-    assert(high_mask(0) == usize::MAX) by (compute_only);
-    assert(low_mask(0) == 0) by (compute_only);
-    assert(low_mask(usize::BITS as nat) == usize::MAX) by (compute_only);
+    assert(high_mask_usize(0) == usize::MAX) by (compute_only);
+    assert(low_mask_usize(0) == 0) by (compute_only);
+    assert(low_mask_usize(usize::BITS as nat) == usize::MAX) by (compute_only);
     if n == 0 {
         assert(x == x);
     } else if n > 0 {
@@ -279,15 +309,54 @@ proof fn lemma_usize_rotate_right_reversible(x: usize, n: int)
 
 
 use vstd::bits::low_bits_mask;
-// mask with n or higher bits n..usize::BITS set
-pub open spec fn high_mask(n: nat) -> usize {
-    !low_mask(n)
+
+/// mask with n or higher bits n..usize::BITS set
+pub open spec fn high_mask_usize(n: nat) -> usize {
+    !low_mask_usize(n)
 }
 
-// masks with bits 0..n set
-pub open spec fn low_mask(n: nat) -> usize {
+/// masks with bits 0..n set
+pub open spec fn low_mask_usize(n: nat) -> usize {
     low_bits_mask(n) as usize
 }
+
+/// mask with n or higher bits n..u64::BITS set
+pub open spec fn high_mask_u64(n: nat) -> u64 {
+    !low_mask_u64(n)
+}
+
+proof fn lemma_mask_64_basics(n: nat)
+    requires 0 <= n < u64::BITS
+    ensures
+        0 & high_mask_u64(n) == 0,
+        0 & low_mask_u64(n) == 0,
+        //forall|i: nat, u: u64| n <= i < u64::BITS ==>
+        //    !nth_bit!(u & low_mask_u64(n), i as u32),
+        //forall|i: nat, u: u64| 0 <= i < n ==>
+        //    !nth_bit!(u & high_mask_u64(n), i as u32)
+{
+    u64_bits_basics(high_mask_u64(n));
+    u64_bits_basics(low_mask_u64(n));
+}
+
+proof fn u64_bits_basics(x: u64) by (bit_vector)
+    ensures
+        0 & x == 0,
+        x & 0 == 0,
+        x | 0 == x,
+        0 | x == x,
+        x >> 0 == 0,
+        0 >> x == 0,
+        x << 0 == 0,
+        0 << x == 0,
+{}
+
+
+/// masks with bits 0..n set
+pub open spec fn low_mask_u64(n: nat) -> u64 {
+    low_bits_mask(n) as u64
+}
+
 
 #[cfg(target_pointer_width = "64")]
 pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
@@ -330,16 +399,24 @@ proof fn unsigned_to_signed(n: u32) by (bit_vector)
 
 
 pub open spec fn is_power_of_two(n: int) -> bool
-    decreases n,
+{
+    exists|p: nat| n == pow2(p) as int
+}
+
+
+// proof equivalence with above definition if needed
+pub open spec fn is_power_of_two_rec(n: int) -> bool
+    decreases n
 {
      if n <= 0 {
          false
      } else if n == 1 {
          true
      } else {
-         n % 2 == 0 && is_power_of_two(n / 2)
+         n % 2 == 0 && is_power_of_two_rec(n / 2)
      } 
 }
+
 
 use vstd::bits::lemma_u64_low_bits_mask_is_mod;
 
@@ -379,8 +456,16 @@ by (nonlinear_arith)
 pub proof fn granularity_is_power_of_two()
     ensures is_power_of_two(size_of::<usize>() * 4)
 {
-    assert(is_power_of_two((4 * 4) as int)) by (compute);
-    assert(is_power_of_two((8 * 4) as int)) by (compute);
+    assert(is_power_of_two(size_of::<usize>() * 4)) by {
+        assert(is_power_of_two(32)) by {
+            reveal(pow2);
+            assert(32 == pow2(5) as int) by (compute);
+        };
+        assert(is_power_of_two(16))  by {
+            reveal(pow2);
+            assert(16 == pow2(4) as int) by (compute);
+        };
+    };
 }
 
 use vstd::std_specs::bits::group_bits_axioms;
@@ -502,23 +587,57 @@ proof fn lemma_div2_trailing_zeros_dec(x: u64)
     }
 }
 
+proof fn lemma_low_mask_pow2_pred(m: int, n: nat)
+    requires m > 0, m == pow2(n) as int
+    ensures low_mask_usize(n) == m - 1
+{
+    // TODO
+    admit()
+}
+
+proof fn lemma_low_mask_pow2_pred_u64(m: u64, n: nat)
+    requires m > 0, m == pow2(n) as int
+    ensures low_mask_u64(n) == m - 1
+    decreases m, n
+{
+    assert(low_bits_mask(n) == pow2(n) - 1);
+    assert(low_bits_mask(n) as u64 == m - 1) by {
+        lemma_pow2_u64_width(m, n);
+        assert(m == pow2(n));
+    };
+}
+
+#[cfg(target_pointer_width = "64")]
 proof fn bit_mask_is_mod_for_pow2(x: usize, m: usize)
     requires m > 0, is_power_of_two(m as int)
     ensures x & (m - 1) as usize == x % m 
     decreases x, m
 {
-    if m == 1 {
-        assert(x & (1 - 1) as usize == 0) by (bit_vector);
-        assert(x % 1 == 0);
-    } else {
-        // TODO
-        admit()
-        // x & (m / 2 - 1) == x % (m / 2)
-        //bit_mask_is_mod_for_pow2(x / 2, m / 2);
-        //broadcast use vstd::arithmetic::div_mod::group_mod_properties;
-    }
+    bit_mask_is_mod_for_pow2_u64(x as u64, m as u64);
 }
 
+proof fn lemma_pow2_u64_width(x: u64, n: nat)
+    requires x == pow2(n)
+    ensures 0 <= n < u64::BITS
+{
+    assert(0 <= x <= u64::MAX);
+    vstd::arithmetic::logarithm::lemma_log_is_ordered(2, pow2(n) as int, u64::MAX as int);
+    vstd::arithmetic::logarithm::lemma_log_pow(2, n);
+    vstd::arithmetic::power2::lemma_pow2(n);
+    assert(n <= log(2, u64::MAX as int));
+    assert(log(2, u64::MAX as int) < u64::BITS) by (compute);
+}
+
+proof fn bit_mask_is_mod_for_pow2_u64(x: u64, m: u64)
+    requires m > 0, is_power_of_two(m as int)
+    ensures x & (m - 1) as u64 == x % m
+    //decreases x, m
+{
+    let n = choose|n: nat| m == pow2(n);
+    lemma_pow2_u64_width(m, n);
+    vstd::bits::lemma_u64_low_bits_mask_is_mod(x, n);
+    lemma_low_mask_pow2_pred(m as int, n);
+}
 
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)

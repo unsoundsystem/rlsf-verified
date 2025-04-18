@@ -366,13 +366,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: modulize assumptions about parameters
         assume(SLLEN > 0);
 
+        // TODO proof
         assume(fl >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
         if fl as usize >= FLLEN {
-            // TODO proof
             assert(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
         } else {
-            // TODO proof
             assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
         }
 
