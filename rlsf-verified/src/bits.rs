@@ -208,33 +208,85 @@ proof fn lemma_u64_rotr_mask_lower(x: u64, n: i32)
         u64_rotate_right(x, n) & low_mask_u64((u64::BITS - n) as nat)
             == (x >> n) & low_mask_u64((u64::BITS - n) as nat)
 {
-    if x == 0 {
-        //reveal(pow2);
-        lemma_low_bits_mask_values();
-        //reveal(u64_rotate_right)
-        assert(u64_rotate_right(0, n) == 0) by {
-            assert(n >= 0);
-            if n > 0 {
-                let sa: nat = abs(n as int) as nat % u64::BITS as nat;
-                let sa_ctr: nat = (u64::BITS as nat - sa) as nat;
-                assert(0 == ((x & high_mask_u64(sa)) >> sa) | ((x & low_mask_u64(sa)) << sa_ctr)) by {
-
-                    assert(0 == ((x & high_mask_u64(sa)) >> sa)) by {
-                        assert(0 == (x & high_mask_u64(sa))) by {
-                            lemma_mask_64_basics(sa);
-                        };
-                        let sa = (sa as u64);
-                        assert(0 == 0 >> sa) by (bit_vector);
-                    };
-                    assume(0 == ((x & low_mask_u64(sa)) << sa_ctr));
-                    assert(0 == (0 | 0)) by (bit_vector);
-                };
-            }
-        };
-        assert(0 >> (n as u32) == 0) by (bit_vector);
+    if n == 0 {
+        let mask = low_mask_u64((u64::BITS - n) as nat);
+        assert(x >> 0 == x) by (bit_vector);
+        assert(u64_rotate_right(x, n) == x);
     } else {
-
+        assert(n > 0);
+        let sa: nat = abs(n as int) as nat % u64::BITS as nat;
+        let sa_ctr: nat = (u64::BITS as nat - sa) as nat;
+        assert(0 <= sa < u64::BITS);
+        assert(0 <= sa_ctr < u64::BITS);
+        assert(0 <= n < u64::BITS);
+        let rotr_mask1: u64 = high_mask_u64(sa);
+        let rotr_mask2: u64 = low_mask_u64(sa);
+        let sa = sa as u64;
+        let sa_ctr = sa_ctr as u64;
+        let n = n as u64;
+        let mask = low_mask_u64((u64::BITS - n) as nat);
+        lemma_low_mask_u64_values();
+        lemma_high_mask_u64_values();
+        assert((((x & rotr_mask1) >> sa) | ((x & rotr_mask2) << sa_ctr)) & mask
+            == (x >> n) & mask) by (bit_vector);
     }
+}
+
+proof fn lemma_duplicate_low_mask_u64(x: u64, n: nat, m: nat)
+    requires
+        0 <= n < u64::BITS,
+        0 <= m < u64::BITS,
+        n < m
+    ensures
+        (x & low_mask_u64(m)) & low_mask_u64(n) == x & low_mask_u64(n)
+{
+    //TODO: outline made but too many `as` broke my brain
+    admit();
+    //lemma_low_mask_u64_values();
+    //let n_mask: u64 = low_mask_u64(n);
+    //let m_mask: u64 = low_mask_u64(m);
+    //let x = x as int;
+    ////let n = n as u64;
+    ////let m = m as u64;
+    //assert(x & m_mask == x % pow2(m)) by {
+        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x, m);
+    //};
+    //assert((x % pow2(m) as u64) & n_mask == (x % pow2(m) as u64) % pow2(n) as u64) by {
+        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x % (pow2(m) as u64), n);
+    //};
+
+    //assert((x & m_mask) & n_mask == (x % pow2(m) as u64) % pow2(n) as u64);
+    //assert(x & n_mask == x % pow2(n) as u64) by {
+        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x, n);
+    //};
+
+    //assert(pow2(m) == pow2(n) * pow2((m - n) as nat)) by {
+        //vstd::arithmetic::power2::lemma_pow2_adds(n, (m - n) as nat);
+    //};
+
+    //assert((x % pow2(n) as u64) == (x % pow2(m) as u64) % pow2(n) as u64) by {
+        //let n_pow2_trunc = pow2(n) as u64;
+        //let m_pow2_trunc = pow2(m) as u64;
+        //let m_n_pow2_trunc = pow2((m - n) as nat) as u64;
+        //vstd::arithmetic::power2::lemma_pow2_pos(n);
+        //vstd::arithmetic::power2::lemma_pow2_pos((m-n) as nat);
+        //vstd::bits::lemma_u64_pow2_no_overflow(n);
+        //vstd::bits::lemma_u64_pow2_no_overflow((m-n) as nat);
+        //assert(pow2(m) == pow2(n) * pow2((m - n) as nat));
+        ////assert(m_pow2_trunc == n_pow2_trunc * m_n_pow2_trunc
+        ////assume((x % n_pow2_trunc) == (x % (n_pow2_trunc * m_n_pow2_trunc) as u64) % n_pow2_trunc);
+        //assert(x as int % n_pow2_trunc as int
+            //== ((x as int) % (n_pow2_trunc as int * m_n_pow2_trunc as int)) % n_pow2_trunc as int)
+        //by (nonlinear_arith) {
+            //assume(n_pow2_trunc > 0 && m_n_pow2_trunc > 0);
+            //vstd::arithmetic::div_mod::lemma_mod_mod(x as int,
+                //n_pow2_trunc as int,
+                //m_n_pow2_trunc as int);
+            //admit();
+        //};
+    //};
+
+    ////assert((x & m_mask) & n_mask == x & n_mask) by (bit_vector);
 }
 
 /// rotation shift is ordinary shift while looking lower bits.
@@ -341,6 +393,152 @@ pub open spec fn low_mask_usize(n: nat) -> usize {
 /// mask with n or higher bits n..u64::BITS set
 pub open spec fn high_mask_u64(n: nat) -> u64 {
     !low_mask_u64(n)
+}
+
+
+pub proof fn lemma_low_mask_u64_values()
+    ensures
+        low_mask_u64(0) == 0x0,
+        low_mask_u64(1) == 0x1,
+        low_mask_u64(2) == 0x3,
+        low_mask_u64(3) == 0x7,
+        low_mask_u64(4) == 0xf,
+        low_mask_u64(5) == 0x1f,
+        low_mask_u64(6) == 0x3f,
+        low_mask_u64(7) == 0x7f,
+        low_mask_u64(8) == 0xff,
+        low_mask_u64(9) == 0x1ff,
+        low_mask_u64(10) == 0x3ff,
+        low_mask_u64(11) == 0x7ff,
+        low_mask_u64(12) == 0xfff,
+        low_mask_u64(13) == 0x1fff,
+        low_mask_u64(14) == 0x3fff,
+        low_mask_u64(15) == 0x7fff,
+        low_mask_u64(16) == 0xffff,
+        low_mask_u64(17) == 0x1ffff,
+        low_mask_u64(18) == 0x3ffff,
+        low_mask_u64(19) == 0x7ffff,
+        low_mask_u64(20) == 0xfffff,
+        low_mask_u64(21) == 0x1fffff,
+        low_mask_u64(22) == 0x3fffff,
+        low_mask_u64(23) == 0x7fffff,
+        low_mask_u64(24) == 0xffffff,
+        low_mask_u64(25) == 0x1ffffff,
+        low_mask_u64(26) == 0x3ffffff,
+        low_mask_u64(27) == 0x7ffffff,
+        low_mask_u64(28) == 0xfffffff,
+        low_mask_u64(29) == 0x1fffffff,
+        low_mask_u64(30) == 0x3fffffff,
+        low_mask_u64(31) == 0x7fffffff,
+        low_mask_u64(32) == 0xffffffff,
+        low_mask_u64(33) == 0x1ffffffff,
+        low_mask_u64(34) == 0x3ffffffff,
+        low_mask_u64(35) == 0x7ffffffff,
+        low_mask_u64(36) == 0xfffffffff,
+        low_mask_u64(37) == 0x1fffffffff,
+        low_mask_u64(38) == 0x3fffffffff,
+        low_mask_u64(39) == 0x7fffffffff,
+        low_mask_u64(40) == 0xffffffffff,
+        low_mask_u64(41) == 0x1ffffffffff,
+        low_mask_u64(42) == 0x3ffffffffff,
+        low_mask_u64(43) == 0x7ffffffffff,
+        low_mask_u64(44) == 0xfffffffffff,
+        low_mask_u64(45) == 0x1fffffffffff,
+        low_mask_u64(46) == 0x3fffffffffff,
+        low_mask_u64(47) == 0x7fffffffffff,
+        low_mask_u64(48) == 0xffffffffffff,
+        low_mask_u64(49) == 0x1ffffffffffff,
+        low_mask_u64(50) == 0x3ffffffffffff,
+        low_mask_u64(51) == 0x7ffffffffffff,
+        low_mask_u64(52) == 0xfffffffffffff,
+        low_mask_u64(53) == 0x1fffffffffffff,
+        low_mask_u64(54) == 0x3fffffffffffff,
+        low_mask_u64(55) == 0x7fffffffffffff,
+        low_mask_u64(56) == 0xffffffffffffff,
+        low_mask_u64(57) == 0x1ffffffffffffff,
+        low_mask_u64(58) == 0x3ffffffffffffff,
+        low_mask_u64(59) == 0x7ffffffffffffff,
+        low_mask_u64(60) == 0xfffffffffffffff,
+        low_mask_u64(61) == 0x1fffffffffffffff,
+        low_mask_u64(62) == 0x3fffffffffffffff,
+        low_mask_u64(63) == 0x7fffffffffffffff,
+        low_mask_u64(64) == 0xffffffffffffffff,
+{
+    reveal(pow2);
+    assert(
+        low_mask_u64(0) == 0x0 &&
+        low_mask_u64(1) == 0x1 &&
+        low_mask_u64(2) == 0x3 &&
+        low_mask_u64(3) == 0x7 &&
+        low_mask_u64(4) == 0xf &&
+        low_mask_u64(5) == 0x1f &&
+        low_mask_u64(6) == 0x3f &&
+        low_mask_u64(0) == 0x0 &&
+        low_mask_u64(1) == 0x1 &&
+        low_mask_u64(2) == 0x3 &&
+        low_mask_u64(3) == 0x7 &&
+        low_mask_u64(4) == 0xf &&
+        low_mask_u64(5) == 0x1f &&
+        low_mask_u64(6) == 0x3f &&
+        low_mask_u64(7) == 0x7f &&
+        low_mask_u64(8) == 0xff &&
+        low_mask_u64(9) == 0x1ff &&
+        low_mask_u64(10) == 0x3ff &&
+        low_mask_u64(11) == 0x7ff &&
+        low_mask_u64(12) == 0xfff &&
+        low_mask_u64(13) == 0x1fff &&
+        low_mask_u64(14) == 0x3fff &&
+        low_mask_u64(15) == 0x7fff &&
+        low_mask_u64(16) == 0xffff &&
+        low_mask_u64(17) == 0x1ffff &&
+        low_mask_u64(18) == 0x3ffff &&
+        low_mask_u64(19) == 0x7ffff &&
+        low_mask_u64(20) == 0xfffff &&
+        low_mask_u64(21) == 0x1fffff &&
+        low_mask_u64(22) == 0x3fffff &&
+        low_mask_u64(23) == 0x7fffff &&
+        low_mask_u64(24) == 0xffffff &&
+        low_mask_u64(25) == 0x1ffffff &&
+        low_mask_u64(26) == 0x3ffffff &&
+        low_mask_u64(27) == 0x7ffffff &&
+        low_mask_u64(28) == 0xfffffff &&
+        low_mask_u64(29) == 0x1fffffff &&
+        low_mask_u64(30) == 0x3fffffff &&
+        low_mask_u64(31) == 0x7fffffff &&
+        low_mask_u64(32) == 0xffffffff &&
+        low_mask_u64(33) == 0x1ffffffff &&
+        low_mask_u64(34) == 0x3ffffffff &&
+        low_mask_u64(35) == 0x7ffffffff &&
+        low_mask_u64(36) == 0xfffffffff &&
+        low_mask_u64(37) == 0x1fffffffff &&
+        low_mask_u64(38) == 0x3fffffffff &&
+        low_mask_u64(39) == 0x7fffffffff &&
+        low_mask_u64(40) == 0xffffffffff &&
+        low_mask_u64(41) == 0x1ffffffffff &&
+        low_mask_u64(42) == 0x3ffffffffff &&
+        low_mask_u64(43) == 0x7ffffffffff &&
+        low_mask_u64(44) == 0xfffffffffff &&
+        low_mask_u64(45) == 0x1fffffffffff &&
+        low_mask_u64(46) == 0x3fffffffffff &&
+        low_mask_u64(47) == 0x7fffffffffff &&
+        low_mask_u64(48) == 0xffffffffffff &&
+        low_mask_u64(49) == 0x1ffffffffffff &&
+        low_mask_u64(50) == 0x3ffffffffffff &&
+        low_mask_u64(51) == 0x7ffffffffffff &&
+        low_mask_u64(52) == 0xfffffffffffff &&
+        low_mask_u64(53) == 0x1fffffffffffff &&
+        low_mask_u64(54) == 0x3fffffffffffff &&
+        low_mask_u64(55) == 0x7fffffffffffff &&
+        low_mask_u64(56) == 0xffffffffffffff &&
+        low_mask_u64(57) == 0x1ffffffffffffff &&
+        low_mask_u64(58) == 0x3ffffffffffffff &&
+        low_mask_u64(59) == 0x7ffffffffffffff &&
+        low_mask_u64(60) == 0xfffffffffffffff &&
+        low_mask_u64(61) == 0x1fffffffffffffff &&
+        low_mask_u64(62) == 0x3fffffffffffffff &&
+        low_mask_u64(63) == 0x7fffffffffffffff &&
+        low_mask_u64(64) == 0xffffffffffffffff
+    ) by (compute_only);
 }
 
 proof fn lemma_high_mask_u64_values()
