@@ -31,3 +31,8 @@ proof fn g<T>(tracked x: Option<T>) -> (tracked r: T)
     x.tracked_unwrap()
 }
 ----
+
+== `error: IntRange error: expected finite-width integer for bit-vector, got Int(Nat)`
+
+- `assert(expr) by (bit_vector)` とするときに， `expr` に無限長整数の式が含まれていると怒られる
+- `u64` などにtruncateしても大丈夫なときは，手前で `let nat_expr = nat_expr as u64;` のようにしてしまえば通ることもある．

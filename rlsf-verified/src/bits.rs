@@ -182,13 +182,12 @@ pub open spec fn usize_rotate_right(x: usize, n: int) -> usize {
 pub open spec fn u64_rotate_right(x: u64, n: i32) -> u64 {
     let sa: nat = abs(n as int) as nat % u64::BITS as nat;
     let sa_ctr: nat = (u64::BITS as nat - sa) as nat;
-    // TODO: justification
     if n == 0 {
         x
     } else if n > 0 {
-        x & high_mask_u64(sa) >> sa | ((x & low_mask_u64(sa)) << sa_ctr)
+        ((x & high_mask_u64(sa)) >> sa) | ((x & low_mask_u64(sa)) << sa_ctr)
     } else { // n < 0
-        x & low_mask_u64(sa_ctr) << sa | ((x & high_mask_u64(sa)) >> sa_ctr)
+        ((x & low_mask_u64(sa_ctr)) << sa) | ((x & high_mask_u64(sa)) >> sa_ctr)
     }
 }
 
@@ -213,9 +212,28 @@ proof fn lemma_u64_rotr_mask_lower(x: u64, n: i32)
         //reveal(pow2);
         lemma_low_bits_mask_values();
         //reveal(u64_rotate_right)
-        assert(u64_rotate_right(0, n) == 0);
+        assert(u64_rotate_right(0, n) == 0) by {
+            assert(n >= 0);
+            if n > 0 {
+                let sa: nat = abs(n as int) as nat % u64::BITS as nat;
+                let sa_ctr: nat = (u64::BITS as nat - sa) as nat;
+                assert(0 == ((x & high_mask_u64(sa)) >> sa) | ((x & low_mask_u64(sa)) << sa_ctr)) by {
+
+                    assert(0 == ((x & high_mask_u64(sa)) >> sa)) by {
+                        assert(0 == (x & high_mask_u64(sa))) by {
+                            lemma_mask_64_basics(sa);
+                        };
+                        let sa = (sa as u64);
+                        assert(0 == 0 >> sa) by (bit_vector);
+                    };
+                    assume(0 == ((x & low_mask_u64(sa)) << sa_ctr));
+                    assert(0 == (0 | 0)) by (bit_vector);
+                };
+            }
+        };
         assert(0 >> (n as u32) == 0) by (bit_vector);
     } else {
+
     }
 }
 
@@ -325,6 +343,145 @@ pub open spec fn high_mask_u64(n: nat) -> u64 {
     !low_mask_u64(n)
 }
 
+proof fn lemma_high_mask_u64_values()
+    ensures
+        high_mask_u64(0)  == 0xffffffffffffffff,
+        high_mask_u64(1)  == 0xfffffffffffffffe,
+        high_mask_u64(2)  == 0xfffffffffffffffc,
+        high_mask_u64(3)  == 0xfffffffffffffff8,
+        high_mask_u64(4)  == 0xfffffffffffffff0,
+        high_mask_u64(5)  == 0xffffffffffffffe0,
+        high_mask_u64(6)  == 0xffffffffffffffc0,
+        high_mask_u64(7)  == 0xffffffffffffff80,
+        high_mask_u64(8)  == 0xffffffffffffff00,
+        high_mask_u64(9)  == 0xfffffffffffffe00,
+        high_mask_u64(10) == 0xfffffffffffffc00,
+        high_mask_u64(11) == 0xfffffffffffff800,
+        high_mask_u64(12) == 0xfffffffffffff000,
+        high_mask_u64(13) == 0xffffffffffffe000,
+        high_mask_u64(14) == 0xffffffffffffc000,
+        high_mask_u64(15) == 0xffffffffffff8000,
+        high_mask_u64(16) == 0xffffffffffff0000,
+        high_mask_u64(17) == 0xfffffffffffe0000,
+        high_mask_u64(18) == 0xfffffffffffc0000,
+        high_mask_u64(19) == 0xfffffffffff80000,
+        high_mask_u64(20) == 0xfffffffffff00000,
+        high_mask_u64(21) == 0xffffffffffe00000,
+        high_mask_u64(22) == 0xffffffffffc00000,
+        high_mask_u64(23) == 0xffffffffff800000,
+        high_mask_u64(24) == 0xffffffffff000000,
+        high_mask_u64(25) == 0xfffffffffe000000,
+        high_mask_u64(26) == 0xfffffffffc000000,
+        high_mask_u64(27) == 0xfffffffff8000000,
+        high_mask_u64(28) == 0xfffffffff0000000,
+        high_mask_u64(29) == 0xffffffffe0000000,
+        high_mask_u64(30) == 0xffffffffc0000000,
+        high_mask_u64(31) == 0xffffffff80000000,
+        high_mask_u64(32) == 0xffffffff00000000,
+        high_mask_u64(33) == 0xfffffffe00000000,
+        high_mask_u64(34) == 0xfffffffc00000000,
+        high_mask_u64(35) == 0xfffffff800000000,
+        high_mask_u64(36) == 0xfffffff000000000,
+        high_mask_u64(37) == 0xffffffe000000000,
+        high_mask_u64(38) == 0xffffffc000000000,
+        high_mask_u64(39) == 0xffffff8000000000,
+        high_mask_u64(40) == 0xffffff0000000000,
+        high_mask_u64(41) == 0xfffffe0000000000,
+        high_mask_u64(42) == 0xfffffc0000000000,
+        high_mask_u64(43) == 0xfffff80000000000,
+        high_mask_u64(44) == 0xfffff00000000000,
+        high_mask_u64(45) == 0xffffe00000000000,
+        high_mask_u64(46) == 0xffffc00000000000,
+        high_mask_u64(47) == 0xffff800000000000,
+        high_mask_u64(48) == 0xffff000000000000,
+        high_mask_u64(49) == 0xfffe000000000000,
+        high_mask_u64(50) == 0xfffc000000000000,
+        high_mask_u64(51) == 0xfff8000000000000,
+        high_mask_u64(52) == 0xfff0000000000000,
+        high_mask_u64(53) == 0xffe0000000000000,
+        high_mask_u64(53) == 0xffe0000000000000,
+        high_mask_u64(54) == 0xffc0000000000000,
+        high_mask_u64(55) == 0xff80000000000000,
+        high_mask_u64(56) == 0xff00000000000000,
+        high_mask_u64(57) == 0xfe00000000000000,
+        high_mask_u64(58) == 0xfc00000000000000,
+        high_mask_u64(59) == 0xf800000000000000,
+        high_mask_u64(60) == 0xf000000000000000,
+        high_mask_u64(61) == 0xe000000000000000,
+        high_mask_u64(62) == 0xc000000000000000,
+        high_mask_u64(63) == 0x8000000000000000,
+        high_mask_u64(64) == 0x0000000000000000,
+{
+    reveal(pow2);
+    assert(
+        high_mask_u64(0)  == 0xffffffffffffffff &&
+        high_mask_u64(1)  == 0xfffffffffffffffe &&
+        high_mask_u64(2)  == 0xfffffffffffffffc &&
+        high_mask_u64(3)  == 0xfffffffffffffff8 &&
+        high_mask_u64(4)  == 0xfffffffffffffff0 &&
+        high_mask_u64(5)  == 0xffffffffffffffe0 &&
+        high_mask_u64(6)  == 0xffffffffffffffc0 &&
+        high_mask_u64(7)  == 0xffffffffffffff80 &&
+        high_mask_u64(8)  == 0xffffffffffffff00 &&
+        high_mask_u64(9)  == 0xfffffffffffffe00 &&
+        high_mask_u64(10) == 0xfffffffffffffc00 &&
+        high_mask_u64(11) == 0xfffffffffffff800 &&
+        high_mask_u64(12) == 0xfffffffffffff000 &&
+        high_mask_u64(13) == 0xffffffffffffe000 &&
+        high_mask_u64(14) == 0xffffffffffffc000 &&
+        high_mask_u64(15) == 0xffffffffffff8000 &&
+        high_mask_u64(16) == 0xffffffffffff0000 &&
+        high_mask_u64(17) == 0xfffffffffffe0000 &&
+        high_mask_u64(18) == 0xfffffffffffc0000 &&
+        high_mask_u64(19) == 0xfffffffffff80000 &&
+        high_mask_u64(20) == 0xfffffffffff00000 &&
+        high_mask_u64(21) == 0xffffffffffe00000 &&
+        high_mask_u64(22) == 0xffffffffffc00000 &&
+        high_mask_u64(23) == 0xffffffffff800000 &&
+        high_mask_u64(24) == 0xffffffffff000000 &&
+        high_mask_u64(25) == 0xfffffffffe000000 &&
+        high_mask_u64(26) == 0xfffffffffc000000 &&
+        high_mask_u64(27) == 0xfffffffff8000000 &&
+        high_mask_u64(28) == 0xfffffffff0000000 &&
+        high_mask_u64(29) == 0xffffffffe0000000 &&
+        high_mask_u64(30) == 0xffffffffc0000000 &&
+        high_mask_u64(31) == 0xffffffff80000000 &&
+        high_mask_u64(32) == 0xffffffff00000000 &&
+        high_mask_u64(33) == 0xfffffffe00000000 &&
+        high_mask_u64(34) == 0xfffffffc00000000 &&
+        high_mask_u64(35) == 0xfffffff800000000 &&
+        high_mask_u64(36) == 0xfffffff000000000 &&
+        high_mask_u64(37) == 0xffffffe000000000 &&
+        high_mask_u64(38) == 0xffffffc000000000 &&
+        high_mask_u64(39) == 0xffffff8000000000 &&
+        high_mask_u64(40) == 0xffffff0000000000 &&
+        high_mask_u64(41) == 0xfffffe0000000000 &&
+        high_mask_u64(42) == 0xfffffc0000000000 &&
+        high_mask_u64(43) == 0xfffff80000000000 &&
+        high_mask_u64(44) == 0xfffff00000000000 &&
+        high_mask_u64(45) == 0xffffe00000000000 &&
+        high_mask_u64(46) == 0xffffc00000000000 &&
+        high_mask_u64(47) == 0xffff800000000000 &&
+        high_mask_u64(48) == 0xffff000000000000 &&
+        high_mask_u64(49) == 0xfffe000000000000 &&
+        high_mask_u64(50) == 0xfffc000000000000 &&
+        high_mask_u64(51) == 0xfff8000000000000 &&
+        high_mask_u64(52) == 0xfff0000000000000 &&
+        high_mask_u64(53) == 0xffe0000000000000 &&
+        high_mask_u64(54) == 0xffc0000000000000 &&
+        high_mask_u64(55) == 0xff80000000000000 &&
+        high_mask_u64(56) == 0xff00000000000000 &&
+        high_mask_u64(57) == 0xfe00000000000000 &&
+        high_mask_u64(58) == 0xfc00000000000000 &&
+        high_mask_u64(59) == 0xf800000000000000 &&
+        high_mask_u64(60) == 0xf000000000000000 &&
+        high_mask_u64(61) == 0xe000000000000000 &&
+        high_mask_u64(62) == 0xc000000000000000 &&
+        high_mask_u64(63) == 0x8000000000000000 &&
+        high_mask_u64(64) == 0x0000000000000000
+        ) by (compute_only);
+}
+
 proof fn lemma_mask_64_basics(n: nat)
     requires 0 <= n < u64::BITS
     ensures
@@ -350,7 +507,6 @@ proof fn u64_bits_basics(x: u64) by (bit_vector)
         x << 0 == 0,
         0 << x == 0,
 {}
-
 
 /// masks with bits 0..n set
 pub open spec fn low_mask_u64(n: nat) -> u64 {
