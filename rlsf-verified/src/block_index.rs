@@ -6,10 +6,7 @@ use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
 use crate::half_open_range::{HalfOpenRangeOnRat,HalfOpenRange};
-use crate::rational_numbers::{
-    Rational, rational_number_facts, rational_number_equality, rational_number_inequality, rational_number_properties, rational_number_mul_properties,
-    lemma_nonneg_div, lemma_rat_int_lte_equiv, lemma_lte_eq_equiv, lemma_eq_trans, lemma_neg_add_zero, lemma_add_eq_preserve, lemma_add_basics, lemma_from_int_inj
-};
+use crate::rational_numbers::Rational;
 
 verus! {
 // TODO: const generics fixed, rewrite
@@ -61,41 +58,15 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     // FIXME(if i wrong): is there any special reason for using `int` there?
 
     /// Calculate size range as set of usize for given block index.
-    pub open spec fn block_size_range_set(&self) -> Set<Rational>
+    pub open spec fn block_size_range_set(&self) -> Set<int>
         recommends self.wf()
     {
         self.block_size_range().to_set()
     }
 
+
     /// Calculate the correspoinding block size range for given BlockIndex
-    ///
-    /// * The range is on *rational numbers*,
-    ///     i.e. `[start, end) ⊆ { x ∈ Q | GRANULARITY ≤  x < (max valid block size) } `
-    ///
-    /// Depending on configuration of rlsf, there specific case that split size range of
-    /// [GRANULARITY, 2*GRANULARITY) with SLLEN(< GRANULARITY).
-    /// In implementation we don't using things like "free block size of GRANULARITY + half bytes"
-    /// it's only theorical demands.
-    pub closed spec fn block_size_range(&self) -> HalfOpenRangeOnRat
-        recommends self.wf()
-    {
-        let BlockIndex(fl, sl) = self;
-        // This is at least GRANULARITY
-        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
-
-        // This is at least `GRANULARITY / SLLEN` (possibly smaller than 1)
-        // NOTE: using rational numbers here to prevent second-level block size to be zero.
-        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
-
-        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
-        let size = sl_block_bytes;
-
-        // NOTE: Although the range specified in rational numbers,
-        //      there cannot be stored blocks of aribtrary bytes, because rlsf provides only GRANULARITY aligned allocation.
-        HalfOpenRangeOnRat::new(start, size)
-    }
-
-    pub closed spec fn block_size_range_ex(&self) -> HalfOpenRange
+    pub closed spec fn block_size_range(&self) -> HalfOpenRange
         recommends self.wf()
     {
         let BlockIndex(fl, sl) = self;
@@ -119,9 +90,42 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         }
     }
 
+
+    /// [DEPRECATED] Calculate the correspoinding block size range for given BlockIndex
+    ///
+    /// This currently not used for specification:
+    ///     there reasonable alternative specification using `int` > `block_size_range`
+    ///
+    /// * The range is on *rational numbers*,
+    ///     i.e. `[start, end) ⊆ { x ∈ Q | GRANULARITY ≤  x < (max valid block size) } `
+    ///
+    /// Depending on configuration of rlsf, there specific case that split size range of
+    /// [GRANULARITY, 2*GRANULARITY) with SLLEN(< GRANULARITY).
+    /// In implementation we don't using things like "free block size of GRANULARITY + half bytes"
+    /// it's only theorical demands.
+    pub closed spec fn block_size_range_rat(&self) -> HalfOpenRangeOnRat
+        recommends self.wf()
+    {
+        let BlockIndex(fl, sl) = self;
+        // This is at least GRANULARITY
+        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
+
+        // This is at least `GRANULARITY / SLLEN` (possibly smaller than 1)
+        // NOTE: using rational numbers here to prevent second-level block size to be zero.
+        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
+
+        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
+        let size = sl_block_bytes;
+
+        // NOTE: Although the range specified in rational numbers,
+        //      there cannot be stored blocks of aribtrary bytes, because rlsf provides only GRANULARITY aligned allocation.
+        HalfOpenRangeOnRat::new(start, size)
+    }
+
+
     proof fn lemma_ex_bsr_wf(self) by (nonlinear_arith)
         requires self.wf()
-        ensures self.block_size_range_ex().wf()
+        ensures self.block_size_range().wf()
     {
         HalfOpenRange::lemma_new_wf();
     }
@@ -131,40 +135,13 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             idx1.wf(),
             idx2.wf(),
             idx1 != idx2
-        ensures idx1.block_size_range_ex().disjoint(idx2.block_size_range_ex())
+        ensures idx1.block_size_range().disjoint(idx2.block_size_range())
     {
         idx1.lemma_ex_bsr_wf();
         idx2.lemma_ex_bsr_wf();
         HalfOpenRange::lemma_is_empty_wf();
 
     }
-
-    //pub proof fn lemma_block_size_range_contained(self, size: usize)
-        //requires Self::valid_block_size(size),
-            //Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int).lte(Rational::from_int(size)),
-        //ensures 
-    //{}
-
-    // TODO
-    proof fn lemma_block_size_range_size(self) by (nonlinear_arith)
-        requires self.wf()
-        ensures ({
-            let BlockIndex(fl, sl) = self;
-            let fl_block_bytes =
-                Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
-            let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
-            self.block_size_range().size().eq(sl_block_bytes)
-        })
-    {
-        //broadcast use rational_number_equality;
-        //broadcast use rational_number_facts;
-        admit()
-    }
-
-    proof fn lemma_block_size_range_for_same_fl(idx1: Self, idx2: Self)
-        requires idx1.wf(), idx2.wf(), idx1.0 == idx2.0
-        ensures idx1.block_size_range().size().eq(idx2.block_size_range().size())
-    {}
 
     // minimal index fall into minimal block size (=GRANULARITY)
     //pub proof fn lemma_block_size_range_min(self)
@@ -177,18 +154,6 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         ensures
             self.block_size_range().wf()
     {
-        broadcast use rational_number_facts;
-        let BlockIndex(fl, sl) = self;
-        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
-        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
-        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
-        let size = sl_block_bytes;
-        lemma_rat_int_lte_equiv(0, pow2((fl + Self::granularity_log2_spec()) as nat) as int);
-        assert(Rational::from_int(0).lte(fl_block_bytes)) by (compute);
-        assert(fl_block_bytes.is_nonneg());
-        lemma_nonneg_div(fl_block_bytes, Rational::from_int(SLLEN as int));
-        assert(sl_block_bytes.is_nonneg());
-        HalfOpenRangeOnRat::lemma_wf_if_size_is_pos(start, size);
     }
 
     proof fn example_ranges() {
@@ -214,125 +179,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         // assuming sl1 < sl2
         // it suffice to prove
         // [0, SLB)⊥ [SLB*(sl2-sl1),SLB*(sl2-sl1+1)) i.e. sl2-sl1 >= 0
-
-        if idx1.1 < idx2.1 {
-            let r1 = idx1.block_size_range();
-            let r2 = idx2.block_size_range();
-
-            assert(r1.wf() && r2.wf()) by {
-                idx1.lemma_block_size_range_is_valid_half_open_range();
-                idx2.lemma_block_size_range_is_valid_half_open_range();
-            };
-
-            let fl_block_bytes1 = Rational::from_int(pow2((idx1.0 + Self::granularity_log2_spec()) as nat) as int);
-            let fl_block_bytes2 = Rational::from_int(pow2((idx2.0 + Self::granularity_log2_spec()) as nat) as int);
-            assert(fl_block_bytes1 == fl_block_bytes2);
-            let sl_block_bytes1 = fl_block_bytes1.div(Rational::from_int(SLLEN as int));
-            let sl_block_bytes2 = fl_block_bytes2.div(Rational::from_int(SLLEN as int));
-            assert(sl_block_bytes1 == sl_block_bytes2);
-            // TODO
-            assume(sl_block_bytes1.is_nonneg());
-
-            let delta = r1.start().neg();
-            let r1_slide = r1.slide(delta);
-            let r2_slide = r2.slide(delta);
-
-            assert(r1_slide.end().eq(/* SLB */ sl_block_bytes1)) by {
-                r1.lemma_slide_start(delta);
-                r1.lemma_slide_end(delta);
-                HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
-
-                assert(r1_slide.size().eq(sl_block_bytes1)) by {
-
-                    assert(r1.size().eq(sl_block_bytes1)) by {
-                        idx1.lemma_block_size_range_size()
-                    };
-
-                    HalfOpenRangeOnRat::lemma_slide_size_eq(r1, delta);
-                    lemma_eq_trans(r1_slide.size(), r1.size(), sl_block_bytes1);
-
-                    assert(r1_slide.size().eq(r1.size()));
-                };
-
-                HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
-                r1_slide.lemma_size_is_size();
-                assert(r1_slide.end().eq(
-                        r1_slide.start().add(r1_slide.size())
-                ));
-                assert(r1_slide.end().eq(sl_block_bytes1)) by {
-                    assert(r1_slide.start().eq(Rational::zero())) by {
-                        assert(r1_slide.start().eq(r1.start().add(delta)));
-                        lemma_neg_add_zero(r1.start());
-                        assert(r1.start().add(delta).eq(Rational::zero()));
-                        lemma_eq_trans(r1_slide.start(), r1.start().add(delta), Rational::zero());
-                    };
-
-                    assert(r1_slide.start().add(r1_slide.size()).eq(r1_slide.size())) by {
-                        lemma_add_basics(r1_slide.size());
-                        lemma_add_eq_preserve(r1_slide.start(), Rational::zero(), r1_slide.size(), r1_slide.size());
-                        broadcast use rational_number_equality;
-                    };
-                    HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
-                    lemma_eq_trans(r1_slide.end(), r1_slide.start().add(r1_slide.size()), r1_slide.size());
-                    lemma_eq_trans(r1_slide.end(), r1_slide.size(), sl_block_bytes1);
-                };
-            };
-
-            //TODO
-            assert(r2_slide.start().eq(/* SLB */
-                    sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int))))) by {
-                // r2.start() - r1.start()
-                // r2 == idx2.block_size_range()
-                //    == new(fl_block_bytes2 + sl_block_bytes2 * idx2.1, sl_block_bytes2)
-                // r2.start() == fl_block_bytes2 + sl_block_bytes2 * idx2.1
-                // r2_slide.start() == fl_block_bytes2 + sl_block_bytes2 * idx2.1 - r1.start()
-                //                  == fl_block_bytes2 + sl_block_bytes2 * idx2.1
-                //                       - fl_block_bytes1 + sl_block_bytes1 * idx1.1
-                //                  == sl_block_bytes2 * idx2.1 - sl_block_bytes1 * idx1.1
-                r2.lemma_slide_start(delta);
-                assert(r2_slide.start().eq(r2.start().add(delta)));
-                // FIXME
-                assert(r2.start().eq(fl_block_bytes2.add(sl_block_bytes2.mul(Rational::from_int(idx2.1 as int)))))
-                by {
-                    //lemma_from_int_inj(idx2.0 as int, idx2.0 as int);
-
-                    broadcast use rational_number_facts;
-                    broadcast use rational_number_equality;
-                    broadcast use rational_number_mul_properties;
-                    //assert(r2.start().eq(fl_block_bytes2.add(sl_block_bytes2.mul(Rational::from_int(idx2.1 as int))))) by (nonlinear_arith);
-                };
-                admit();
-            };
-
-            //TODO
-            assert(r1_slide.disjoint(r2_slide)) by {
-                lemma_lte_eq_equiv(r1_slide.end(),
-                    sl_block_bytes1, r2_slide.start(),
-                    sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int))));
-
-                assert(r1_slide.wf()) by {
-                    assert(r1.wf() && r2.wf());
-                    HalfOpenRangeOnRat::lemma_slide_wf(r1, delta);
-                };
-                assert(r2_slide.wf()) by {
-                    assert(r1.wf() && r2.wf());
-                    HalfOpenRangeOnRat::lemma_slide_wf(r2, delta);
-                };
-
-                //TODO
-                assume(sl_block_bytes1.lte(sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int)))));
-
-                broadcast use rational_number_equality;
-                lemma_lte_eq_equiv(sl_block_bytes1, r1_slide.end(),
-                    sl_block_bytes1.mul(Rational::from_int(idx2.1 as int).sub(Rational::from_int(idx1.1 as int))), r2_slide.start());
-                assert(r1_slide.end().lte(r2_slide.start()));
-            };
-            HalfOpenRangeOnRat::lemma_disjoint_add_equiv(r1, r2, delta);
-            assert(r1.disjoint(r2));
-        } else {
-            // TODO
-            admit()
-        }
+        admit()
     }
 
     // TODO
@@ -387,23 +234,9 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     proof fn index_exists_for_valid_size(size: usize)
         requires Self::valid_block_size(size as int)
         ensures exists|idx: Self| idx.wf()
-            && #[trigger] idx.block_size_range_set().contains(Rational::from_int(size as int))
+            && #[trigger] idx.block_size_range().contains(size as int)
     {
-        //let index = Self::calculate_index_from_block_size(size);
-        //assert(index.wf() && index.block_size_range_set().contains(Rational::from_int(size as int)));
     }
-
-    /// idealized map_floor
-    pub closed spec fn calculate_index_from_block_size(size: usize) -> Self
-        recommends Self::valid_block_size(size as int)
-    {
-        let fl = log(2, size as int) - Self::granularity_log2_spec();
-        // FIXME: appearently incorrect
-        let sl: usize = 0;//(size - pow2(fl as nat)) * log(2, SLLEN) / pow2(fl + Self::granularity_log2_spec());
-        BlockIndex(fl as usize, sl as usize)
-    }
-
-    // TODO: formalize idealized map_ceil & proof it returns block of size at least requested
 
     pub closed spec fn valid_block_size(size: int) -> bool {
         &&& GRANULARITY <= size && size < (pow2(FLLEN as nat) * GRANULARITY)

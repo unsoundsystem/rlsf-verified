@@ -253,7 +253,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 //      i.e. the result index is successor index of the one requested size is
                 //      contained.
                 //      But such precise specification, may be not mandatory for functional correctness
-                Rational::from_int(size as int).lte(idx.block_size_range().start())
+                idx.block_size_range().start() <= size as int
                 //&& exists|i: BlockIndex<FLLEN,SLLEN>| i.block_size_range().contains(size)
                     //&& idx == i.suc()
             } else {
@@ -325,7 +325,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             if BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int) {
                 r matches Some(idx) && idx.wf() &&
                     // NOTE: ensuring `r` is index of freelist appropriate to store the block of size requested
-                    idx.block_size_range_ex().contains(size as int)
+                    idx.block_size_range().contains(size as int)
             } else {
                 r is None
             }
@@ -388,10 +388,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
                 let slb = flb / SLLEN as int;
                 assert(sl == (size - flb) / slb);
-                assert(idx.block_size_range_ex().start() <= size as int) by {
+                assert(idx.block_size_range().start() <= size as int) by {
                     admit()
                 };
-                assert(size < idx.block_size_range_ex().end()) by {
+                assert(size < idx.block_size_range().end()) by {
                     admit()
                 };
             } else {
@@ -598,9 +598,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         ensures
             self.wf(),
             ({
-                let BlockIndex(fl, sl) = BlockIndex::<FLLEN,SLLEN>::
-                    calculate_index_from_block_size(size);
-                    self.first_free[fl as int][sl as int].wf_node_ptr(block)
+                let BlockIndex(fl, sl) = choose|idx: BlockIndex<FLLEN, SLLEN>|
+                    idx.block_size_range().contains(size as int);
+                self.first_free[fl as int][sl as int].wf_node_ptr(block)
             })
             // TODO: ensure that free list properly updated
     {
@@ -619,18 +619,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires
             old(self).wf(),
             BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
-            ({
+            exists|idx: BlockIndex<FLLEN, SLLEN>|
                 // ensure that free list properly updated
-                let BlockIndex(fl, sl) = BlockIndex::<FLLEN,SLLEN>::
-                    calculate_index_from_block_size(size);
-                old(self).first_free[fl as int][sl as int].wf_node_ptr(block)
-            })
+                idx matches BlockIndex(fl, sl)
+                    && #[trigger] idx.block_size_range().contains(size as int)
+                    && old(self).first_free[fl as int][sl as int].wf_node_ptr(block)
         ensures
             self.wf(),
             ({
                 // ensure that free list properly updated
-                let BlockIndex(fl, sl) = BlockIndex::<FLLEN,SLLEN>::
-                    calculate_index_from_block_size(size);
+                let BlockIndex(fl, sl) = choose|idx: BlockIndex<FLLEN, SLLEN>|
+                    idx.block_size_range().contains(size as int);
                 !self.first_free[fl as int][sl as int].wf_node_ptr(block)
             })
     {
@@ -655,7 +654,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         ensures
             r matches Some(idx) ==> idx.wf() &&
                 !self.first_free[idx.0 as int][idx.1 as int].is_empty() &&
-                idx.block_size_range().start().lte(Rational::from_int(min_size as int))
+                idx.block_size_range().start() <= min_size as int
         // None ==> invalid size requested or there no free entry
     {
         let BlockIndex(mut fl, mut sl) = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested

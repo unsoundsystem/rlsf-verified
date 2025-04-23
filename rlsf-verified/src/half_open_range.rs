@@ -546,5 +546,13 @@ impl HalfOpenRange {
     pub proof fn lemma_is_empty_wf()
         ensures forall|r: Self| r.is_empty() ==> r.wf()
     {}
+
+
+    pub open spec fn to_set(self) -> Set<int>
+        recommends self.wf()
+    {
+        Set::new(|p: int| self.start() <= p < self.end())
+    }
+
 }
 }
