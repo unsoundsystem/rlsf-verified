@@ -28,7 +28,8 @@ use crate::bits::{
     log2_using_leading_zeros_usize,
     usize_trailing_zeros, is_power_of_two,
     bit_scan_forward, usize_leading_trailing_zeros, usize_leading_zeros,
-    granularity_is_power_of_two, mask_higher_bits_leq_mask
+    granularity_is_power_of_two, mask_higher_bits_leq_mask,
+    bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -376,20 +377,42 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
 
 
-       proof { mask_higher_bits_leq_mask(sl, SLLEN); }
-       let idx = BlockIndex(fl as usize, sl & (SLLEN - 1));
+        proof { mask_higher_bits_leq_mask(sl, SLLEN); }
+        let idx = BlockIndex(fl as usize, sl & (SLLEN - 1));
         let sl_shift_amount: u32 = (fl + Self::granularity_log2()).wrapping_sub(Self::sli());
         proof {
             assert(idx.0 == log(2, size as int) - Self::granularity_log2_spec());
 
+            //lemma_usize_rotr_mask_lower(size, sl_shift_amount);
+            //bit_mask_is_mod_for_pow2(size >> sl_shift_amount);
+            //assert(size >> sl_shift_amount == size / pow2(sl_shift_amount));
+            //assert(size / pow2(sl_shift_amount)
+                //== (size * pow2(Self::sli_spec())) /  pow2(fl));
             // sl_shift_amount > 0 iff 2^fl > SLLEN
             if fl + Self::granularity_log2_spec() < Self::sli_spec() {
                 //assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
                 let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
                 let slb = flb / SLLEN as int;
-                assert(sl == (size - flb) / slb);
+                //assert(sl == (size - flb) / slb);
+                // FIXME: this is must inferred automatically
+                assume(idx.block_size_range().start() == flb + slb * sl);
+
+                assume(fl == (size as int) / flb);
+                assume(sl == ((size as int) / slb) % SLLEN as int);
+                assume(fl > 0);
+                assert(flb + slb * sl <= size) by {
+                    assume(slb > 0);
+                    assume(slb * SLLEN == flb);
+                    assume(sl < SLLEN);
+                    assert(slb * sl == size as int % flb - size as int % slb) by {
+                        vstd::arithmetic::div_mod::lemma_mod_breakdown(size as int, slb, SLLEN as int);
+                    }
+                    assume(0 <= size as int % slb);
+                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, slb);
+                };
+
                 assert(idx.block_size_range().start() <= size as int) by {
-                    admit()
+                    //admit()
                 };
                 assert(size < idx.block_size_range().end()) by {
                     admit()

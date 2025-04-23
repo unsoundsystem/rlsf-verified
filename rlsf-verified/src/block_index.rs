@@ -66,7 +66,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
 
     /// Calculate the correspoinding block size range for given BlockIndex
-    pub closed spec fn block_size_range(&self) -> HalfOpenRange
+    #[verifier::opaque]
+    pub open spec fn block_size_range(&self) -> HalfOpenRange
         recommends self.wf()
     {
         let BlockIndex(fl, sl) = self;

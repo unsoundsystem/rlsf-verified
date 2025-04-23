@@ -201,7 +201,12 @@ proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
     //TODO
 }
 
-proof fn lemma_u64_rotr_mask_lower(x: u64, n: i32)
+#[cfg(target_pointer_width = "64")]
+pub proof fn lemma_usize_rotr_mask_lower(x: usize, n: i32) {
+    lemma_u64_rotr_mask_lower(x as u64, n)
+}
+
+pub proof fn lemma_u64_rotr_mask_lower(x: u64, n: i32)
     requires
         0 <= n < u64::BITS
     ensures
@@ -962,7 +967,7 @@ proof fn lemma_low_mask_pow2_pred_u64(m: u64, n: nat)
 }
 
 #[cfg(target_pointer_width = "64")]
-proof fn bit_mask_is_mod_for_pow2(x: usize, m: usize)
+pub proof fn bit_mask_is_mod_for_pow2(x: usize, m: usize)
     requires m > 0, is_power_of_two(m as int)
     ensures x & (m - 1) as usize == x % m 
     decreases x, m
