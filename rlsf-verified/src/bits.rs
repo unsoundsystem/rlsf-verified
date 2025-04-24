@@ -998,6 +998,45 @@ proof fn bit_mask_is_mod_for_pow2_u64(x: u64, m: u64)
     lemma_low_mask_pow2_pred(m as int, n);
 }
 
+pub proof fn lemma_pow2_log2_div_is_one(x: int)
+    requires 0 < x
+    ensures x / pow2(log(2, x) as nat) as int == 1
+    decreases x
+{
+    vstd::arithmetic::logarithm::lemma_log_nonnegative(2, x);
+    if x == 1 {
+        reveal(pow2);
+        reveal(log);
+        assert(1int / pow2(log(2, 1) as nat) as int == 1) by (compute);
+    } else {
+        assert(x > 1);
+        assert(x / pow2(log(2, x) as nat) as int
+            == x / pow2((1 + log(2, x / 2)) as nat) as int) by {
+            vstd::arithmetic::logarithm::lemma_log_s(2, x);
+        };
+        assert(x / (pow2((1 + log(2, x / 2)) as nat) as int)
+            == x / (2 * pow2(log(2, x / 2) as nat) as int)) by {
+
+            assert(1 + log(2, x / 2) > 0) by {
+                assert(2 <= x);
+                vstd::arithmetic::logarithm::lemma_log_is_ordered(2, 2, x);
+                vstd::arithmetic::logarithm::lemma_log_s(2, x);
+                assert(log(2, 2) == 1) by (compute);
+            };
+
+            vstd::arithmetic::power2::lemma_pow2_unfold((1 + log(2, x / 2)) as nat);
+            assert(pow2((1 + log(2, x / 2)) as nat) == 2 * pow2(log(2, x / 2) as nat));
+
+        }
+        assert(x / (2 * pow2(log(2, x / 2) as nat) as int)
+            == (x / 2) / (pow2(log(2, x / 2) as nat) as int)) by {
+            vstd::arithmetic::power2::lemma_pow2_pos(log(2, x / 2) as nat);
+            vstd::arithmetic::div_mod::lemma_div_denominator(x, 2, pow2(log(2, x / 2) as nat) as int);
+        };
+        lemma_pow2_log2_div_is_one(x / 2);
+        vstd::arithmetic::power2::lemma_pow2_unfold(x as nat);
+    }
+}
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=

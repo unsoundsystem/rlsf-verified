@@ -13,10 +13,8 @@ pub(crate) struct DLL {
     //       but this wasn't work because equality issue when used it with Map
     //       i.e. different pointers not necessarily have distinct addresses.
     //
-    //       current approach is,
-    //
-    //       * all managed region should have same provenance -- propagated from given pool
-    //       * we will tweak that provenance won't change e.g. avoid ptr_ref*
+    //       current approach assuming, all managed region should have same provenance
+    //       -- propagated from given pool
 }
 
 global layout FreeBlockHdr is size == 56, align == 8;

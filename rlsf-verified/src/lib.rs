@@ -29,7 +29,8 @@ use crate::bits::{
     usize_trailing_zeros, is_power_of_two,
     bit_scan_forward, usize_leading_trailing_zeros, usize_leading_zeros,
     granularity_is_power_of_two, mask_higher_bits_leq_mask,
-    bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower
+    bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower,
+    lemma_pow2_log2_div_is_one
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -389,7 +390,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //assert(size / pow2(sl_shift_amount)
                 //== (size * pow2(Self::sli_spec())) /  pow2(fl));
             // sl_shift_amount > 0 iff 2^fl > SLLEN
-            if fl + Self::granularity_log2_spec() < Self::sli_spec() {
+            if fl + Self::granularity_log2_spec() > Self::sli_spec() {
                 //assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
                 let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
                 let slb = flb / SLLEN as int;
@@ -401,14 +402,33 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assume(sl == ((size as int) / slb) % SLLEN as int);
                 assume(fl > 0);
                 assert(flb + slb * sl <= size) by {
-                    assume(slb > 0);
+                    assert(slb > 0) by {
+                        assert(pow2(Self::sli_spec() as nat)
+                            < pow2((fl + Self::granularity_log2_spec()) as nat)) by {
+                            vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);
+                            vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
+                            vstd::arithmetic::power::lemma_pow_strictly_increases(
+                                2,
+                                Self::sli_spec() as nat,
+                                (fl + Self::granularity_log2_spec()) as nat);
+                        };
+                        //FIXME: modulize assumptions about parameters
+                        assume(pow2(Self::sli_spec() as nat) == SLLEN as nat);
+                        vstd::arithmetic::div_mod::lemma_div_non_zero(flb, SLLEN as int);
+                    };
                     assume(slb * SLLEN == flb);
-                    assume(sl < SLLEN);
                     assert(slb * sl == size as int % flb - size as int % slb) by {
                         vstd::arithmetic::div_mod::lemma_mod_breakdown(size as int, slb, SLLEN as int);
                     }
-                    assume(0 <= size as int % slb);
-                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, slb);
+                    assert(flb + size as int % flb - size as int % slb <= size) by {
+                        assert(0 <= size as int % slb);
+                        assert(size as int / flb as int == 1) by {
+                            lemma_pow2_log2_div_is_one(size as int);
+                        };
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, flb);
+                        assert(size == flb + size as int % flb);
+                    }
+                    //vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, slb);
                 };
 
                 assert(idx.block_size_range().start() <= size as int) by {
