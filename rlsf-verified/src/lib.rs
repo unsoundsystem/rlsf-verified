@@ -394,32 +394,42 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 //assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
                 let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
                 let slb = flb / SLLEN as int;
-                //assert(sl == (size - flb) / slb);
+
+                //FIXME: modulize assumptions about parameters
+                assume(pow2(Self::sli_spec() as nat) == SLLEN as nat);
+
                 // FIXME: this is must inferred automatically
                 assume(idx.block_size_range().start() == flb + slb * sl);
+                assume(idx.block_size_range().end() == flb + slb * (sl + 1));
 
+                assert(slb * SLLEN == flb) by {
+                    // 2^(fl+g) / 2^sli * 2^sli == 2^fl
+                    // while sli < fl + g, g=GRANULARITY_LOG2
+                    admit();
+                };
+                // Assuming bit-arithmetic correspoinds to following
                 assume(fl == (size as int) / flb);
                 assume(sl == ((size as int) / slb) % SLLEN as int);
                 assume(fl > 0);
-                assert(flb + slb * sl <= size) by {
-                    assert(slb > 0) by {
-                        assert(pow2(Self::sli_spec() as nat)
-                            < pow2((fl + Self::granularity_log2_spec()) as nat)) by {
-                            vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);
-                            vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
-                            vstd::arithmetic::power::lemma_pow_strictly_increases(
-                                2,
-                                Self::sli_spec() as nat,
-                                (fl + Self::granularity_log2_spec()) as nat);
-                        };
-                        //FIXME: modulize assumptions about parameters
-                        assume(pow2(Self::sli_spec() as nat) == SLLEN as nat);
-                        vstd::arithmetic::div_mod::lemma_div_non_zero(flb, SLLEN as int);
+
+                assert(slb > 0) by {
+                    assert(pow2(Self::sli_spec() as nat)
+                        < pow2((fl + Self::granularity_log2_spec()) as nat)) by {
+                        vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);
+                        vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
+                        vstd::arithmetic::power::lemma_pow_strictly_increases(
+                            2,
+                            Self::sli_spec() as nat,
+                            (fl + Self::granularity_log2_spec()) as nat);
                     };
-                    assume(slb * SLLEN == flb);
-                    assert(slb * sl == size as int % flb - size as int % slb) by {
-                        vstd::arithmetic::div_mod::lemma_mod_breakdown(size as int, slb, SLLEN as int);
-                    }
+                    vstd::arithmetic::div_mod::lemma_div_non_zero(flb, SLLEN as int);
+                };
+
+                assert(slb * sl == size as int % flb - size as int % slb) by {
+                    vstd::arithmetic::div_mod::lemma_mod_breakdown(size as int, slb, SLLEN as int);
+                }
+
+                assert(idx.block_size_range().start() <= size as int) by {
                     assert(flb + size as int % flb - size as int % slb <= size) by {
                         assert(0 <= size as int % slb);
                         assert(size as int / flb as int == 1) by {
@@ -428,14 +438,21 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, flb);
                         assert(size == flb + size as int % flb);
                     }
-                    //vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, slb);
                 };
 
-                assert(idx.block_size_range().start() <= size as int) by {
-                    //admit()
-                };
                 assert(size < idx.block_size_range().end()) by {
-                    admit()
+                    assert(idx.block_size_range().end() == flb + slb * sl + slb) by {
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(slb, sl as int, 1);
+                    };
+
+                    assert(flb + (size as int % flb - size as int % slb) + slb > size) by {
+                        assert(0 <= size as int % slb);
+                        assert(size as int / flb as int == 1) by {
+                            lemma_pow2_log2_div_is_one(size as int);
+                        };
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, flb);
+                        assert(size == flb + size as int % flb);
+                    }
                 };
             } else {
                     admit()
