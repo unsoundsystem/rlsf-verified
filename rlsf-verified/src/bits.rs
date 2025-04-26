@@ -1038,6 +1038,46 @@ pub proof fn lemma_pow2_log2_div_is_one(x: int)
     }
 }
 
+pub proof fn log2_power_in_range(p: int)
+    requires 0 < p
+    ensures pow2(log(2, p) as nat) <= p < pow2(log(2, p) as nat + 1)
+    decreases p
+{
+    if 1 == p {
+        assert(p + 1 == 2);
+        assert(pow2(log(2, 1) as nat) <= 1 < pow2(log(2, 1) as nat + 1)) by (compute);
+    } else {
+        log2_power_in_range(p / 2);
+        assert(log(2, p) == 1 + log(2, p / 2)) by {
+            vstd::arithmetic::logarithm::lemma_log_s(2, p);
+        };
+        assert(pow2(log(2, p) as nat) == pow2(1 + log(2, p / 2) as nat)) by {
+            vstd::arithmetic::logarithm::lemma_log_nonnegative(2, p);
+            vstd::arithmetic::logarithm::lemma_log_nonnegative(2, p / 2);
+            assert(log(2, p) as nat == 1 + log(2, p / 2) as nat);
+        };
+        assert(pow2(1 + log(2, (p / 2)) as nat) == 2 * pow2(log(2, p / 2) as nat)) by {
+            vstd::arithmetic::power2::lemma_pow2_unfold(1 + log(2, (p / 2)) as nat);
+        };
+        assert(p / 2 < pow2(log(2, p / 2) as nat + 1));
+        assert(p < 2*pow2(log(2, p / 2) as nat + 1));
+        assert(p < 2*pow2((log(2, p) - 1) as nat + 1));
+        assert(p < pow2((log(2, p) - 1) as nat + 1 + 1)) by {
+            assert(2*pow2((log(2, p) - 1) as nat + 1) == pow2((log(2, p) - 1) as nat + 1 + 1)) by {
+                vstd::arithmetic::power2::lemma_pow2_unfold((log(2, p) - 1) as nat + 1 + 1);
+            };
+        };
+        assert(pow2((log(2, p) - 1) as nat + 1 + 1) == pow2(log(2, p) as nat + 1)) by {
+            assert(p > 1);
+            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, 2, p);
+            assert(log(2, 2) == 1) by (compute);
+            assert(log(2, p) > 0);
+            assert(log(2, p) - 1 >= 0);
+            assert((log(2, p) - 1) as nat + 1 + 1 == log(2, p) as nat + 1);
+        };
+    }
+}
+
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
