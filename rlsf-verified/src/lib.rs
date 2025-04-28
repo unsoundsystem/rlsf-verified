@@ -31,7 +31,8 @@ use crate::bits::{
     granularity_is_power_of_two, mask_higher_bits_leq_mask,
     bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower,
     lemma_pow2_log2_div_is_one, log2_power_in_range,
-    lemma_log2_distributes, usize_rotate_right
+    lemma_log2_distributes, usize_rotate_right, low_mask_usize,
+    lemma_div_by_powlog
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -381,7 +382,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assume(SLLEN > 0);
 
         // TODO proof
-        assume(fl >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
+        assert(fl >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)) by {
+            assert(fl == log(2, size as int) - Self::granularity_log2_spec());
+            assert(fl < FLLEN <==>
+                BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int)) by {
+
+                if fl < FLLEN {
+                    //assert(pow2(log(2, size as int) - Self::granularity_log2_spec())
+                        //< pow2(FLLEN));
+                    vstd::arithmetic::power2::lemma_pow2_strictly_increases(fl as nat, FLLEN as nat);
+                    lemma_div_by_powlog(log(2, size as int) as nat,
+                        pow2(FLLEN as nat) as int * GRANULARITY);
+                    assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int));
+                }
+
+                assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int)
+                    ==> fl < FLLEN)
+                by {
+
+                };
+            };
+        };
         if fl as usize >= FLLEN {
             assert(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
@@ -397,15 +418,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         proof {
             assert(fl == log(2, size as int) - Self::granularity_log2_spec());
             assert(Self::granularity_log2() == Self::granularity_log2_spec());
-            //assert(sl_shift_amount == fl + Self::granularity_log2_spec() - Self::sli_spec());
-            //lemma_usize_rotr_mask_lower(size, sl_shift_amount);
-            //bit_mask_is_mod_for_pow2(size >> sl_shift_amount);
-            //assert(size >> sl_shift_amount == size / pow2(sl_shift_amount));
-            //assert(size / pow2(sl_shift_amount)
-                //== (size * pow2(Self::sli_spec())) /  pow2(fl));
 
-            assume(sl_shift_amount as int == fl + Self::granularity_log2_spec() - Self::sli_spec());
-            assert(sl_shift_amount >= 0 <==> fl + Self::granularity_log2_spec() >= Self::sli_spec());
+            //assert(sl_shift_amount >= 0 <==> fl + Self::granularity_log2_spec() >= Self::sli_spec());
             if fl + Self::granularity_log2_spec() >= Self::sli_spec()  {
 
                 let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
@@ -414,17 +428,53 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     lemma_log2_distributes(size as int, GRANULARITY as int)
                 };
                 assert(sl == ((size as int) / slb) % SLLEN as int) by {
-                    assert(usize_rotate_right(size, sl_shift_amount as int) & (SLLEN - 1) as usize == (size >> sl_shift_amount) & (SLLEN - 1) as usize) by {
-                        assume(usize::BITS - sl_shift_amount > SLLEN - 1);
+                    assert(usize_rotate_right(size, sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
+                        == (size >> sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize) by {
                         lemma_usize_rotr_mask_lower(size, sl_shift_amount);
                     };
+                    assert(sl == (size >> sl_shift_amount) & (SLLEN - 1) as usize) by {
+                        assert(sl == usize_rotate_right(size, sl_shift_amount) & (SLLEN - 1) as usize);
+                        assume((size >> sl_shift_amount)
+                            & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
+                            & (SLLEN - 1) as usize
+                            == (size >> sl_shift_amount) & (SLLEN - 1) as usize);
+
+                        assert(usize_rotate_right(size, sl_shift_amount)
+                            & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
+                            & (SLLEN - 1) as usize
+                            == (size >> sl_shift_amount)
+                            & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
+                            & (SLLEN - 1) as usize
+                        );
+
+                        assume(usize_rotate_right(size, sl_shift_amount)
+                            & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
+                            & (SLLEN - 1) as usize
+                            == usize_rotate_right(size, sl_shift_amount) & (SLLEN - 1) as usize);
+
+
+                        assert(usize_rotate_right(size, sl_shift_amount)
+                            & (SLLEN - 1) as usize
+                            == (size >> sl_shift_amount)
+                            & (SLLEN - 1) as usize
+                        );
+                    };
+
+                    //assume(SLLEN - 1 == low_mask_usize(Self::sli_spec() as nat) == pow2(Self::sli_spec() as nat) - 1);
+                    //assume(low_mask_usize((usize::BITS - sl_shift_amount) as nat) > SLLEN - 1);
                     assert((size >> sl_shift_amount) & (SLLEN - 1) as usize == (size >> sl_shift_amount) % SLLEN) by {
                         assume(is_power_of_two(SLLEN as int));
                         bit_mask_is_mod_for_pow2(size >> sl_shift_amount, SLLEN);
                     };
-                    assume(size >> sl_shift_amount == size as int / pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat) as int);
+                    assume(size >> sl_shift_amount
+                        == size as int / pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat) as int);
                     // pow2(fl) / pow2(sli) == slb
                     assume(slb == pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat));
+
+                    assert((size >> sl_shift_amount) & (SLLEN - 1) as usize
+                        == (size as int /
+                            (pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) as int)
+                        % SLLEN as int);
                 };
             } else {
                 assume(fl == 0 && sl == 0);

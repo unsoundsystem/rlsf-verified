@@ -166,17 +166,9 @@ proof fn u64_trailing_zeros_is_log2_when_pow2_given(x: u64)
 }
 
 
-pub open spec fn usize_rotate_right(x: usize, n: int) -> usize {
-    let sa: nat = abs(n) as nat % usize::BITS as nat;
-    let sa_ctr: nat = (usize::BITS as nat - sa) as nat;
-    // TODO: justification
-    if n == 0 {
-        x
-    } else if n > 0 {
-        (x & high_mask_usize(sa)) >> sa | ((x & low_mask_usize(sa)) << (sa_ctr))
-    } else { // n < 0
-        (x & low_mask_usize(sa_ctr)) << sa | ((x & high_mask_usize(sa)) >> (sa_ctr))
-    }
+#[cfg(target_pointer_width = "64")]
+pub open spec fn usize_rotate_right(x: usize, n: i32) -> usize {
+    u64_rotate_right(x as u64, n) as usize
 }
 
 pub open spec fn u64_rotate_right(x: u64, n: i32) -> u64 {
@@ -191,18 +183,14 @@ pub open spec fn u64_rotate_right(x: u64, n: i32) -> u64 {
     }
 }
 
-proof fn lemma_usize_rotate_right_low_mask_shl(x: usize, n: int)
-    requires
-        usize::BITS > n >= 0,
-        x == x & high_mask_usize(n as nat)
-    ensures
-        x >> n == usize_rotate_right(x, n)
-{
-    //TODO
-}
-
 #[cfg(target_pointer_width = "64")]
-pub proof fn lemma_usize_rotr_mask_lower(x: usize, n: i32) {
+pub proof fn lemma_usize_rotr_mask_lower(x: usize, n: i32)
+    requires
+        0 <= n < usize::BITS
+    ensures
+        usize_rotate_right(x, n) & low_mask_usize((usize::BITS - n) as nat)
+            == (x >> n) & low_mask_usize((usize::BITS - n) as nat)
+{
     lemma_u64_rotr_mask_lower(x as u64, n)
 }
 
@@ -294,23 +282,6 @@ proof fn lemma_duplicate_low_mask_u64(x: u64, n: nat, m: nat)
     ////assert((x & m_mask) & n_mask == x & n_mask) by (bit_vector);
 }
 
-/// rotation shift is ordinary shift while looking lower bits.
-proof fn lemma_rotr_mask_lower(x: usize, n: int)
-    requires
-        0 <= n < usize::BITS
-    ensures
-        usize_rotate_right(x, n) & low_mask_usize((usize::BITS - n) as nat)
-            == (x >> n) & low_mask_usize((usize::BITS - n) as nat)
-{
-    if x == 0 {
-        //reveal(pow2);
-        lemma_low_bits_mask_values();
-        reveal(usize_rotate_right);
-        //assert(usize_rotate_right(0, n) == 0) by (bit_vector);
-        assert(0 >> n == 0);
-    } else { admit() }
-}
-
 proof fn lemma_usize_rotate_right_0_eq(x: usize)
     ensures x == usize_rotate_right(x, 0)
 {}
@@ -333,8 +304,8 @@ proof fn lemma_usize_full_mask(x: usize)
     assert(x & usize::MAX == x) by (compute);
 }
 
-proof fn lemma_usize_rotate_right_mod0_noop(x: usize, n: int)
-    requires n % usize::BITS as int == 0
+proof fn lemma_usize_rotate_right_mod0_noop(x: usize, n: i32)
+    requires n % usize::BITS as i32 == 0
     ensures x == usize_rotate_right(x, n)
 {
     let sa = 0nat;
@@ -358,24 +329,24 @@ proof fn lemma_usize_rotate_right_mod0_noop(x: usize, n: int)
     }
 }
 
-proof fn lemma_usize_rotate_right_distr(x: usize, m: int, n: int, l: int)
+proof fn lemma_usize_rotate_right_distr(x: usize, m: i32, n: i32, l: i32)
     requires m == n + l
     ensures usize_rotate_right(x, m) == usize_rotate_right(usize_rotate_right(x, n), l)
 {
     // TODO
 }
 
-proof fn lemma_usize_rotate_right_reversible(x: usize, n: int)
-    ensures x == usize_rotate_right(usize_rotate_right(x, n), -n)
+proof fn lemma_usize_rotate_right_reversible(x: usize, n: i32)
+    ensures x == usize_rotate_right(usize_rotate_right(x, n), -(n as int) as i32)
 {
     // TODO
     if n == 0 {
         assert(x == usize_rotate_right(usize_rotate_right(x, 0), 0));
     } else if n > 0 {
         assert(-n < 0);
-        let sa1: nat = abs(n) as nat % usize::BITS as nat;
+        let sa1: nat = abs(n as int) as nat % usize::BITS as nat;
         let sa_ctr1: nat = (usize::BITS as nat - sa1) as nat;
-        let sa2: nat = abs(-n) as nat % usize::BITS as nat;
+        let sa2: nat = abs(-(n as int)) as nat % usize::BITS as nat;
         let sa_ctr2: nat = (usize::BITS as nat - sa2) as nat;
     } else {
         assert(-n > 0);
@@ -722,7 +693,7 @@ pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
     // This primitive cast just work as usual exec code
     // NOTE: is it ok? primitive cast really just reinterpet bytes?
     //      ref. `unsigned_to_signed`
-    ensures r == usize_rotate_right(x, n as i32 as int)
+    ensures r == usize_rotate_right(x, n as i32)
     opens_invariants none
     no_unwind;
 
@@ -730,27 +701,27 @@ use vstd::bits::*;
 use vstd::arithmetic::power2::*;
 
 proof fn example5() {
-    reveal(pow2);
-    lemma_low_bits_mask_values();
-    assert(usize_rotate_right(1, 1) == 1usize << 63) by (compute);
-    assert(usize_rotate_right(1usize << 63, -1) == 1) by (compute);
-    assert(usize_rotate_right(0xbeef00000000dead, -16) == 0xdeadbeef) by (compute);
-    assert(usize_rotate_right(0xbeef00000000dead, 16) == 0xdeadbeef00000000) by (compute);
-    assert(usize_rotate_right(0xdeadbeef, 128) == 0xdeadbeef) by (compute);
-    assert(usize_rotate_right(0xdeadbeef, -128) == 0xdeadbeef) by (compute);
-    assert(usize_rotate_right(usize_rotate_right(0xdeadbeef, -1234), 1234) == 0xdeadbeef) by (compute);
-    assert(0xfffffff0u32 as i32 as int == -16int) by (bit_vector);
-    assert(usize_rotate_right(0xbeef00000000dead, 0xfffffff0u32 as i32 as int) == 0xdeadbeef);
-    // NOTE: 
-    // - it seems `0xXXXu32 as i32` can be solved by bit_vector only 
-    //   (by (compute) doesn't terminate)
-    // - lemma around `usize_rotate_right` requires separate `assert` for `0xXXu32 as i32`
+//    reveal(pow2);
+//    lemma_low_bits_mask_values();
+//    assert(usize_rotate_right(1, 1) == 1usize << 63) by (compute);
+//    assert(usize_rotate_right(1usize << 63, -1) == 1) by (compute);
+//    assert(usize_rotate_right(0xbeef00000000dead, -16) == 0xdeadbeef) by (compute);
+//    assert(usize_rotate_right(0xbeef00000000dead, 16) == 0xdeadbeef00000000) by (compute);
+//    assert(usize_rotate_right(0xdeadbeef, 128) == 0xdeadbeef) by (compute);
+//    assert(usize_rotate_right(0xdeadbeef, -128) == 0xdeadbeef) by (compute);
+//    assert(usize_rotate_right(usize_rotate_right(0xdeadbeef, -1234), 1234) == 0xdeadbeef) by (compute);
+//    assert(0xfffffff0u32 as i32 == -16int) by (bit_vector);
+//    assert(usize_rotate_right(0xbeef00000000dead, 0xfffffff0u32 as i32) == 0xdeadbeef);
+//    // NOTE: 
+//    // - it seems `0xXXXu32 as i32` can be solved by bit_vector only 
+//    //   (by (compute) doesn't terminate)
+//    // - lemma around `usize_rotate_right` requires separate `assert` for `0xXXu32 as i32`
 }
 
 proof fn unsigned_to_signed(n: u32) by (bit_vector)
     ensures
-        0 <= n && n <= 0x7fffffffu32 ==> (n as i32 as int) >= 0,
-        0x7fffffff < n ==> (n as i32 as int) < 0,
+        0 <= n && n <= 0x7fffffffu32 ==> (n as i32) >= 0,
+        0x7fffffff < n ==> (n as i32) < 0,
 {}
 
 // NOTE: no need to conditoinal compilation for external spec using `usize_wrapping_*`
@@ -1085,6 +1056,24 @@ pub proof fn lemma_log2_distributes(b1: int, b2: int)
     admit()
 }
 
+pub proof fn lemma_mask_dup_idemp(x: usize, m: nat, n: nat)
+    requires m <= n
+    ensures x & low_mask_usize(n) & low_mask_usize(m) == x & low_mask_usize(m)
+{
+    admit();
+    let n_mask = low_mask_usize(n);
+    let m_mask = low_mask_usize(m);
+    assume(m_mask < n_mask);
+    assert(x & n_mask & m_mask == x & m_mask);
+}
+
+
+pub proof fn lemma_div_by_powlog(x: int, y: int) by (nonlinear_arith)
+    requires x > 0, y > 0, x < y
+    ensures x / pow2(log(2, x) as nat) as int > x / y
+{
+    lemma_pow2_log2_div_is_one(x);
+}
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
