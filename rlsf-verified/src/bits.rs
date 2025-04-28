@@ -1078,6 +1078,13 @@ pub proof fn log2_power_in_range(p: int)
     }
 }
 
+pub proof fn lemma_log2_distributes(b1: int, b2: int)
+    requires b1 % b2 == 0
+    ensures log(2, b1 / b2) == log(2, b1) - log(2, b2)
+{
+    admit()
+}
+
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
