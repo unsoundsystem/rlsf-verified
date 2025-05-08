@@ -1112,6 +1112,30 @@ pub proof fn log2_power_ordered(x: int, y: int)
     }
 }
 
+pub proof fn log2_is_strictly_ordered_if_rhs_is_pow2(x: int, y: int)
+    requires 0 < x < y, is_power_of_two(y)
+    ensures log(2, x) < log(2, y)
+    decreases x, y
+{
+    if x == 1 {
+        assert(1 < y);
+        assert(log(2, y) >= 1) by {
+            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, 2, y);
+            assert(log(2, 2) == 1) by (compute);
+        };
+        assert(log(2, 1) == 0) by (compute);
+        assert(log(2, x) < log(2, y));
+    } else {
+        assume(x / 2 < y / 2);
+        assume(is_power_of_two(y / 2));
+        log2_is_strictly_ordered_if_rhs_is_pow2(x / 2, y / 2);
+        // log2(x / 2) < log2(y / 2)
+        // log2(x) - 1 < log2(y) - 1
+        vstd::arithmetic::logarithm::lemma_log_s(2, x);
+        vstd::arithmetic::logarithm::lemma_log_s(2, y);
+    }
+}
+
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
