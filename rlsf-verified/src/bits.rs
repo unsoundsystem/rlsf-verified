@@ -1068,12 +1068,50 @@ pub proof fn lemma_mask_dup_idemp(x: usize, m: nat, n: nat)
 }
 
 
-pub proof fn lemma_div_by_powlog(x: int, y: int) by (nonlinear_arith)
-    requires x > 0, y > 0, x < y
-    ensures x / pow2(log(2, x) as nat) as int > x / y
+pub proof fn lemma_div_by_powlog(x: int, y: int, z: int) by (nonlinear_arith)
+    requires x > 0, y > 0, z > 0, x < y
+    ensures z / pow2(log(2, x) as nat) as int > z / y
 {
     lemma_pow2_log2_div_is_one(x);
 }
+
+pub proof fn lemma_powlog_leq(x: int) by (nonlinear_arith)
+    requires x > 0
+    ensures pow2(log(2, x) as nat) <= x
+{
+    lemma_pow2_log2_div_is_one(x);
+    assert(x / pow2(log(2, x) as nat) as int == 1);
+    assume(1 <= x / pow2(log(2, x) as nat) as int);
+}
+
+pub proof fn log2_power_ordered(x: int, y: int)
+    requires 0 < x, 1 < y,
+        log(2, x) < log(2, y)
+    ensures x < y
+    decreases x, y
+{
+    if x == 1 {
+        assert(log(2, 1) == 0) by (compute);
+        assert(0 < log(2, y));
+        assert(1 < y);
+        assert(x < y);
+    } else {
+        assert(1 < x);
+        assert(log(2, x) >= 1) by {
+            assert(log(2, 2) == 1) by (compute);
+            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, 2, x);
+        };
+        assert(log(2, y) >= 1) by {
+            log2_power_ordered(x / 2, y / 2);
+            assert(log(2, x / 2) < log(2, y / 2) ==> x / 2 < y / 2);
+            assert(log(2, x / 2) < log(2, y / 2) <==> log(2, x) < log(2, y)) by {
+                vstd::arithmetic::logarithm::lemma_log_s(2, x);
+                vstd::arithmetic::logarithm::lemma_log_s(2, y);
+            };
+        };
+    }
+}
+
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 

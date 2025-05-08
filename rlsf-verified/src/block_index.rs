@@ -239,7 +239,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     {
     }
 
-    pub closed spec fn valid_block_size(size: int) -> bool {
+    pub open spec fn valid_block_size(size: int) -> bool {
         &&& GRANULARITY <= size && size < (pow2(FLLEN as nat) * GRANULARITY)
         &&& size % (GRANULARITY as int) == 0
     }

@@ -32,7 +32,7 @@ use crate::bits::{
     bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower,
     lemma_pow2_log2_div_is_one, log2_power_in_range,
     lemma_log2_distributes, usize_rotate_right, low_mask_usize,
-    lemma_div_by_powlog
+    lemma_div_by_powlog, lemma_powlog_leq, log2_power_ordered
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -387,19 +387,46 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(fl < FLLEN <==>
                 BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int)) by {
 
+                // (==>)
+                // 2^fl < 2^FLLEN
+                // 2^fl * G < 2^FLLEN * G
+                // 2^fl * 2^log2(G) < 2^FLLEN * G
+                // 2^(fl - log2(G)) < 2^FLLEN * G
+                // 2^log2(size) < 2^FLLEN * G, where fl = log2(size) - log2(G)
+                // size / (2^FLLEN * G) < size / 2^log2(size)
+                // size / (2^FLLEN * G) < 1
+                // size / (2^FLLEN * G) == 0
+                // size < (2^FLLEN * G)
                 if fl < FLLEN {
-                    //assert(pow2(log(2, size as int) - Self::granularity_log2_spec())
-                        //< pow2(FLLEN));
-                    vstd::arithmetic::power2::lemma_pow2_strictly_increases(fl as nat, FLLEN as nat);
-                    lemma_div_by_powlog(log(2, size as int) as nat,
-                        pow2(FLLEN as nat) as int * GRANULARITY);
+                    assert(size < pow2(FLLEN as nat) * GRANULARITY
+                        <==> (size as int) / (GRANULARITY as int) < pow2(FLLEN as nat));
+                    assert((size as int) / (GRANULARITY as int) < pow2(FLLEN as nat)
+                        <== log(2, (size as int) / (GRANULARITY as int)) < log(2, pow2(FLLEN as nat) as int)) by {
+                        if log(2, (size as int) / (GRANULARITY as int)) < log(2, pow2(FLLEN as nat) as int) {
+                            assert((size as int) / (GRANULARITY as int) > 0);
+                            assume(pow2(FLLEN as nat) as int > 1);
+                            log2_power_ordered((size as int) / (GRANULARITY as int), pow2(FLLEN as nat) as int);
+                            assert((size as int) / (GRANULARITY as int) < pow2(FLLEN as nat));
+                        }
+                    }
+                    assert(log(2, (size as int) / (GRANULARITY as int)) < log(2, pow2(FLLEN as nat) as int)
+                        <==> log(2, (size as int) / (GRANULARITY as int)) < FLLEN) by {
+                        assert(FLLEN as int == log(2, pow2(FLLEN as nat) as int)) by {
+                            vstd::arithmetic::power2::lemma_pow2(FLLEN as nat);
+                            vstd::arithmetic::logarithm::lemma_log_pow(2, FLLEN as nat);
+                        };
+                    };
+                    assert(fl == log(2, size as int / GRANULARITY as int)) by {
+                        lemma_log2_distributes(size as int, GRANULARITY as int)
+                    }
+
                     assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int));
                 }
 
                 assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int)
                     ==> fl < FLLEN)
                 by {
-
+                    //admit()
                 };
             };
         };
