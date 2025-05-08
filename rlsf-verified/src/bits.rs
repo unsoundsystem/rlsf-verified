@@ -1136,6 +1136,50 @@ pub proof fn log2_is_strictly_ordered_if_rhs_is_pow2(x: int, y: int)
     }
 }
 
+pub proof fn lemma_div_before_mult_pow2(p: int, q: int)
+    requires 0 <= q <= p
+    ensures pow2(p as nat) / pow2(q as nat) * pow2(q as nat) == pow2(p as nat)
+    decreases p, q
+{
+    if q == 0 {
+        reveal(pow2);
+        assert(pow2(0) == 1) by (compute);
+        assert(pow2(p as nat) / pow2(0) * pow2(0) == pow2(p as nat));
+    } else {
+        assert(0 < q <= p);
+        assume(0 <= q - 1 <= p - 1);
+        lemma_div_before_mult_pow2(p - 1, q - 1);
+        assert(pow2((p - 1) as nat) / pow2((q - 1) as nat) * pow2((q - 1) as nat) == pow2((p - 1) as nat));
+
+
+        assert(pow2((p - 1) as nat) / pow2((q - 1) as nat) == (2 * pow2((p - 1) as nat)) / (2 * pow2((q - 1) as nat))) by {
+            vstd::arithmetic::power2::lemma_pow2_pos((q - 1) as nat);
+            vstd::arithmetic::power2::lemma_pow2_pos((p - 1) as nat);
+            vstd::arithmetic::div_mod::lemma_div_multiples_vanish_quotient(
+                2,
+                pow2((p - 1) as nat) as int,
+                pow2((q - 1) as nat) as int
+            );
+            admit();
+        };
+
+        vstd::arithmetic::power2::lemma_pow2_unfold(p as nat);
+        vstd::arithmetic::power2::lemma_pow2_unfold(q as nat);
+        assert(pow2(q as nat) == 2*pow2((q - 1) as nat));
+        assert(pow2(p as nat) == 2*pow2((p - 1) as nat));
+        assert((2*pow2((p - 1) as nat)) / (2*pow2((q - 1) as nat)) * (2*pow2((q - 1) as nat))
+            == 2*pow2((p - 1) as nat)) by {
+            assert(pow2((p - 1) as nat) / pow2((q - 1) as nat) * pow2((q - 1) as nat)
+                        == pow2((p - 1) as nat))
+            // mult 2 for two sides
+        };
+        assert((2*pow2((p - 1) as nat)) / (2*pow2((q - 1) as nat)) == pow2((p - 1) as nat) / pow2((q - 1) as nat)) by {
+            admit()
+        };
+
+    }
+}
+
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
