@@ -10,6 +10,7 @@ use vstd::arithmetic::logarithm::{log, lemma_log_nonnegative};
 use vstd::arithmetic::power::{pow, lemma_pow_adds};
 use vstd::arithmetic::div_mod::lemma_mod_breakdown;
 use vstd::math::abs;
+use vstd::calc;
 
 //#[cfg(target_pointer_width = "32")]
 //global layout usize is size == 4;
@@ -225,11 +226,28 @@ pub proof fn lemma_u64_rotr_mask_lower(x: u64, n: i32)
     }
 }
 
-proof fn lemma_duplicate_low_mask_u64(x: u64, n: nat, m: nat)
+#[cfg(target_pointer_width = "64")]
+pub proof fn lemma_low_mask_usize_u64(x: nat)
+    ensures low_mask_u64(x) == low_mask_usize(x)
+{}
+
+#[cfg(target_pointer_width = "64")]
+pub proof fn lemma_duplicate_low_mask_usize(x: usize, n: nat, m: nat)
     requires
-        0 <= n < u64::BITS,
-        0 <= m < u64::BITS,
-        n < m
+        0 <= n <= u64::BITS,
+        0 <= m <= u64::BITS,
+        n <= m
+    ensures
+        (x & low_mask_usize(m)) & low_mask_usize(n) == x & low_mask_usize(n)
+{
+    lemma_duplicate_low_mask_u64(x as u64, n, m);
+}
+
+pub proof fn lemma_duplicate_low_mask_u64(x: u64, n: nat, m: nat)
+    requires
+        0 <= n <= u64::BITS,
+        0 <= m <= u64::BITS,
+        n <= m
     ensures
         (x & low_mask_u64(m)) & low_mask_u64(n) == x & low_mask_u64(n)
 {
@@ -1178,6 +1196,24 @@ pub proof fn lemma_div_before_mult_pow2(p: int, q: int)
         };
 
     }
+}
+
+#[cfg(target_pointer_width = "64")]
+pub proof fn lemma_usize_shr_is_div(x: usize, shift: usize)
+    requires 0 <= shift < usize::BITS
+        ensures (x >> shift) == x as nat / pow2(shift as nat)
+{
+    vstd::bits::lemma_u64_shr_is_div(x as u64, shift as u64);
+}
+
+pub proof fn lemma_pow2_div_sub(x: nat, y: nat)
+    requires x <= y
+    ensures pow2((y - x) as nat) == pow2(y) / pow2(x)
+{
+    vstd::arithmetic::power2::lemma_pow2(x);
+    vstd::arithmetic::power2::lemma_pow2(y);
+    vstd::arithmetic::power2::lemma_pow2((y - x) as nat);
+    vstd::arithmetic::power::lemma_pow_subtracts(2, x, y);
 }
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)
