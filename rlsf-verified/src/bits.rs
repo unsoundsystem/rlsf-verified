@@ -1163,8 +1163,37 @@ pub proof fn log2_is_strictly_ordered_if_rhs_is_pow2(x: int, y: int)
         assert(log(2, 1) == 0) by (compute);
         assert(log(2, x) < log(2, y));
     } else {
-        assume(x / 2 < y / 2);
-        assume(is_power_of_two(y / 2));
+        assert(2 < y);
+        let log2y = choose|i: nat| y == pow2(i);
+        assert(log2y > 1) by {
+            assert(pow2(1) == 2) by (compute);
+            vstd::arithmetic::power2::lemma_pow2(1);
+            vstd::arithmetic::power2::lemma_pow2(log2y);
+            vstd::arithmetic::power::lemma_pow_strictly_increases_converse(2, 1, log2y);
+        };
+        assert(y / 2 == pow2(log2y as nat) / 2 == pow2((log2y - 1) as nat)) by {
+            vstd::arithmetic::power2::lemma_pow2_unfold(log2y);
+        };
+        assert(x / 2 < x || x / 2 == 0);
+        assert(x / 2 < y / 2) by {
+            if x / 2 == 0 {
+                vstd::arithmetic::power2::lemma_pow2_pos(log2y);
+            } else {
+                assert(y != 0);
+                vstd::arithmetic::power2::lemma_pow2_pos((log2y - 1) as nat);
+                assert(0 < y / 2);
+                assert(y == 2 * pow2((log2y - 1) as nat)) by {
+                    assert(pow2(1) == 2) by (compute);
+                    vstd::arithmetic::power2::lemma_pow2_adds(1, (log2y - 1) as nat);
+                };
+                vstd::arithmetic::div_mod::lemma_div_by_multiple_is_strongly_ordered(
+                    x,
+                    y,
+                    pow2((log2y - 1) as nat) as int,
+                    2);
+            }
+        };
+        assert(is_power_of_two(y / 2));
         log2_is_strictly_ordered_if_rhs_is_pow2(x / 2, y / 2);
         // log2(x / 2) < log2(y / 2)
         // log2(x) - 1 < log2(y) - 1
