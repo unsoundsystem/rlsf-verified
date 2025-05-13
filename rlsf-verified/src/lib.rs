@@ -628,7 +628,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assume(idx.block_size_range().start() == flb + slb * sl);
                 assume(idx.block_size_range().end() == flb + slb * (sl + 1));
 
-                // TODO: proof
                 assert(slb * SLLEN == flb) by {
                     // 2^(fl+g) / 2^sli * 2^sli == 2^fl
                     // while sli < fl + g, g=GRANULARITY_LOG2

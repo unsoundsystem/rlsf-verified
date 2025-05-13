@@ -243,6 +243,26 @@ pub proof fn lemma_duplicate_low_mask_usize(x: usize, n: nat, m: nat)
     lemma_duplicate_low_mask_u64(x as u64, n, m);
 }
 
+//pub proof fn lemma_low_mask_u64_is_mod(x: u64, n: nat)
+    //requires
+        //0 <= n < u64::BITS,
+    //ensures x & low_mask_u64(n) == ((x as nat) % pow2(n)) as u64
+//{
+    //if n < u64::BITS {
+        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x, n);
+        //assume(pow2(n) <= u64::MAX);
+        //assume((x as nat) % pow2(n) == ((x as nat) % pow2(n)) as u64);
+        //assume(pow2(n) == pow2(n) as u64);
+        //vstd::bits::lemma_u64_pow2_no_overflow(n);
+        //assert(x % pow2(n) as u64 == ((x as nat) % pow2(n)) as u64);
+    //} else {
+        //assert(low_mask_u64(u64::BITS as nat) == 18446744073709551615) by (compute);
+        //assert(x & 18446744073709551615 == x) by (bit_vector);
+        //assert(pow2(u64::BITS as nat) == 18446744073709551616) by (compute);
+        //assert(x as nat % 18446744073709551616 == x as nat);
+    //}
+//}
+
 pub proof fn lemma_duplicate_low_mask_u64(x: u64, n: nat, m: nat)
     requires
         0 <= n <= u64::BITS,
@@ -251,53 +271,50 @@ pub proof fn lemma_duplicate_low_mask_u64(x: u64, n: nat, m: nat)
     ensures
         (x & low_mask_u64(m)) & low_mask_u64(n) == x & low_mask_u64(n)
 {
-    //TODO: outline made but too many `as` broke my brain
-    admit();
-    //lemma_low_mask_u64_values();
-    //let n_mask: u64 = low_mask_u64(n);
-    //let m_mask: u64 = low_mask_u64(m);
-    //let x = x as int;
-    ////let n = n as u64;
-    ////let m = m as u64;
-    //assert(x & m_mask == x % pow2(m)) by {
-        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x, m);
-    //};
-    //assert((x % pow2(m) as u64) & n_mask == (x % pow2(m) as u64) % pow2(n) as u64) by {
-        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x % (pow2(m) as u64), n);
-    //};
+    if n == u64::BITS {
+        assert(m == u64::BITS);
+        assert(low_mask_u64(u64::BITS as nat) == 18446744073709551615) by (compute);
+        assert(x & 18446744073709551615 == x) by (bit_vector);
+        assert(pow2(u64::BITS as nat) == 18446744073709551616) by (compute);
+    } else if m == u64::BITS {
+        assert(low_mask_u64(u64::BITS as nat) == 18446744073709551615) by (compute);
+        assert(x & 18446744073709551615 == x) by (bit_vector);
+        assert(pow2(u64::BITS as nat) == 18446744073709551616) by (compute);
+    } else {
+        assert(n < u64::BITS && m < u64::BITS);
+        vstd::bits::lemma_u64_pow2_no_overflow(n);
+        vstd::bits::lemma_u64_pow2_no_overflow(m);
+        assert((x & low_mask_u64(m)) & low_mask_u64(n)
+            == x % (pow2(m) as u64) % (pow2(n) as u64)) by {
+            vstd::bits::lemma_u64_low_bits_mask_is_mod(x, m);
+            vstd::bits::lemma_u64_low_bits_mask_is_mod(x % pow2(m) as u64, n);
+        }
 
-    //assert((x & m_mask) & n_mask == (x % pow2(m) as u64) % pow2(n) as u64);
-    //assert(x & n_mask == x % pow2(n) as u64) by {
-        //vstd::bits::lemma_u64_low_bits_mask_is_mod(x, n);
-    //};
+        assert((x as int) % (pow2(m) as int) % (pow2(n) as int)
+                    == x % (pow2(m) as u64) % (pow2(n) as u64)) by {
+            vstd::arithmetic::power2::lemma_pow2_pos(n);
+            vstd::arithmetic::power2::lemma_pow2_pos(m);
+            assert(pow2(m) != 0);
+            assert(pow2(n) != 0);
+        };
 
-    //assert(pow2(m) == pow2(n) * pow2((m - n) as nat)) by {
-        //vstd::arithmetic::power2::lemma_pow2_adds(n, (m - n) as nat);
-    //};
 
-    //assert((x % pow2(n) as u64) == (x % pow2(m) as u64) % pow2(n) as u64) by {
-        //let n_pow2_trunc = pow2(n) as u64;
-        //let m_pow2_trunc = pow2(m) as u64;
-        //let m_n_pow2_trunc = pow2((m - n) as nat) as u64;
-        //vstd::arithmetic::power2::lemma_pow2_pos(n);
-        //vstd::arithmetic::power2::lemma_pow2_pos((m-n) as nat);
-        //vstd::bits::lemma_u64_pow2_no_overflow(n);
-        //vstd::bits::lemma_u64_pow2_no_overflow((m-n) as nat);
-        //assert(pow2(m) == pow2(n) * pow2((m - n) as nat));
-        ////assert(m_pow2_trunc == n_pow2_trunc * m_n_pow2_trunc
-        ////assume((x % n_pow2_trunc) == (x % (n_pow2_trunc * m_n_pow2_trunc) as u64) % n_pow2_trunc);
-        //assert(x as int % n_pow2_trunc as int
-            //== ((x as int) % (n_pow2_trunc as int * m_n_pow2_trunc as int)) % n_pow2_trunc as int)
-        //by (nonlinear_arith) {
-            //assume(n_pow2_trunc > 0 && m_n_pow2_trunc > 0);
-            //vstd::arithmetic::div_mod::lemma_mod_mod(x as int,
-                //n_pow2_trunc as int,
-                //m_n_pow2_trunc as int);
-            //admit();
-        //};
-    //};
+        assert((x as int)
+                % pow2(m) as int
+                % pow2(n) as int
+            == x as int % pow2(n) as int) by {
+            vstd::arithmetic::power2::lemma_pow2_pos(n);
+            vstd::arithmetic::power2::lemma_pow2_pos((m - n) as nat);
+            assert(pow2(m) as int == pow2((m - n) as nat) * pow2(n)) by {
+                vstd::arithmetic::power2::lemma_pow2_adds(n, (m - n) as nat);
+            };
+            vstd::arithmetic::div_mod::lemma_mod_mod(x as int, pow2(n) as int, pow2((m - n) as nat) as int);
+        };
 
-    ////assert((x & m_mask) & n_mask == x & n_mask) by (bit_vector);
+        assert(x as int % pow2(n) as int == x & low_mask_u64(n)) by {
+            vstd::bits::lemma_u64_low_bits_mask_is_mod(x, n);
+        };
+    }
 }
 
 proof fn lemma_usize_rotate_right_0_eq(x: usize)
@@ -872,10 +889,12 @@ proof fn log2_using_leading_zeros_u64(x: u64)
 
             // 1 + u64::BITS - u64_leading_zeros(x / 2) - 1 = ..
             assert(1 + u64::BITS - u64_leading_zeros(x / 2) - 1 == u64::BITS - (u64_leading_zeros(x / 2) - 1) - 1);
-            assume(u64_leading_zeros(x / 2) - 1 == u64_leading_zeros(x));
+            assert(u64_leading_zeros(x / 2) - 1 == u64_leading_zeros(x)) by {
+                assert(x / 2 != 0);
+                reveal(u64_leading_zeros);
+            };
 
             assert(log(2, x as int) == u64::BITS - u64_leading_zeros(x) - 1);
-            //assert(false);
     }
 }
 
