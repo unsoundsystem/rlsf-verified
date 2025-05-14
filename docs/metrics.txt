@@ -1,0 +1,32 @@
+map_floor
+証明に必要とされた補題の数
+* 同じ補題の異なる適用は１カウント
+* 標準ライブライの補題を含める
+
+
+# following 24 lemmas used in map_floor
+
+granularity_is_power_of_two
+log2_using_leading_zeros_usize
+granularity_basics
+log2_power_ordered
+lemma_log2_distributes
+mask_higher_bits_leq_mask
+lemma_usize_rotr_mask_lower
+log2_is_strictly_ordered_if_rhs_is_pow2
+Self::sli_pow2_is_sllen
+lemma_duplicate_low_mask_usize
+bit_mask_is_mod_for_pow2
+lemma_pow2_div_sub
+lemma_usize_shr_is_div
+lemma_div_before_mult_pow2
+lemma_pow2_log2_div_is_one
+vstd::arithmetic::power2::lemma_pow2
+vstd::arithmetic::power2::lemma_pow2_strictly_increases
+vstd::arithmetic::power2::lemma_pow2_adds
+vstd::arithmetic::div_mod::lemma_div_non_zero
+vstd::arithmetic::div_mod::lemma_mod_breakdown
+vstd::arithmetic::div_mod::lemma_fundamental_div_mod
+vstd::arithmetic::logarithm::lemma_log_is_ordered
+vstd::arithmetic::logarithm::lemma_log_pow
+vstd::arithmetic::power::lemma_pow_increases

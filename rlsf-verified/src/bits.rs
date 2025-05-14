@@ -123,7 +123,7 @@ pub proof fn pow2_is_single_bit(x: usize, y: nat)
 
 proof fn usize_trailing_zeros_is_log2_when_pow2_given(x: usize, y: nat)
     requires pow(2, y) == x as int, x > 0
-    ensures usize_trailing_zeros(x) == y //log(2, x as int)
+    ensures usize_trailing_zeros(x) == log(2, x as int)
 {
     axiom_usize_trailing_zeros(x);
     //lemma_log_nonnegative(x);
@@ -1087,9 +1087,15 @@ pub proof fn log2_power_in_range(p: int)
 }
 
 pub proof fn lemma_log2_distributes(b1: int, b2: int)
-    requires b1 % b2 == 0
+    requires b1 % b2 == 0, b1 > 0, b2 > 0, is_power_of_two(b2)
     ensures log(2, b1 / b2) == log(2, b1) - log(2, b2)
 {
+    // log2(size) = 1 + log2(size / 2)
+    //            = 1 + 1 + log2(size / 4)
+    //            = 1 + ... + 1 + log2(size / 2^log2(G))
+    //              +---------+
+    //                  = log2(G)
+    //            = log2(G) + log2(size / G)
     admit()
 }
 
