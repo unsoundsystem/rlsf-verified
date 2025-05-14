@@ -1086,6 +1086,45 @@ pub proof fn log2_power_in_range(p: int)
     }
 }
 
+pub proof fn lemma_mod_by_multiple(x: int, y: int, z: int) by (integer_ring)
+    requires x % (y * z) == 0
+    ensures x % z == 0
+{}
+
+pub proof fn lemma_log2_sn(x: int, n: nat)
+    requires 0 < x, x % pow2(n) as int == 0
+    ensures log(2, x) == n + log(2, x / pow2(n) as int)
+    decreases n
+{
+    if n == 0 {
+        assert(pow2(0) == 1) by (compute);
+        assert(log(2, x) == 0 + log(2, x / 1));
+    } else {
+        assert(n > 0);
+        assert(x % pow2((n - 1) as nat) as int == 0) by {
+            assert(pow2(n) == 2 * pow2((n - 1) as nat)) by {
+                vstd::arithmetic::power2::lemma_pow2_unfold(n);
+            };
+            assert(x % pow2(n) as int == 0);
+            assert(0 != pow2((n - 1) as nat)) by {
+                vstd::arithmetic::power2::lemma_pow2_pos((n - 1) as nat);
+            };
+            assert(x % (2 * pow2((n - 1) as nat) as int) == 0);
+            lemma_mod_by_multiple(x as int, 2, pow2((n - 1) as nat) as int);
+        };
+        lemma_log2_sn(x, (n - 1) as nat);
+        assert(log(2, x) == (n - 1) + log(2, x / pow2((n - 1) as nat) as int));
+        // TODO
+    }
+}
+
+pub proof fn lemma_pow2_mod(x: int, n: nat)
+    requires 0 < n, x % pow2(n) as int == 0
+    ensures x % pow2((n - 1) as nat) as int == 0
+{}
+
+
+
 pub proof fn lemma_log2_distributes(b1: int, b2: int)
     requires b1 % b2 == 0, b1 > 0, b2 > 0, is_power_of_two(b2)
     ensures log(2, b1 / b2) == log(2, b1) - log(2, b2)
