@@ -36,7 +36,7 @@ use crate::bits::{
     lemma_div_by_powlog, lemma_powlog_leq, log2_power_ordered,
     log2_is_strictly_ordered_if_rhs_is_pow2, lemma_div_before_mult_pow2,
     lemma_duplicate_low_mask_usize, lemma_usize_shr_is_div,
-    lemma_pow2_div_sub
+    lemma_pow2_div_sub, lemma_u64_trailing_zeros_same
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -379,7 +379,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(size >= GRANULARITY);
             // i.e. size.leading_zeros() < (BITS - GRANULARITY_LOG2)
             // TODO: proof
-            admit()
+            Self::fl_not_underflow(size);
         };
         proof {
             granularity_is_power_of_two();
@@ -748,15 +748,25 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
        Some(idx)
     }
 
-    //proof fn fl_not_underflow(x: usize)
-        //requires
-            //x % GRANULARITY == 0,
-            //x >= GRANULARITY
-        //ensures
-            //Self::granularity_log2_spec() + usize_leading_zeros(size) < 64
-    //{
-
-    //}
+    proof fn fl_not_underflow(size: usize)
+        requires
+            Self::parameter_validity(),
+            size % GRANULARITY == 0,
+            size >= GRANULARITY
+        ensures
+            Self::granularity_log2_spec() + usize_leading_zeros(size) < usize::BITS
+    {
+        Self::granularity_basics();
+        assert(usize_leading_zeros(size) + usize_trailing_zeros(size) < usize::BITS);
+        // NOT nessecessarily equality
+        // proving trailing_zeros(size) >= trailing_zeros(G)
+        // then
+        // leading_zeros(size) + trailing_zeros(size) >= trailing_zeros(G) + leading_zeros(size)
+        // we have leading_zeros(size) + trailing_zeros(size) < 64
+        // thus trailing_zeros(G) + leading_zeros(size) < 64
+        assume(usize_trailing_zeros(size) >= usize_trailing_zeros(GRANULARITY)); // TODO
+        assume(Self::granularity_log2_spec() == usize_trailing_zeros(GRANULARITY));
+    }
 
     spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?

@@ -1338,6 +1338,60 @@ pub proof fn lemma_pow2_div_sub(x: nat, y: nat)
     vstd::arithmetic::power::lemma_pow_subtracts(2, x, y);
 }
 
+pub proof fn u64_leading_zeros_ineq(x: u64, y: u64)
+    requires x < y
+    ensures u64_leading_zeros(y) <= u64_leading_zeros(x)
+{}
+
+pub proof fn lemma_u64_add_leading_and_trailing_zeros(x: u64)
+    requires x > 0
+    ensures u64_leading_zeros(x) + u64_trailing_zeros(x) < u64::BITS
+{}
+
+pub proof fn lemma_u64_trailing_zeros_same(x: u64, y: u64)
+    requires x % y == 0, 0 < x, 2 <= y, is_power_of_two(y as int)
+    ensures u64_trailing_zeros(x) == u64_trailing_zeros(y)
+    decreases x, y
+{
+    lemma_high_mask_u64_values();
+    let logy = choose|i: nat| pow2(i) == y;
+    assert(pow2(logy) == y);
+    assume(logy < u64::BITS);
+    vstd::bits::lemma_u64_low_bits_mask_is_mod(x, logy);
+    assert(x % pow2(logy) as u64 == x & low_mask_u64(logy));
+    let mask: u64 = high_mask_u64(logy);
+    assume(x & mask == x);
+    assume(y & mask == y);
+    lemma_u64_trailing_zeros_mask(x, logy);
+    lemma_u64_trailing_zeros_mask(y, logy);
+}
+
+pub proof fn lemma_u64_trailing_zeros_mask(x: u64, n: nat)
+    ensures
+        u64_trailing_zeros(x & high_mask_u64(n)) == n
+{
+    lemma_high_mask_u64_values();
+}
+
+
+// TODO: this may be last lemma for map_floor
+pub proof fn lemma_silly(x: u64, n: u32)
+    ensures
+        forall|j: nat| n * pow2(j) == x ==> u64_trailing_zeros(x) >= j
+{
+    // Sketch:
+    // u64_trailing_zeros(x) == 1 + u64_trailing_zeros(x / 2)
+    //                       == 1 + 1 + u64_trailing_zeros(x / 2 / 2)
+    //                          ...
+    //                       == 1 + ... + 1 + u64_trailing_zeros(x / pow2(j))
+    //                          +---------+
+    //                              j-times
+    //                       == 1 + ... + 1 + u64_trailing_zeros((n * pow2(j)) / pow2(j))
+    //                       == j + u64_trailing_zeros(n)
+    //                       >= j
+}
+
+
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
