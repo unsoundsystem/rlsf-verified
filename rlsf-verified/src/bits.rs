@@ -1113,9 +1113,46 @@ pub proof fn lemma_log2_sn(x: int, n: nat)
             lemma_mod_by_multiple(x as int, 2, pow2((n - 1) as nat) as int);
         };
         lemma_log2_sn(x, (n - 1) as nat);
-        assert(log(2, x) == (n - 1) + log(2, x / pow2((n - 1) as nat) as int));
-        // TODO
+        assert(log(2, x / pow2((n - 1) as nat) as int) == 1 + log(2, x / pow2(n) as int)) by {
+            assert(1 + log(2, x / pow2(n) as int) == log(2, 2 * (x / pow2(n) as int))) by {
+                vstd::arithmetic::power2::lemma_pow2_pos(n);
+                lemma_mod_zeros_and_pos(x, pow2(n) as int);
+                lemma_log_mul_base(x / pow2(n) as int, 2);
+            };
+            assert(2 * (x / pow2(n) as int) == x / pow2((n - 1) as nat) as int) by {
+                vstd::arithmetic::power2::lemma_pow2_pos(n);
+                vstd::arithmetic::power2::lemma_pow2_pos((n - 1) as nat);
+                assert(pow2(n) == 2 * pow2((n - 1) as nat)) by {
+                    vstd::arithmetic::power2::lemma_pow2_unfold(n);
+                };
+                lemma_div_by_multiple_fancy(x, pow2(n) as int, pow2((n - 1) as nat) as int);
+            };
+        };
     }
+}
+
+pub proof fn lemma_mod_zeros_and_pos(x: int, y: int) by (nonlinear_arith)
+    requires x > 0, y > 0, x % y == 0
+    ensures x / y > 0
+{
+}
+
+pub proof fn lemma_div_by_multiple_fancy(b: int, c: int, d: int) by (nonlinear_arith)
+    requires b > 0, c > 0, d > 0, c == 2 * d, b % c == 0
+    ensures 2 * (b / c) == b / d
+{}
+
+pub proof fn lemma_log_mul_base(x: int, b: int)
+    requires b > 1, x > 0
+    ensures log(b, b * x) == 1 + log(b, x)
+{
+    assert(b <= b * x) by {
+        vstd::arithmetic::mul::lemma_mul_ordering(x, b);
+    };
+    vstd::arithmetic::logarithm::lemma_log_s(b, b * x);
+    assert(b * x / b == x) by {
+        vstd::arithmetic::div_mod::lemma_div_multiples_vanish(x, b);
+    };
 }
 
 pub proof fn lemma_pow2_mod(x: int, n: nat)
@@ -1135,7 +1172,16 @@ pub proof fn lemma_log2_distributes(b1: int, b2: int)
     //              +---------+
     //                  = log2(G)
     //            = log2(G) + log2(size / G)
-    admit()
+    assert(exists|i: nat| pow2(i) == b2);
+    let log2b2 = choose|i: nat| pow2(i) == b2;
+    assert(log(2, b2) == log2b2) by {
+        assert(b2 == pow2(log2b2));
+        vstd::arithmetic::power2::lemma_pow2(log2b2);
+        vstd::arithmetic::logarithm::lemma_log_pow(2, log2b2);
+    };
+    assert(log(2, b1 / pow2(log2b2) as int) + log(2, b2) == log(2, b1)) by {
+        lemma_log2_sn(b1, log2b2);
+    };
 }
 
 pub proof fn lemma_mask_dup_idemp(x: usize, m: nat, n: nat)
@@ -1247,48 +1293,31 @@ pub proof fn log2_is_strictly_ordered_if_rhs_is_pow2(x: int, y: int)
     }
 }
 
+pub proof fn lemma_div_by_multiple_silly(x: int, y: int, z: int) by (nonlinear_arith)
+    requires x == z * y, 0 < y <= x
+    ensures x / y * y == x
+{}
+
 pub proof fn lemma_div_before_mult_pow2(p: int, q: int)
     requires 0 <= q <= p
     ensures pow2(p as nat) / pow2(q as nat) * pow2(q as nat) == pow2(p as nat)
     decreases p, q
 {
-    if q == 0 {
-        reveal(pow2);
-        assert(pow2(0) == 1) by (compute);
-        assert(pow2(p as nat) / pow2(0) * pow2(0) == pow2(p as nat));
-    } else {
-        assert(0 < q <= p);
-        assume(0 <= q - 1 <= p - 1);
-        lemma_div_before_mult_pow2(p - 1, q - 1);
-        assert(pow2((p - 1) as nat) / pow2((q - 1) as nat) * pow2((q - 1) as nat) == pow2((p - 1) as nat));
-
-
-        assert(pow2((p - 1) as nat) / pow2((q - 1) as nat) == (2 * pow2((p - 1) as nat)) / (2 * pow2((q - 1) as nat))) by {
-            vstd::arithmetic::power2::lemma_pow2_pos((q - 1) as nat);
-            vstd::arithmetic::power2::lemma_pow2_pos((p - 1) as nat);
-            vstd::arithmetic::div_mod::lemma_div_multiples_vanish_quotient(
-                2,
-                pow2((p - 1) as nat) as int,
-                pow2((q - 1) as nat) as int
-            );
-            admit();
-        };
-
-        vstd::arithmetic::power2::lemma_pow2_unfold(p as nat);
-        vstd::arithmetic::power2::lemma_pow2_unfold(q as nat);
-        assert(pow2(q as nat) == 2*pow2((q - 1) as nat));
-        assert(pow2(p as nat) == 2*pow2((p - 1) as nat));
-        assert((2*pow2((p - 1) as nat)) / (2*pow2((q - 1) as nat)) * (2*pow2((q - 1) as nat))
-            == 2*pow2((p - 1) as nat)) by {
-            assert(pow2((p - 1) as nat) / pow2((q - 1) as nat) * pow2((q - 1) as nat)
-                        == pow2((p - 1) as nat))
-            // mult 2 for two sides
-        };
-        assert((2*pow2((p - 1) as nat)) / (2*pow2((q - 1) as nat)) == pow2((p - 1) as nat) / pow2((q - 1) as nat)) by {
-            admit()
-        };
-
-    }
+    let p = p as nat;
+    let q = q as nat;
+    assert(pow2(p) == pow2((p - q) as nat) * pow2(q)) by {
+        vstd::arithmetic::power2::lemma_pow2_adds((p - q) as nat, q);
+    };
+    
+    vstd::arithmetic::power2::lemma_pow2_pos(p);
+    vstd::arithmetic::power2::lemma_pow2_pos(q);
+    vstd::arithmetic::power2::lemma_pow2_pos((p - q) as nat);
+    assert(pow2(q) as int <= pow2(p) as int) by {
+        vstd::arithmetic::power2::lemma_pow2(p);
+        vstd::arithmetic::power2::lemma_pow2(q);
+        vstd::arithmetic::power::lemma_pow_increases(2, q, p);
+    };
+    lemma_div_by_multiple_silly(pow2(p) as int, pow2(q) as int, pow2((p - q) as nat) as int);
 }
 
 #[cfg(target_pointer_width = "64")]
