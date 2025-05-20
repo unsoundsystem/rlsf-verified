@@ -37,7 +37,7 @@ use crate::bits::{
     log2_is_strictly_ordered_if_rhs_is_pow2, lemma_div_before_mult_pow2,
     lemma_duplicate_low_mask_usize, lemma_usize_shr_is_div,
     lemma_pow2_div_sub, lemma_u64_trailing_zeros_same,
-    lemma_usize_trailing_zero_be_log2
+    lemma_usize_trailing_zero_be_log2, usize_trailing_zeros_is_log2_when_pow2_given
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -45,6 +45,7 @@ use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
 use ghost_tlsf::{GhostTlsf, HeaderPointer, HeaderPointsTo};
+use vstd::std_specs::bits::u64_trailing_zeros;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
@@ -144,11 +145,34 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //const SLI: u32 = SLLEN.trailing_zeros();
     #[verifier::when_used_as_spec(sli_spec_usize)]
     const fn sli() -> (r: u32)
-        ensures r == Self::sli_spec()
-    { SLLEN.trailing_zeros() }
+        requires Self::parameter_validity()
+        ensures
+            r == Self::sli_spec(),
+            r == Self::sli_spec_usize()
+    {
+        proof {
+            let i = choose|i: nat| pow2(i) == SLLEN;
+            usize_trailing_zeros_is_log2_when_pow2_given(SLLEN, i);
+
+            calc! {
+                (==)
+                pow2(Self::sli_spec() as nat); {}
+                pow2(log(2, SLLEN as int) as nat); {}
+                pow2(log(2, pow2(i) as int) as nat); {
+                assert(log(2, pow2(i) as int) == i) by {
+                    vstd::arithmetic::power2::lemma_pow2(i);
+                    vstd::arithmetic::logarithm::lemma_log_pow(2, i);
+                };
+            }
+                pow2(i); {}
+                SLLEN as nat;
+            }
+        }
+        SLLEN.trailing_zeros()
+    }
 
     spec fn sli_spec_usize() -> (r: u32) {
-        usize_leading_zeros(SLLEN)
+        usize_trailing_zeros(SLLEN)
     }
 
     spec fn sli_spec() -> int {
@@ -156,15 +180,48 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     proof fn sli_pow2_is_sllen()
+        requires Self::parameter_validity()
         ensures pow2(Self::sli_spec() as nat) == SLLEN
-    {}
+    {
+        let i = choose|i: nat| pow2(i) == SLLEN;
+        calc! {
+            (==)
+            pow2(Self::sli_spec() as nat); {}
+            pow2(log(2, SLLEN as int) as nat); {}
+            pow2(log(2, pow2(i) as int) as nat); {
+                assert(log(2, pow2(i) as int) == i) by {
+                    vstd::arithmetic::power2::lemma_pow2(i);
+                    vstd::arithmetic::logarithm::lemma_log_pow(2, i);
+                };
+            }
+            pow2(i); {}
+            SLLEN as nat;
+        }
+    }
 
     #[verifier::when_used_as_spec(granularity_log2_spec_usize)]
     const fn granularity_log2() -> (r: u32)
-        requires is_power_of_two(GRANULARITY as int)
+        requires
+            Self::parameter_validity()
+        // is_power_of_two(GRANULARITY as int)
         ensures r == Self::granularity_log2_spec_usize()
                   == Self::granularity_log2_spec()
     {
+        proof {
+            if GRANULARITY == 32 {
+                reveal(usize_trailing_zeros);
+                reveal(u64_trailing_zeros);
+                assert(log(2, 32) == 5) by (compute);
+                assert(log(2, GRANULARITY as int) == 5);
+                assert(usize_trailing_zeros(32) == 5) by (compute);
+            } else if GRANULARITY == 16 {
+                reveal(usize_trailing_zeros);
+                reveal(u64_trailing_zeros);
+                assert(log(2, 16) == 4) by (compute);
+                assert(log(2, GRANULARITY as int) == 4);
+                assert(usize_trailing_zeros(16) == 4) by (compute);
+            }
+        }
         GRANULARITY.trailing_zeros()
     }
 
@@ -182,8 +239,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 && SLLEN <= 64,
 
     {
-        // TODO: proof by compute
-        admit()
+        if GRANULARITY == 16 {
+            assert(Self::granularity_log2_spec() == 5)
+        } else if GRANULARITY == 32 {
+            assert(Self::granularity_log2_spec() == 6)
+        }
     }
 
     spec fn granularity_log2_spec_usize() -> (r: u32) {
@@ -199,7 +259,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& 0 < SLLEN <= usize::BITS
             && is_power_of_two(SLLEN as int)
         &&& GRANULARITY == 32 // 64bit platform
-            || GRANULARITY == 64 // 32bit platform
+            || GRANULARITY == 16 // 32bit platform
     }
 
     /// well-formedness of Tlsf structure
@@ -609,9 +669,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(Self::granularity_log2_spec() == 5) by { assert(log(2, 32) == 5) by (compute) };
                     assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
                 } else if GRANULARITY == 16 {
-                    // TODO: replicate above proof
-                    admit();
-                    assert(Self::sli_spec() <= 5);
+                    assert(Self::sli_spec() <= 5) by {
+                        Self::sli_pow2_is_sllen();
+                        assert(log(2, 32) == 5) by (compute);
+                        assert(pow2(5) == 32) by (compute);
+                        assert(SLLEN <= 32);
+                    };
+                    assert(Self::granularity_log2_spec() == 4) by { assert(log(2, 16) == 4) by (compute) };
+                    assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
+                    assert(Self::sli_spec() <= 4);
                 }
             }
 
@@ -625,9 +691,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     Self::sli_pow2_is_sllen();
                 };
 
-                // FIXME: this is must inferred automatically
-                assume(idx.block_size_range().start() == flb + slb * sl);
-                assume(idx.block_size_range().end() == flb + slb * (sl + 1));
+                assert(flb >= SLLEN) by {
+
+                    vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);
+                    vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
+                    vstd::arithmetic::power::lemma_pow_increases(
+                        2,
+                        Self::sli_spec() as nat,
+                        (fl + Self::granularity_log2_spec()) as nat);
+                };
+
+                idx.fl_non_zero();
 
                 assert(slb * SLLEN == flb) by {
                     // 2^(fl+g) / 2^sli * 2^sli == 2^fl
@@ -695,7 +769,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(fl + Self::granularity_log2_spec() < Self::sli_spec()
                         ==> fl == 0 && SLLEN == 64) by {
 
-                        // FIXME: modulize assumptions about parameters
                         assert(Self::sli_spec() <= 6) by {
                             assert(SLLEN <= 64);
                             vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
@@ -729,14 +802,55 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         log2_power_in_range(size as int);
                     };
 
-                    // FIXME: this must be inferred automatically
-                    assume(idx.block_size_range().start() == GRANULARITY);
-                    assume(idx.block_size_range().end() == 2*GRANULARITY);
+                    idx.fl_is_zero();
 
                     assert(fl == 0 && SLLEN == 64);
                 } else if GRANULARITY == 16 {
-                    // TODO: replicate above proof
-                    admit();
+                    assert(pow2((fl + Self::granularity_log2_spec()) as nat)
+                        <= pow2(Self::sli_spec() as nat)) by {
+                        vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);
+                        vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
+                        vstd::arithmetic::power::lemma_pow_increases(
+                            2,
+                            (fl + Self::granularity_log2_spec()) as nat,
+                            Self::sli_spec() as nat
+                        );
+                    };
+                    assert(fl + Self::granularity_log2_spec() < Self::sli_spec()
+                        ==> fl == 0 && SLLEN == 32) by {
+
+                        assert(Self::sli_spec() <= 5) by {
+                            assert(SLLEN <= 32);
+                            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 32);
+                            assert(log(2, SLLEN as int) == Self::sli_spec());
+                            reveal(log);
+                            assert(log(2, 16) == 4) by (compute);
+                            Self::sli_pow2_is_sllen();
+                        };
+                        assert(Self::granularity_log2_spec() == 4);
+                        Self::sli_pow2_is_sllen();
+                        assert(pow2(4) == 16) by {
+                            reveal(pow2);
+                            assert(pow2(4) == 16) by (compute);
+                        };
+                        assert(pow2(Self::sli_spec() as nat) == pow2(5));
+                    };
+                    assert(fl == 0 ==> GRANULARITY <= size < 2*GRANULARITY) by {
+                        assert(log(2, size as int) == 5) by {
+                            assert(Self::granularity_log2_spec() == 4) by {
+                                assert(log(2, 16) == 4) by (compute);
+                            };
+                            assert(fl == log(2, size as int) - Self::granularity_log2_spec());
+
+                            assert(log(2, size as int) == Self::granularity_log2_spec());
+                        };
+                        assert(pow2(log(2, size as int) as nat + 1) == 2*GRANULARITY) by {
+                            assert(pow2(log(2, size as int) as nat + 1) == pow2(5));
+                            assert(pow2(5) == 32) by (compute);
+                            assert(2*GRANULARITY == 2*16 == 32);
+                        };
+                        log2_power_in_range(size as int);
+                    };
                     assert(fl == 0 && SLLEN == 32);
                 }
                 // negative case is only SLLEN=64, fl=0, GRANULARITY=32

@@ -66,7 +66,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
 
     /// Calculate the correspoinding block size range for given BlockIndex
-    #[verifier::opaque]
+    //#[verifier::opaque]
     pub open spec fn block_size_range(&self) -> HalfOpenRange
         recommends self.wf()
     {
@@ -283,6 +283,60 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     proof fn lemma_block_index_lt_is_strict_and_total()
         ensures vstd::relations::strict_total_ordering(|idx1: Self, idx2: Self| idx1.block_index_lt(idx2))
     {
+    }
+
+    pub proof fn fl_is_zero(self)
+        requires self.wf(),
+            pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
+        ensures ({
+            &&& self.block_size_range().start()
+                == GRANULARITY
+            &&& self.block_size_range().end()
+                == 2*GRANULARITY
+        })
+    {
+        HalfOpenRange::lemma_new_start();
+        HalfOpenRange::lemma_new_end();
+    }
+
+    pub proof fn fl_non_zero(self)
+        requires self.wf(),
+            pow2((self.0 + Self::granularity_log2_spec()) as nat) >= SLLEN
+        ensures ({
+            let BlockIndex(fl, sl) = self;
+            let fl_block_bytes =
+                pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+            let sl_block_bytes = fl_block_bytes / SLLEN as int;
+
+            &&& self.block_size_range().start()
+                == fl_block_bytes + sl_block_bytes * (sl as int)
+            &&& self.block_size_range().end()
+                == fl_block_bytes
+                    + sl_block_bytes * (sl as int + 1)
+        })
+    {
+        let BlockIndex(fl, sl) = self;
+        let fl_block_bytes =
+            pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+        let sl_block_bytes = fl_block_bytes / SLLEN as int;
+        //assume(fl_block_bytes >= SLLEN);
+
+
+        HalfOpenRange::lemma_new_start();
+        HalfOpenRange::lemma_new_end();
+
+        assert(self.block_size_range()
+            == HalfOpenRange::new(
+                fl_block_bytes + sl_block_bytes * (sl as int), sl_block_bytes));
+        assert(self.block_size_range().end()
+                == fl_block_bytes + sl_block_bytes
+                    * (sl as int + 1)) by {
+            assert(self.block_size_range().end()
+                            == fl_block_bytes + sl_block_bytes * (sl as int) + sl_block_bytes); 
+            assert(sl_block_bytes * (sl as int) + sl_block_bytes
+                == sl_block_bytes * (sl as int + 1)) by (nonlinear_arith);
+        };
+
     }
 }
 

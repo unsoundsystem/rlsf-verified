@@ -498,6 +498,7 @@ impl HalfOpenRange {
         self.start() < self.end()
     }
 
+
     pub closed spec fn new(start: int, size: int) -> Self
         recommends size >= 0
     {
@@ -521,6 +522,15 @@ impl HalfOpenRange {
     pub proof fn lemma_new_wf()
         ensures forall|x: int, y: int| y >= 0 ==> HalfOpenRange::new(x, y).wf()
     {}
+
+    pub proof fn lemma_new_start()
+        ensures forall|x: int, y: int| HalfOpenRange::new(x, y).start() == x
+    {}
+
+    pub proof fn lemma_new_end()
+        ensures forall|x: int, y: int| HalfOpenRange::new(x, y).end() == x + y
+    {}
+
 
     pub open spec fn is_empty(self) -> bool
         recommends self.wf()
