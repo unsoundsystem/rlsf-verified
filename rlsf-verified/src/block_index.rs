@@ -5,8 +5,9 @@ use vstd::{seq::*, seq_lib::*, bytes::*};
 use vstd::arithmetic::{logarithm::log, power2::pow2};
 use vstd::math::{clip, max, min};
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
-use crate::half_open_range::{HalfOpenRangeOnRat,HalfOpenRange};
-use crate::rational_numbers::Rational;
+use crate::half_open_range::HalfOpenRange;
+//use crate::half_open_range_rat::HalfOpenRangeOnRat;
+//use crate::rational_numbers::Rational;
 
 verus! {
 // TODO: const generics fixed, rewrite
@@ -92,36 +93,36 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
 
-    /// [DEPRECATED] Calculate the correspoinding block size range for given BlockIndex
-    ///
-    /// This currently not used for specification:
-    ///     there reasonable alternative specification using `int` > `block_size_range`
-    ///
-    /// * The range is on *rational numbers*,
-    ///     i.e. `[start, end) ⊆ { x ∈ Q | GRANULARITY ≤  x < (max valid block size) } `
-    ///
-    /// Depending on configuration of rlsf, there specific case that split size range of
-    /// [GRANULARITY, 2*GRANULARITY) with SLLEN(< GRANULARITY).
-    /// In implementation we don't using things like "free block size of GRANULARITY + half bytes"
-    /// it's only theorical demands.
-    pub closed spec fn block_size_range_rat(&self) -> HalfOpenRangeOnRat
-        recommends self.wf()
-    {
-        let BlockIndex(fl, sl) = self;
-        // This is at least GRANULARITY
-        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
-
-        // This is at least `GRANULARITY / SLLEN` (possibly smaller than 1)
-        // NOTE: using rational numbers here to prevent second-level block size to be zero.
-        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
-
-        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
-        let size = sl_block_bytes;
-
-        // NOTE: Although the range specified in rational numbers,
-        //      there cannot be stored blocks of aribtrary bytes, because rlsf provides only GRANULARITY aligned allocation.
-        HalfOpenRangeOnRat::new(start, size)
-    }
+//    /// [DEPRECATED] Calculate the correspoinding block size range for given BlockIndex
+//    ///
+//    /// This currently not used for specification:
+//    ///     there reasonable alternative specification using `int` > `block_size_range`
+//    ///
+//    /// * The range is on *rational numbers*,
+//    ///     i.e. `[start, end) ⊆ { x ∈ Q | GRANULARITY ≤  x < (max valid block size) } `
+//    ///
+//    /// Depending on configuration of rlsf, there specific case that split size range of
+//    /// [GRANULARITY, 2*GRANULARITY) with SLLEN(< GRANULARITY).
+//    /// In implementation we don't using things like "free block size of GRANULARITY + half bytes"
+//    /// it's only theorical demands.
+//    pub closed spec fn block_size_range_rat(&self) -> HalfOpenRangeOnRat
+//        recommends self.wf()
+//    {
+//        let BlockIndex(fl, sl) = self;
+//        // This is at least GRANULARITY
+//        let fl_block_bytes = Rational::from_int(pow2((fl + Self::granularity_log2_spec()) as nat) as int);
+//
+//        // This is at least `GRANULARITY / SLLEN` (possibly smaller than 1)
+//        // NOTE: using rational numbers here to prevent second-level block size to be zero.
+//        let sl_block_bytes = fl_block_bytes.div(Rational::from_int(SLLEN as int));
+//
+//        let start = fl_block_bytes.add(sl_block_bytes.mul(Rational::from_int(sl as int)));
+//        let size = sl_block_bytes;
+//
+//        // NOTE: Although the range specified in rational numbers,
+//        //      there cannot be stored blocks of aribtrary bytes, because rlsf provides only GRANULARITY aligned allocation.
+//        HalfOpenRangeOnRat::new(start, size)
+//    }
 
 
     proof fn lemma_ex_bsr_wf(self) by (nonlinear_arith)

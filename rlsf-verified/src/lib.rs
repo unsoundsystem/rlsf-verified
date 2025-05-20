@@ -4,7 +4,7 @@
 
 mod bits;
 mod block_index;
-mod rational_numbers;
+//mod rational_numbers;
 mod relation_utils;
 mod half_open_range;
 mod linked_list;
@@ -40,7 +40,7 @@ use crate::bits::{
     lemma_usize_trailing_zero_be_log2, usize_trailing_zeros_is_log2_when_pow2_given
 };
 use crate::block_index::BlockIndex;
-use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
+//use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
@@ -232,19 +232,28 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             is_power_of_two(GRANULARITY as int),
             GRANULARITY == pow2(Self::granularity_log2_spec() as nat),
             GRANULARITY == 16 ==>
-                Self::granularity_log2_spec() == 5
+                Self::granularity_log2_spec() == 4
                 && SLLEN <= 32,
             GRANULARITY == 32 ==>
-                Self::granularity_log2_spec() == 6
+                Self::granularity_log2_spec() == 5
                 && SLLEN <= 64,
 
     {
         if GRANULARITY == 16 {
-            assert(Self::granularity_log2_spec() == 5)
+            assert(log(2, 16) == 4) by (compute);
+            assert(Self::granularity_log2_spec() == 4);
+            assert(pow2(4) == 16) by (compute);
         } else if GRANULARITY == 32 {
-            assert(Self::granularity_log2_spec() == 6)
+            assert(log(2, 32) == 5) by (compute);
+            assert(Self::granularity_log2_spec() == 5);
+            assert(pow2(5) == 32) by (compute);
         }
+        usize_trailing_zeros_is_log2_when_pow2_given(
+            GRANULARITY,
+            Self::granularity_log2_spec() as nat
+        );
     }
+
 
     spec fn granularity_log2_spec_usize() -> (r: u32) {
         usize_trailing_zeros(GRANULARITY)
@@ -665,6 +674,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         assert(log(2, 64) == 6) by (compute);
                         assert(pow2(6) == 64) by (compute);
                         assert(SLLEN <= 64);
+                        vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
                     };
                     assert(Self::granularity_log2_spec() == 5) by { assert(log(2, 32) == 5) by (compute) };
                     assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
