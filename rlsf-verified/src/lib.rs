@@ -36,7 +36,8 @@ use crate::bits::{
     lemma_div_by_powlog, lemma_powlog_leq, log2_power_ordered,
     log2_is_strictly_ordered_if_rhs_is_pow2, lemma_div_before_mult_pow2,
     lemma_duplicate_low_mask_usize, lemma_usize_shr_is_div,
-    lemma_pow2_div_sub, lemma_u64_trailing_zeros_same
+    lemma_pow2_div_sub, lemma_u64_trailing_zeros_same,
+    lemma_usize_trailing_zero_be_log2
 };
 use crate::block_index::BlockIndex;
 use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
@@ -764,8 +765,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // leading_zeros(size) + trailing_zeros(size) >= trailing_zeros(G) + leading_zeros(size)
         // we have leading_zeros(size) + trailing_zeros(size) < 64
         // thus trailing_zeros(G) + leading_zeros(size) < 64
-        assume(usize_trailing_zeros(size) >= usize_trailing_zeros(GRANULARITY)); // TODO
-        assume(Self::granularity_log2_spec() == usize_trailing_zeros(GRANULARITY));
+        assert(usize_trailing_zeros(size) >= usize_trailing_zeros(GRANULARITY)) by {
+            assert(size == (size / GRANULARITY) * GRANULARITY);
+            lemma_usize_trailing_zero_be_log2(size, (size / GRANULARITY) as nat, Self::granularity_log2_spec() as nat);
+        };
+        assert(Self::granularity_log2_spec() == usize_trailing_zeros(GRANULARITY));
     }
 
     spec fn bitmap_wf(&self) -> bool {

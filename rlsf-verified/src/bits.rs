@@ -1373,11 +1373,21 @@ pub proof fn lemma_u64_trailing_zeros_mask(x: u64, n: nat)
     lemma_high_mask_u64_values();
 }
 
+#[cfg(target_pointer_width = "64")]
+pub proof fn lemma_usize_trailing_zero_be_log2(x: usize, n: nat, m: nat)
+    requires x as nat == n * pow2(m)
+    ensures
+        usize_trailing_zeros(x) >= m
+{
+    lemma_u64_trailing_zero_be_log2(x as u64, n, m);
+}
 
 // TODO: this may be last lemma for map_floor
-pub proof fn lemma_silly(x: u64, n: u32)
+pub proof fn lemma_u64_trailing_zero_be_log2(x: u64, n: nat, m: nat)
+    requires 0 < n, x as nat == n * pow2(m)
     ensures
-        forall|j: nat| n * pow2(j) == x ==> u64_trailing_zeros(x) >= j
+        u64_trailing_zeros(x) >= m
+    decreases x,m
 {
     // Sketch:
     // u64_trailing_zeros(x) == 1 + u64_trailing_zeros(x / 2)
@@ -1389,8 +1399,49 @@ pub proof fn lemma_silly(x: u64, n: u32)
     //                       == 1 + ... + 1 + u64_trailing_zeros((n * pow2(j)) / pow2(j))
     //                       == j + u64_trailing_zeros(n)
     //                       >= j
+
+    vstd::arithmetic::power2::lemma_pow2_pos(m);
+    assert(n > 0 && pow2(m) > 0);
+    vstd::arithmetic::mul::lemma_mul_ordering(pow2(m) as int, n as int);
+    assert(0 < n * pow2(m) <= u64::MAX);
+    assert(pow2(m) <= u64::MAX) by {
+        assert(pow2(m) <= n * pow2(m));
+    };
+    assert(n <= u64::MAX) by {
+        assert(n <= n * pow2(m));
+    };
+    if x == n * pow2(0) && m == 0 {
+        assert(m == 0);
+        assert(n >= 0);
+    } else {
+        assert(x / 2 == n * pow2((m - 1) as nat)) by {
+            assert(x == n * pow2(m));
+            assert((n * pow2(m)) / 2 == n * pow2((m - 1) as nat)) by {
+                vstd::arithmetic::power2::lemma_pow2_unfold(m);
+                broadcast use vstd::arithmetic::mul::group_mul_properties;
+            };
+        };
+        lemma_u64_trailing_zero_be_log2(x / 2, n, (m - 1) as nat);
+
+        assert(forall|x: u64, y: u64| x & 1 == 0 ==> ((x * y) as u64) & 1 == 0) by (bit_vector);
+        {
+            let n = n as u64;
+            let pow = pow2((m - 1) as nat) as u64;
+            assert(x == 2 * n * pow) by {
+                vstd::arithmetic::power2::lemma_pow2_unfold(m);
+                broadcast use vstd::arithmetic::mul::group_mul_properties;
+            };
+            assert(x & 1 == 0) by (bit_vector)
+                requires x == 2 * n * pow;
+        }
+        assert(x != 0);
+        reveal(u64_trailing_zeros);
+        assert(1 + u64_trailing_zeros(x / 2) == u64_trailing_zeros(x));
+        assert(u64_trailing_zeros(x / 2) >= m - 1);
+    }
 }
 
+//proof fn lemma_u64_last_bit_zero_iff_mul_of_two(x: u64)
 
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
