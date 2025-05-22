@@ -125,25 +125,13 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 //    }
 
 
-    proof fn lemma_ex_bsr_wf(self) by (nonlinear_arith)
+    proof fn lemma_bsr_wf(self) by (nonlinear_arith)
         requires self.wf()
         ensures self.block_size_range().wf()
     {
         HalfOpenRange::lemma_new_wf();
     }
 
-    proof fn lemma_ex_index_unique_range(idx1: Self, idx2: Self)
-        requires
-            idx1.wf(),
-            idx2.wf(),
-            idx1 != idx2
-        ensures idx1.block_size_range().disjoint(idx2.block_size_range())
-    {
-        idx1.lemma_ex_bsr_wf();
-        idx2.lemma_ex_bsr_wf();
-        HalfOpenRange::lemma_is_empty_wf();
-
-    }
 
     // minimal index fall into minimal block size (=GRANULARITY)
     //pub proof fn lemma_block_size_range_min(self)
@@ -185,7 +173,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     // TODO
-    proof fn lemma_index_unique_range_fl(idx1: Self, idx2: Self)
+    proof fn lemma_index_unique_range_fl(idx1: Self, idx2: Self) by (nonlinear_arith)
         requires
             idx1.wf(),
             idx2.wf(),
@@ -196,7 +184,48 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             r1.wf() && r2.wf() && r1.disjoint(r2) })
     {
         // when first-level index differs they fall into different "first-level range [2^fl, 2^(fl+1))"
-        admit()
+
+        idx1.lemma_bsr_wf();
+        idx2.lemma_bsr_wf();
+        HalfOpenRange::lemma_is_empty_wf();
+
+        if idx1.0 < idx2.0 {
+            admit();
+            if pow2((idx1.0 as nat + Self::granularity_log2_spec()) as nat) >= SLLEN@ {
+                idx1.fl_non_zero();
+                if pow2((idx2.0 as nat + Self::granularity_log2_spec()) as nat) >= SLLEN@ {
+                    idx2.fl_non_zero();
+                } else {
+                    idx2.fl_is_zero();
+                }
+            } else {
+                idx1.fl_is_zero();
+                if pow2((idx2.0 as nat + Self::granularity_log2_spec()) as nat) >= SLLEN@ {
+                    idx2.fl_non_zero();
+                } else {
+                    idx2.fl_is_zero();
+                }
+            }
+        } else if idx1.0 > idx2.0 {
+            admit()
+        }
+    }
+
+    proof fn lemma_bsr_monotonicity(self, rhs: Self)
+        requires self.wf(), self.block_index_lt(rhs)
+        ensures self.block_size_range().lt(rhs.block_size_range())
+    {
+        let BlockIndex(fl1, sl1) = self;
+        let BlockIndex(fl2, sl2) = rhs;
+        let end1 = self.block_size_range();
+        let start2 = rhs.block_size_range();
+        assert(fl1 < fl2 || sl1 < sl2);
+        if fl1 < fl2 {
+            assert(end1 <= start2);
+        }
+
+        if sl1 < sl2 {
+        }
     }
 
     // TODO: Proof all sub lemma

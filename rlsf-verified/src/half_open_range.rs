@@ -92,5 +92,9 @@ impl HalfOpenRange {
         Set::new(|p: int| self.start() <= p < self.end())
     }
 
+    pub open spec fn lt(self, rhs: Self) -> bool {
+        &&& self.wf()
+        &&& self.end() <= self.start()
+    }
 }
 }
