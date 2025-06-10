@@ -38,6 +38,17 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         log(2, GRANULARITY as int)
     }
 
+
+    //TODO: DRY
+    spec fn parameter_validity() -> bool {
+        &&& 0 < FLLEN <= usize::BITS
+        &&& 0 < SLLEN <= usize::BITS
+            && is_power_of_two(SLLEN as int)
+        &&& GRANULARITY == 32 // 64bit platform
+            || GRANULARITY == 16 // 32bit platform
+    }
+
+
     pub open spec fn valid_block_index(idx: (int, int)) -> bool {
         let (fl, sl) = idx;
         &&& 0 <= fl < FLLEN as int
@@ -125,7 +136,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 //    }
 
 
-    proof fn lemma_bsr_wf(self) by (nonlinear_arith)
+    pub proof fn lemma_bsr_wf(self) by (nonlinear_arith)
         requires self.wf()
         ensures self.block_size_range().wf()
     {
@@ -211,23 +222,6 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         }
     }
 
-    proof fn lemma_bsr_monotonicity(self, rhs: Self)
-        requires self.wf(), self.block_index_lt(rhs)
-        ensures self.block_size_range().lt(rhs.block_size_range())
-    {
-        let BlockIndex(fl1, sl1) = self;
-        let BlockIndex(fl2, sl2) = rhs;
-        let end1 = self.block_size_range();
-        let start2 = rhs.block_size_range();
-        assert(fl1 < fl2 || sl1 < sl2);
-        if fl1 < fl2 {
-            assert(end1 <= start2);
-        }
-
-        if sl1 < sl2 {
-        }
-    }
-
     // TODO: Proof all sub lemma
     /// Correspoinding size ranges for distict indices are not overwrapping.
     proof fn index_unique_range(idx1: Self, idx2: Self)
@@ -278,7 +272,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     /// Order on BlockIndex
     /// this order doesn't assume well-formedness of BlockIndex
     /// (can contain overflowed index e.g. BlockIndex(FLLEN, SLLEN)
-    spec fn block_index_lt(self, rhs: Self) -> bool {
+    pub open spec fn block_index_lt(self, rhs: Self) -> bool {
         let (fl1, sl1) = self@;
         let (fl2, sl2) = rhs@;
         if fl1 == fl2 {

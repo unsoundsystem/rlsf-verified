@@ -23,7 +23,7 @@ pub struct HalfOpenRange(int, int);
 impl HalfOpenRange {
     #[verifier::type_invariant]
     pub open spec fn wf(self) -> bool {
-        self.start() < self.end()
+        self.start() <= self.end()
     }
 
 
@@ -94,7 +94,7 @@ impl HalfOpenRange {
 
     pub open spec fn lt(self, rhs: Self) -> bool {
         &&& self.wf()
-        &&& self.end() <= self.start()
+        &&& self.end() <= rhs.start()
     }
 }
 }

@@ -448,7 +448,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(size % GRANULARITY == 0);
             assert(size >= GRANULARITY);
             // i.e. size.leading_zeros() < (BITS - GRANULARITY_LOG2)
-            // TODO: proof
             Self::fl_not_underflow(size);
         };
         proof {
@@ -475,7 +474,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: modulize assumptions about parameters
         assert(Self::parameter_validity());
 
-        // TODO proof
         assert(fl >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)) by {
             Self::granularity_basics();
             assert(fl == log(2, size as int) - Self::granularity_log2_spec());
@@ -1578,6 +1576,41 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
           //-> (r: (Option<*mut FreeBlockHdr>, Tracked<PointsTo<UsedBlockHdr>>))
     //{
     //}
+
+
+    proof fn lemma_bsr_monotonicity(lhs: BlockIndex<FLLEN, SLLEN>, rhs: BlockIndex<FLLEN, SLLEN>)
+        requires lhs.wf(), rhs.wf(), lhs.block_index_lt(rhs), Self::parameter_validity()
+        ensures lhs.block_size_range().lt(rhs.block_size_range())
+    {
+        let BlockIndex(fl1, sl1) = lhs;
+        let BlockIndex(fl2, sl2) = rhs;
+        let lhs_int = lhs.block_size_range();
+        let rhs_int = rhs.block_size_range();
+        assert(fl1 < fl2 || sl1 < sl2);
+        lhs.lemma_bsr_wf();
+        rhs.lemma_bsr_wf();
+
+        // workaround: ownership error when using SLLEN directory
+        let sllen = SLLEN as int;
+
+        if (pow2((fl1 + Self::granularity_log2_spec()) as nat) as int) < sllen {
+            lhs.fl_is_zero();
+            if fl1 < fl2 {
+                Self::granularity_basics();
+                assert(fl1 == 0);
+                assert(lhs_int.end() == GRANULARITY*2);
+                assert(lhs_int.end() <= rhs_int.start());
+                assert(lhs.wf() && rhs.wf());
+            }
+
+            if sl1 < sl2 {
+                assert(lhs.wf() && rhs.wf());
+                assert(lhs_int.end() <= rhs_int.start());
+            }
+        } else {
+            admit()
+        }
+    }
 }
 
 impl !Copy for DeallocToken {}
