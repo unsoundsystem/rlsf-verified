@@ -2,9 +2,9 @@ use vstd::prelude::*;
 use crate::bits::{usize_trailing_zeros, is_power_of_two};
 use vstd::set_lib::set_int_range;
 use vstd::{seq::*, seq_lib::*, bytes::*};
-use vstd::arithmetic::{logarithm::log, power2::pow2};
+use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
 use vstd::math::{clip, max, min};
-use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2};
+use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2, lemma_pow2_adds};
 use crate::half_open_range::HalfOpenRange;
 //use crate::half_open_range_rat::HalfOpenRangeOnRat;
 //use crate::rational_numbers::Rational;
@@ -19,7 +19,7 @@ pub struct BlockIndex<const FLLEN: usize, const SLLEN: usize>(pub usize, pub usi
 
 impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
-    pub open spec fn view(&self) -> (int, int) {
+    pub open spec fn view(self) -> (int, int) {
         (self.0 as int, self.1 as int)
     }
 
@@ -40,7 +40,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
 
     //TODO: DRY
-    spec fn parameter_validity() -> bool {
+    pub open spec fn parameter_validity() -> bool {
         &&& 0 < FLLEN <= usize::BITS
         &&& 0 < SLLEN <= usize::BITS
             && is_power_of_two(SLLEN as int)
@@ -61,7 +61,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     /// Block index validity according to given parameters (GRANULARITY/FLLEN/SLLEN)
-    pub open spec fn wf(&self) -> bool {
+    pub open spec fn wf(self) -> bool {
         Self::valid_block_index(self@)
     }
 
@@ -70,8 +70,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     // FIXME(if i wrong): is there any special reason for using `int` there?
 
     /// Calculate size range as set of usize for given block index.
-    pub open spec fn block_size_range_set(&self) -> Set<int>
-        recommends self.wf()
+    pub open spec fn block_size_range_set(self) -> Set<int>
+        recommends self.wf(), Self::parameter_validity()
     {
         self.block_size_range().to_set()
     }
@@ -79,8 +79,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     /// Calculate the correspoinding block size range for given BlockIndex
     //#[verifier::opaque]
-    pub open spec fn block_size_range(&self) -> HalfOpenRange
-        recommends self.wf()
+    pub open spec fn block_size_range(self) -> HalfOpenRange
+        recommends self.wf(), Self::parameter_validity()
     {
         let BlockIndex(fl, sl) = self;
         let fl_block_bytes = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
@@ -137,7 +137,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
 
     pub proof fn lemma_bsr_wf(self) by (nonlinear_arith)
-        requires self.wf()
+        requires self.wf(), Self::parameter_validity()
         ensures self.block_size_range().wf()
     {
         HalfOpenRange::lemma_new_wf();
@@ -150,11 +150,20 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         //ensures vstd::relations::is_minimal(self.block_size_range_set(), |i: int, j: int| i < j, GRANULARITY as int)
     //{}
 
-    proof fn lemma_block_size_range_is_valid_half_open_range(&self)
+    proof fn lemma_block_size_range_is_valid_half_open_range(self)
         requires self.wf()
         ensures
             self.block_size_range().wf()
     {
+        let r = self.block_size_range();
+        if pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN {
+            self.fl_is_zero();
+        } else {
+            self.fl_non_zero();
+            assert(forall|i: int, j: int| i >= 0
+                ==> #[trigger] (i * j) <= i * (j + 1))
+                by (nonlinear_arith);
+        }
     }
 
     proof fn example_ranges() {
@@ -162,75 +171,56 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         assert(idx.wf()) by (compute);
         reveal(log);
         reveal(pow2);
-        assert(pow2(Self::granularity_log2_spec() as nat) == GRANULARITY) by (compute);
+        assert(pow2(Self::granularity_log2_spec() as nat)
+            == GRANULARITY) by (compute);
     }
 
-    // TODO
-    proof fn lemma_index_unique_range_sl(idx1: Self, idx2: Self)
-        requires
-            idx1.wf(),
-            idx2.wf(),
-            idx1.0 == idx2.0,
-            idx1.1 != idx2.1
-        ensures
-        ({  let r1 = idx1.block_size_range();
-            let r2 = idx2.block_size_range();
-            r1.wf() && r2.wf() && r1.disjoint(r2) })
-    {
-        // assuming sl1 < sl2
-        // it suffice to prove
-        // [0, SLB)⊥ [SLB*(sl2-sl1),SLB*(sl2-sl1+1)) i.e. sl2-sl1 >= 0
-        admit()
-    }
 
-    // TODO
-    proof fn lemma_index_unique_range_fl(idx1: Self, idx2: Self) by (nonlinear_arith)
-        requires
-            idx1.wf(),
-            idx2.wf(),
-            idx1.0 != idx2.0,
-        ensures
-        ({  let r1 = idx1.block_size_range();
-            let r2 = idx2.block_size_range();
-            r1.wf() && r2.wf() && r1.disjoint(r2) })
-    {
-        // when first-level index differs they fall into different "first-level range [2^fl, 2^(fl+1))"
-
-        idx1.lemma_bsr_wf();
-        idx2.lemma_bsr_wf();
-        HalfOpenRange::lemma_is_empty_wf();
-
-        if idx1.0 < idx2.0 {
-            admit();
-            if pow2((idx1.0 as nat + Self::granularity_log2_spec()) as nat) >= SLLEN@ {
-                idx1.fl_non_zero();
-                if pow2((idx2.0 as nat + Self::granularity_log2_spec()) as nat) >= SLLEN@ {
-                    idx2.fl_non_zero();
-                } else {
-                    idx2.fl_is_zero();
-                }
-            } else {
-                idx1.fl_is_zero();
-                if pow2((idx2.0 as nat + Self::granularity_log2_spec()) as nat) >= SLLEN@ {
-                    idx2.fl_non_zero();
-                } else {
-                    idx2.fl_is_zero();
-                }
-            }
-        } else if idx1.0 > idx2.0 {
-            admit()
-        }
-    }
-
-    proof fn lemma_index_size_range_mono(idx1: Self, idx2: Self) by (nonlinear_arith)
-        requires idx1.wf(), idx2.wf(), idx1.block_index_lt(idx2)
+    proof fn lemma_block_size_range_mono(idx1: Self, idx2: Self)
+        by (nonlinear_arith)
+        requires idx1.wf(), idx2.wf(),
+            idx1.block_index_lt(idx2),
+            idx1.0 == 0 ==> idx2.0 != 0,
+            Self::parameter_validity()
         ensures
         ({
             let r1 = idx1.block_size_range();
             let r2 = idx2.block_size_range();
             r1.end() <= r2.start()
         })
-    {}
+    {
+        let r1 = idx1.block_size_range();
+        let r2 = idx2.block_size_range();
+        if idx1.fl_zero_cond() {
+            assert(idx2.0 > 0);
+            idx2.fl_zero_iff();
+            idx2.fl_non_zero();
+            idx1.fl_is_zero();
+            assert(2*GRANULARITY
+                <= pow2((idx2.0 + Self::granularity_log2_spec()) as nat))
+            by {
+                assert(pow2((idx2.0
+                            + Self::granularity_log2_spec()) as nat)
+                    == pow2(idx2.0 as nat)
+                        * pow2(Self::granularity_log2_spec() as nat))
+                by {
+                    assert(Self::granularity_log2_spec() == 5 || Self::granularity_log2_spec() == 6) by (compute);
+                    lemma_pow2_adds(idx2.0 as nat,
+                        Self::granularity_log2_spec() as nat);
+                }
+                assert(GRANULARITY == pow2(Self::granularity_log2_spec() as nat)) by (compute);
+                assert(idx2.0 >= 1);
+                reveal(pow);
+                lemma_pow2(1);
+                lemma_pow2(idx2.0 as nat);
+                assert(pow2(1) == 2) by (compute);
+                vstd::arithmetic::power::lemma_pow_increases(2, 1, idx2.0 as nat);
+                assert(2 <= pow2(idx2.0 as nat));
+            }
+        } else {
+            admit()
+        }
+    }
     // TODO: Proof all sub lemma
     /// Correspoinding size ranges for distict indices are not overwrapping.
     proof fn index_unique_range(idx1: Self, idx2: Self)
@@ -240,27 +230,6 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             idx1 != idx2
         ensures idx1.block_size_range().disjoint(idx2.block_size_range())
     {
-        if idx1.block_index_lt(idx2) {
-            if idx1.0 == idx2.0 {
-                Self::lemma_index_unique_range_sl(idx1, idx2);
-            } else {
-                Self::lemma_index_unique_range_fl(idx1, idx2);
-            }
-
-            //assert(r1.wf() && r2.wf());
-            //assert(r1.end().lte(r2.start()));
-            //assert(r1.disjoint(r2));
-        } else {
-            if idx1.0 == idx2.0 {
-                Self::lemma_index_unique_range_sl(idx1, idx2);
-            } else {
-                Self::lemma_index_unique_range_fl(idx1, idx2);
-            }
-
-            //assert(r1.wf() && r2.wf());
-            //assume(r2.end().lte(r1.start()));
-            //assert(r1.disjoint(r2));
-        }
     }
 
     //TODO: proof
@@ -281,7 +250,9 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     /// Order on BlockIndex
     /// this order doesn't assume well-formedness of BlockIndex
     /// (can contain overflowed index e.g. BlockIndex(FLLEN, SLLEN)
-    pub open spec fn block_index_lt(self, rhs: Self) -> bool {
+    pub open spec fn block_index_lt(self, rhs: Self) -> bool
+        recommends self.wf(), rhs.wf(), Self::parameter_validity()
+    {
         let (fl1, sl1) = self@;
         let (fl2, sl2) = rhs@;
         if fl1 == fl2 {
@@ -319,7 +290,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     pub proof fn fl_is_zero(self)
-        requires self.wf(),
+        requires self.wf(), Self::parameter_validity(),
             pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
         ensures ({
             &&& self.block_size_range().start()
@@ -333,7 +304,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
     pub proof fn fl_non_zero(self)
-        requires self.wf(),
+        requires self.wf(), Self::parameter_validity(),
             pow2((self.0 + Self::granularity_log2_spec()) as nat) >= SLLEN
         ensures ({
             let BlockIndex(fl, sl) = self;
@@ -371,40 +342,42 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         };
 
     }
+    spec fn fl_zero_cond(self) -> bool
+        recommends Self::parameter_validity()
+    {
+        pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
+    }
+
+    proof fn fl_zero_iff(self)
+        by (nonlinear_arith)
+        requires self.wf(), Self::parameter_validity(),
+        ensures SLLEN == usize::BITS && self.0 == 0 <==> self.fl_zero_cond()
+    {
+        admit();
+        reveal(pow);
+        vstd::arithmetic::power2::lemma_pow2(5);
+        vstd::arithmetic::power2::lemma_pow2(6);
+        assert(pow2(5) == 32) by (compute);
+        assert(pow2(6) == 64) by (compute);
+        if self.0 == 0 && SLLEN == usize::BITS {
+            assert(pow2((0 + Self::granularity_log2_spec()) as nat)
+                < usize::BITS) by (compute);
+        }
+        if self.fl_zero_cond() {
+            if self.0 > 0  {
+                assert(!self.fl_zero_cond());
+
+                assert(false);
+            }
+            if SLLEN < usize::BITS {
+                assert(!self.fl_zero_cond());
+                assert(false);
+            }
+            assert(self.0 == 0 && SLLEN == usize::BITS);
+        }
+    }
+
 }
 
-proof fn lemma_max_lte_mono(x: int, y: int, c: int)
-    requires x <= y
-    ensures max(x, c) <= max(y, c)
-{}
-
-proof fn lemma_mult_lte_mono_pos(x: int, y: int, c: int) by (nonlinear_arith)
-    requires x >= 0, y >= 0, c >= 0, x <= y
-    ensures c*x <= c*y
-{}
-
-proof fn lemma_relax_pow2_strict_order(x: int, y: int)
-    requires x >= 0, y >= 0, x < y
-    ensures pow2((x + 1) as nat) <=  pow2(y as nat)
-{
-    lemma_pow2_mono((x + 1) as nat, y as nat);
-}
-
-proof fn lemma_pow2_mono(x: nat, y: nat)
-    requires
-        x <= y,
-    ensures
-        #[trigger] pow2(x) <= #[trigger] pow2(y),
-{
-    lemma_pow2(x);
-    lemma_pow2(y);
-    vstd::arithmetic::power::lemma_pow_increases(2, x, y);
-}
-
-proof fn lemma_slb_zero_case(fl: nat, sllen: int)
-    requires 0 < sllen <= usize::BITS
-    ensures pow2(fl) * (size_of::<usize>() * 4) / sllen == 0
-        <==> sllen == usize::BITS && fl == 0
-{}
 
 } // verus!
