@@ -1201,7 +1201,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 &&& !points_to@.dom().is_empty()
                 &&& self.wf_dealloc(Ghost(tok@))
                 &&& ptr@.provenance == points_to@.provenance()
-                &&& ptr@.metadata == Metadata::Thin
+                //&&& ptr@.metadata == Metadata::Thin
                 &&& points_to@.is_range(ptr as usize as int, size as int)
                 &&& ptr.addr() % align == 0
                 &&& self.is_root_provenance(ptr)

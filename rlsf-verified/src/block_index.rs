@@ -222,6 +222,15 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         }
     }
 
+    proof fn lemma_index_size_range_mono(idx1: Self, idx2: Self) by (nonlinear_arith)
+        requires idx1.wf(), idx2.wf(), idx1.block_index_lt(idx2)
+        ensures
+        ({
+            let r1 = idx1.block_size_range();
+            let r2 = idx2.block_size_range();
+            r1.end() <= r2.start()
+        })
+    {}
     // TODO: Proof all sub lemma
     /// Correspoinding size ranges for distict indices are not overwrapping.
     proof fn index_unique_range(idx1: Self, idx2: Self)
@@ -392,6 +401,10 @@ proof fn lemma_pow2_mono(x: nat, y: nat)
     vstd::arithmetic::power::lemma_pow_increases(2, x, y);
 }
 
-
+proof fn lemma_slb_zero_case(fl: nat, sllen: int)
+    requires 0 < sllen <= usize::BITS
+    ensures pow2(fl) * (size_of::<usize>() * 4) / sllen == 0
+        <==> sllen == usize::BITS && fl == 0
+{}
 
 } // verus!
