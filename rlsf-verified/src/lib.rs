@@ -267,8 +267,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& 0 < FLLEN <= usize::BITS
         &&& 0 < SLLEN <= usize::BITS
             && is_power_of_two(SLLEN as int)
-        &&& GRANULARITY == 32 // 64bit platform
-            || GRANULARITY == 16 // 32bit platform
+        &&& usize::BITS == 64 ==> GRANULARITY == 32 // 64bit platform
+        &&& usize::BITS == 32 ==> GRANULARITY == 16 // 32bit platform
     }
 
     /// well-formedness of Tlsf structure
