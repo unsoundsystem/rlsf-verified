@@ -7,7 +7,8 @@ use vstd::std_specs::bits::{
     axiom_u64_trailing_zeros
 };
 use vstd::arithmetic::logarithm::{log, lemma_log_nonnegative};
-use vstd::arithmetic::power::{pow, lemma_pow_adds};
+use vstd::arithmetic::power::{pow, lemma_pow_adds, lemma_pow_increases};
+use vstd::arithmetic::power2::{pow2, lemma_pow2};
 use vstd::arithmetic::div_mod::lemma_mod_breakdown;
 use vstd::math::abs;
 use vstd::calc;
@@ -1510,4 +1511,18 @@ pub proof fn lemma_log2_values()
     ) by (compute);
 }
 
+//
+//  Wrapping lemmas for utilizing lemmas under `arithmetic::power::*` 
+//
+
+pub proof fn lemma_pow2_increases(e1: nat, e2: nat)
+    requires
+        e1 <= e2,
+    ensures
+        #[trigger] pow2(e1) <= #[trigger] pow2(e2),
+{
+    lemma_pow2(e1);
+    lemma_pow2(e2);
+    lemma_pow_increases(2, e1, e2);
+}
 } // verus!
