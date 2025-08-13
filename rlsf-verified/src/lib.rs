@@ -1073,11 +1073,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires
             old(self).wf(),
             BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+            block == perm_block.ptr(),
+            perm_block.is_init()
         ensures
             self.wf(),
             ({
                 let BlockIndex(fl, sl) = choose|idx: BlockIndex<FLLEN, SLLEN>|
-                    idx.block_size_range().contains(size as int);
+                        idx.wf() && idx.block_size_range().contains(size as int);
                 self.first_free[fl as int][sl as int].wf_node_ptr(block)
             })
             // TODO: ensure that free list properly updated
@@ -1086,6 +1088,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         if let Some(BlockIndex(fl, sl)) = Self::map_floor(size) {
             self.free_list_push_front(BlockIndex(fl, sl), block, Tracked(perm_block));
             self.set_bit_for_index(BlockIndex(fl, sl));
+            proof {
+                assert(BlockIndex::<FLLEN,SLLEN>(fl, sl).block_size_range().contains(size as int));
+                BlockIndex::<FLLEN,SLLEN>::index_exists_for_valid_size(size);
+                assume(self.first_free[fl as int][sl as int].wf_node_ptr(block));
+            }
         } else {
             // unreachable provided `valid_block_size(size)`
             unreachable_unchecked()
@@ -1505,7 +1512,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires old(self).wf(),
             node == perm.ptr(),
             perm.is_init()
-        ensures self.wf()
+        ensures self.wf(),
+            ({
+                let ls = self.first_free[idx.0 as int][idx.1 as int];
+                let old_ls = old(self).first_free[idx.0 as int][idx.1 as int];
+                ls@ == seq![ls.perms@[node].value().common].add(old_ls@)
+                    && ls.wf_node_ptr(node)
+            })
             // TODO: propagate push_front postcondition
     {
         self.first_free[idx.0][idx.1].push_front(node, Tracked(perm));

@@ -1462,4 +1462,52 @@ proof fn lemma_u64_last_bit_zero_iff_mul_of_two(x: u64, e: nat)
 //pub proof fn usize_leading_trailing_zeros_diff(x)
     //requires x !=
 
+
+pub proof fn lemma_pow2_values()
+    ensures
+        pow2(0) == 1,
+        pow2(1) == 2,
+        pow2(2) == 4,
+        pow2(3) == 8,
+        pow2(4) == 16,
+        pow2(5) == 32,
+        pow2(6) == 64,
+{
+    lemma_pow2(0);
+    lemma_pow2(1);
+    lemma_pow2(2);
+    lemma_pow2(3);
+    lemma_pow2(4);
+    lemma_pow2(5);
+    lemma_pow2(6);
+    reveal(pow);
+    assert(pow2(0) == 1 &&
+        pow2(1) == 2 &&
+        pow2(2) == 4 &&
+        pow2(3) == 8 &&
+        pow2(4) == 16 &&
+        pow2(5) == 32 &&
+        pow2(6) == 64) by (compute);
+}
+
+pub proof fn lemma_log2_values()
+    ensures
+        log(2, 2) == 1,
+        log(2, 4) == 2,
+        log(2, 8) == 3,
+        log(2, 16) == 4,
+        log(2, 32) == 5,
+        log(2, 64) == 6,
+{
+    reveal(log);
+    assert(
+        log(2, 2) == 1 &&
+        log(2, 4) == 2 &&
+        log(2, 8) == 3 &&
+        log(2, 16) == 4 &&
+        log(2, 32) == 5 &&
+        log(2, 64) == 6
+    ) by (compute);
+}
+
 } // verus!

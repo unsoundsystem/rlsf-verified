@@ -316,7 +316,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     //TODO: proof
     /// There is at least one index for valid size.
-    proof fn index_exists_for_valid_size(size: usize)
+    pub proof fn index_exists_for_valid_size(size: usize)
         requires Self::valid_block_size(size as int)
         ensures exists|idx: Self| idx.wf()
             && #[trigger] idx.block_size_range().contains(size as int)

@@ -106,6 +106,7 @@ impl DLL {
             old(self).has_no_duplicate(new_node),
         ensures
            self.wf(),
+           self.wf_node_ptr(new_node),
            self@ == seq![self.perms@[new_node].value().common].add(old(self)@)
     {
         let tracked mut perm_new_node = perm_new_node;
