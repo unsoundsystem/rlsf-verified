@@ -74,6 +74,7 @@ pub const GRANULARITY: usize = 8 * 4;
 const SIZE_USED: usize = 1;
 const SIZE_SENTINEL: usize = 2;
 // FIXME: cannot call function `lib::bits::ex_usize_trailing_zeros` with mode exec
+// https://verus-lang.github.io/verus/guide/const.html#specexec-consts
 const SIZE_SIZE_MASK: usize =  0; // !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1); // FIXME
 
 #[repr(C)]

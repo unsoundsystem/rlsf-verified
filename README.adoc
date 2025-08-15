@@ -1,194 +1,46 @@
-= TLSFアロケータのdeductive verification
+= Formally verified realtime allocator written by Rust (wip)
 ifdef::env-name[:relfilesuffix: .adoc]
 
-* Rust実装の正当性を保証したい
-* 現在やったこと・やっていること xref:./status.adoc[現状]
-
-== 現状の方針
-
-* [DOING] option 1: Verusによる検証を検討中
-* option 2: Cのコードベースを検証する
-    ** VSTによる検証
-    ** Rustコードベースから使うことを想定しており、
-       FFIを通じたバグの混入を避けるためRustコードベースの検証を先に検討したい
-* [.line-through]#RefinedRustの適用を試みる# 利用したいRustの言語仕様の多くに未対応なため断念
-* 非技術的な動機
-    ** safety criticalな利用目的なので出来るだけfoundationalな検証を目指したい
-    ** 自分のスキルセットなどを鑑みて定理証明による手法が使いたい
-
-
-//image::verif-arch.drawio.svg[Embedded,800,opts=inline]
+Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://github.com/verus-lang/verus[Verus] .
 
 == Specification & Proof status
 
 |===
-|symbol |status
-
-|wip
-|実装・証明に取り組み中(未完)
-
-|done
-|完了(以後問題が発覚しなければ)
-
-|(empty)
-|他のタスクを優先中、あるいはブロッキングタスクがあるため手を付けていない
-
-|===
-
-//[frame=sides]
-|===
-|rlsfの関数 |実装の移植 |形式仕様記述 |証明
+|function |porting |specification |proof
 
 | `insert_free_block_ptr_aligned`
 |
-| wip
+|
 |
 
 | `search_suitable_free_block_list_for_allocation`
-| done
-| done
+| ✓ 
+| ✓
 |
 
 | `map_floor`
-| done
-| done
-| wip
+| ✓
+| ✓
+| ✓
 
 | `map_ceil`
-| done
-| done
-| wip
+| ✓
+| ✓
+|
 
 | `allocate`
-| done
-| done
+| ✓
+| ✓
 |
 
 | `deallocate`
-| wip
-| wip
+|
+| ✓
 |
 
-| `link_free_block`
-| done
-| done
+| link list manipulation
+| ✓
+| ✓
 |
-
-| `unlink_free_block`
-| done
-| done
-|
-
 
 |===
-
-* この表に現れないブロッキングタスク
-    ** 仕様記述は、実行可能関数に依らないモデル化のタスクによってブロックされている可能性がある
-    ** Verusの非対応機能に対するworkaround、その他Verusのプラクティス上の問題
-    ** 補題の証明
-
-=== Porting Implementaion
-
-=== Formal Specification
-
-* [ ] data structure wf-ness
-    ** [x] correctness doubly linked list on free block headers
-    ** [ ] singly-linked list on all headers
-* [x] bitwise operations
-    ** [x] rotate shift 
-    ** [x] relation between spec mode math & bitwise ops
-* [x] index calculation
-    ** [x] BlockIndex type
-    ** [x] state lemmas for uniqueness/existance of block size classes cf. zhang et.al.
-
-=== Proof
-
-* [ ] data structure wf-ness
-    ** [x] correctness doubly linked list on free block headers
-    ** [ ] singly-linked list on all headers
-* bitwise operations
-    ** [ ] lemmas for rotate shift properties
-        *** [x] `lemma_usize_rotate_right_0_eq`
-        *** [ ] `lemma_usize_rotate_right_low_mask_shl`
-        *** [x] `lemma_usize_rotate_right_mod0_noop`
-        *** [ ] `lemma_usize_rotate_right_distr`
-        *** [ ] `lemma_usize_rotate_right_reversible`
-    ** [ ] relation between spec mode math & bitwise ops
-        *** [ ] `usize_trailing_zeros_is_log2_when_pow2_given`
-* index calculation
-    ** [ ] uniqueness: `index_unique_range`
-        *** [ ] `lemma_index_unique_range_fl`
-        *** [ ] `lemma_index_unique_range_sl`
-    ** [ ] existance: `index_exists_for_valid_size`
-
-
-
-== TODO
-
-* Verusで `Tlsf::allocate` を検証する
-    ** [ ] 対象とするユースケースやTCB,証明のためのproof constractなどの設計をまとめたdesign docを作る
-        *** [ ] usecase
-        *** [ ] TCB
-        *** [ ] about rational_numbers module
-    ** global directiveの管理
-        *** プラットフォーム毎に唯一の `usize` 幅を想定してほしい
-        *** cfgで公理を含むモジュールのインポートを分岐させる
-    ** インデックス計算
-        *** bits
-            **** [ ] `usize_trailing_zeros_is_log2_when_pow2_given`
-        *** rotate_rightの形式仕様
-        *** 理論的性質
-            **** [x] 有理数上の半開区間に移植する
-            **** [x] 有理数の形式化
-                *** [ ] optional: 四則演算に関する自動化を整備する e.g. more broadcast
-            **** [ ] `index_unique_range`
-            **** [ ] `index_exists_for_valid_size`
-            **** [ ] `lemma_block_size_range_mono` (optional)
-            **** [ ] optional: interval orderによるブロックサイズ範囲の整列
-                    https://en.wikipedia.org/wiki/Interval_order
-    ** メモリ操作
-        ** メモリ領域の正当性の公理化・伝播
-            *** [ ] Tlsf構造体内の情報に関する証明内追跡用の構造体の設計
-                **** [ ] realisticなリンクリストの検証PoCを移植する
-            *** [ ] Deallocation tokenの設計
-                **** [ ] `DeallocToken` の再考: deallocateで前後のブロックを結合する際にヘッダ全体の権限をユーザーが持っていると問題になりそう
-// * Verusのmimalloc検証に関する調査記事
-// * RefinedRustの記法に関するインフォーマルな説明を xref:./refinedrust.adoc[追加する]
-// * const generics/lifetime parameterが使えない問題のworkaround
-// * raw pointerを使ったプログラムの検証方法の実験
-//     ** raw pointer dereferenceの事前条件
-//         *** struct fieldの更新をするのに十分な
-//         *** `&mut` の存在なしに事前条件としてraw pointerの読み出しが安全であることを述べたい(RefinedRustでこれを実現する方法が非自明)
-//     ** linked list
-// * 簡略化 `map_floor` の形式仕様を `model.v` を使って記述する
-// * 抽象仕様周り
-//     ** 割当済みブロックを表すトークンの表現
-//         *** `freeable` の作り方に関する調査
-//     ** インデックス計算の形式化
-//         *** `block_size_range_not_overwrap` の証明
-// * ビット操作周り
-//     ** 各ビット幅を取るモジュールで証明を整理する
-//     ** count leading/trailing zerosの形式仕様
-//         *** trailing zerosの定義
-//         *** `Z.log2` との対応( `count_leading_zeros_usize_spec` )
-//     ** rotating shift
-//      *** `Zrotate_right_usize_spec` の証明
-* 検証の対象とする性質の検討
-    ** Rustのアロケータとして要求される仕様について検討する
-    ** メモリプールの扱い(固定長/動的に拡張可能？)
-//* RefinedRustの採用に関するモチベーションと検証アーキテクチャを整理して文書化する
-
-
-== references
-
-* xref:./status.adoc[現状]
-* xref:./literature.adoc[先行研究]
-* xref:./rlsf-index-calc.adoc[TLSFのインデックス計算に関する正当化]
-* xref:prop2verif.adoc[検証の対象とする性質の検討]
-* xref:rlsf.adoc[rlsfに関するメモ]
-* xref:refinedrust.adoc[RefinedRustに関するメモ]
-* xref:zhangetal.adoc[ZhangらによるTLSFの形式仕様に関するメモ]
-* link:coqdoc/index.html[`rr-ex` のcoqdoc]
-* https://plv.mpi-sws.org/refinedrust/[RefinedRust webpage]
-* https://github.com/yvt/rlsf/tree/main[rlsf repository]
-* https://iris-project.org[Iris webpage]
