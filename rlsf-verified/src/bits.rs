@@ -1525,4 +1525,6 @@ pub proof fn lemma_pow2_increases(e1: nat, e2: nat)
     lemma_pow2(e2);
     lemma_pow_increases(2, e1, e2);
 }
+
+
 } // verus!

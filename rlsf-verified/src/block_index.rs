@@ -576,6 +576,14 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             assert(self.0 == 0 && SLLEN == usize::BITS);
         }
     }
+    pub open spec fn mapping(size: int) -> Self {
+        let fl = log(2, size as int / GRANULARITY as int);
+        let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+        let slb = flb / SLLEN as int;
+        let sl = ((size as int) / slb) % SLLEN as int;
+        Self(fl as usize, sl as usize)
+    }
+
 }
 
 

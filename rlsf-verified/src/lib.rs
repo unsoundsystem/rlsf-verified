@@ -211,16 +211,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                   == Self::granularity_log2_spec()
     {
         proof {
+            lemma_pow2_values();
+            lemma_log2_values();
             if GRANULARITY == 32 {
                 reveal(usize_trailing_zeros);
                 reveal(u64_trailing_zeros);
-                assert(log(2, 32) == 5) by (compute);
                 assert(log(2, GRANULARITY as int) == 5);
                 assert(usize_trailing_zeros(32) == 5) by (compute);
             } else if GRANULARITY == 16 {
                 reveal(usize_trailing_zeros);
                 reveal(u64_trailing_zeros);
-                assert(log(2, 16) == 4) by (compute);
                 assert(log(2, GRANULARITY as int) == 4);
                 assert(usize_trailing_zeros(16) == 4) by (compute);
             }
@@ -242,15 +242,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 && SLLEN <= 64,
 
     {
-        if GRANULARITY == 16 {
-            assert(log(2, 16) == 4) by (compute);
-            assert(Self::granularity_log2_spec() == 4);
-            assert(pow2(4) == 16) by (compute);
-        } else if GRANULARITY == 32 {
-            assert(log(2, 32) == 5) by (compute);
-            assert(Self::granularity_log2_spec() == 5);
-            assert(pow2(5) == 32) by (compute);
-        }
+        Self::plat_basics();
         usize_trailing_zeros_is_log2_when_pow2_given(
             GRANULARITY,
             Self::granularity_log2_spec() as nat
@@ -500,8 +492,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 if fl < FLLEN {
                     assert(size < pow2(FLLEN as nat) * GRANULARITY
                         <==> (size as int) / (GRANULARITY as int) < pow2(FLLEN as nat));
-                    assert((size as int) / (GRANULARITY as int) < pow2(FLLEN as nat)
-                        <== log(2, (size as int) / (GRANULARITY as int)) < log(2, pow2(FLLEN as nat) as int)) by {
+                    assert(log(2, (size as int) / (GRANULARITY as int))
+                            < log(2, pow2(FLLEN as nat) as int)
+                        ==> (size as int) / (GRANULARITY as int)
+                            < pow2(FLLEN as nat)) by {
                         if log(2, (size as int) / (GRANULARITY as int)) < log(2, pow2(FLLEN as nat) as int) {
                             assert((size as int) / (GRANULARITY as int) > 0);
                             assert(pow2(FLLEN as nat) as int > 1) by {
@@ -574,6 +568,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 }
             };
         };
+
+
         if fl as usize >= FLLEN {
             assert(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
             return None;
@@ -600,58 +596,46 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     lemma_log2_distributes(size as int, GRANULARITY as int)
                 };
                 assert(sl == ((size as int) / slb) % SLLEN as int) by {
-                    assert(usize_rotate_right(size, sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
-                        == (size >> sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize) by {
-                        lemma_usize_rotr_mask_lower(size, sl_shift_amount);
+                    assert(SLLEN - 1 == low_mask_usize(Self::sli_spec() as nat)) by {
+                        Self::sli_pow2_is_sllen();
+                        assert(SLLEN - 1 == pow2(Self::sli_spec() as nat) - 1);
                     };
-                    assert(sl == (size >> sl_shift_amount) & (SLLEN - 1) as usize) by {
 
-                        assert(SLLEN - 1 == low_mask_usize(Self::sli_spec() as nat)) by {
-                            Self::sli_pow2_is_sllen();
-                            assert(SLLEN - 1 == pow2(Self::sli_spec() as nat) - 1);
-                        };
-
-                        calc! {
-                            (==)
-                            sl; {}
-
-                            usize_rotate_right(size, sl_shift_amount) & (SLLEN - 1) as usize;
-                            {
-                                assert(fl + Self::granularity_log2_spec() <= usize::BITS);
-                                lemma_duplicate_low_mask_usize(
-                                    usize_rotate_right(size, sl_shift_amount),
-                                    Self::sli_spec() as nat,
-                                    (usize::BITS - sl_shift_amount) as nat
-                                );
-                            }
-
-                            usize_rotate_right(size, sl_shift_amount)
-                                & low_mask_usize((usize::BITS - sl_shift_amount) as nat)
-                                & low_mask_usize(Self::sli_spec() as nat);
-                            {
-                                lemma_usize_rotr_mask_lower(size, sl_shift_amount)
-                            }
-
-                            (size >> sl_shift_amount)
-                                & low_mask_usize((usize::BITS - sl_shift_amount) as nat)
-                                & low_mask_usize(Self::sli_spec() as nat);
-                            {
-                                assert(fl + Self::granularity_log2_spec() <= usize::BITS);
-                                lemma_duplicate_low_mask_usize(
-                                    size >> sl_shift_amount,
-                                    Self::sli_spec() as nat,
-                                    (usize::BITS - sl_shift_amount) as nat
-                                );
-                            }
-                            (size >> sl_shift_amount) & low_mask_usize(Self::sli_spec() as nat);
+                    calc! {
+                        (==)
+                        sl; {}
+                        usize_rotate_right(size, sl_shift_amount) & (SLLEN - 1) as usize;
+                        {
+                            assert(fl + Self::granularity_log2_spec() <= usize::BITS);
+                            lemma_duplicate_low_mask_usize(
+                                usize_rotate_right(size, sl_shift_amount),
+                                Self::sli_spec() as nat,
+                                (usize::BITS - sl_shift_amount) as nat
+                            );
                         }
-                    };
 
-                    //assume(SLLEN - 1 == low_mask_usize(Self::sli_spec() as nat) == pow2(Self::sli_spec() as nat) - 1);
-                    //assume(low_mask_usize((usize::BITS - sl_shift_amount) as nat) > SLLEN - 1);
-                    assert((size >> sl_shift_amount) & (SLLEN - 1) as usize == (size >> sl_shift_amount) % SLLEN) by {
-                        bit_mask_is_mod_for_pow2(size >> sl_shift_amount, SLLEN);
-                    };
+                        usize_rotate_right(size, sl_shift_amount)
+                            & low_mask_usize((usize::BITS - sl_shift_amount) as nat)
+                            & low_mask_usize(Self::sli_spec() as nat);
+                        {
+                            lemma_usize_rotr_mask_lower(size, sl_shift_amount)
+                        }
+
+                        (size >> sl_shift_amount)
+                            & low_mask_usize((usize::BITS - sl_shift_amount) as nat)
+                            & low_mask_usize(Self::sli_spec() as nat);
+                        {
+                            assert(fl + Self::granularity_log2_spec() <= usize::BITS);
+                            lemma_duplicate_low_mask_usize(
+                                size >> sl_shift_amount,
+                                Self::sli_spec() as nat,
+                                (usize::BITS - sl_shift_amount) as nat
+                            );
+                        }
+                        (size >> sl_shift_amount) & low_mask_usize(Self::sli_spec() as nat); {}
+                        (size >> sl_shift_amount) & (SLLEN - 1) as usize;
+                    }
+
                     // pow2(fl) / pow2(sli) == slb
                     assert(slb == pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
                         assert(SLLEN == pow2(Self::sli_spec() as nat)) by { Self::sli_pow2_is_sllen() };
@@ -663,6 +647,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             );
                         };
                     };
+
                     assert(size >> sl_shift_amount
                         == (size as nat /
                             (pow2((fl + Self::granularity_log2_spec()
@@ -673,42 +658,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                    - Self::sli_spec());
                         lemma_usize_shr_is_div(size, sl_shift_amount as usize);
                     };
-                    assert(size > 0);
-                    vstd::arithmetic::power2::lemma_pow2_pos((fl + Self::granularity_log2_spec()
-                                   - Self::sli_spec()) as nat);
 
                     assert((size >> sl_shift_amount) & (SLLEN - 1) as usize
                         == (size as int /
                             (pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) as int)
-                        % SLLEN as int);
+                        % SLLEN as int) by {
+
+                        assert(sl == (size >> sl_shift_amount) & (SLLEN - 1) as usize);
+                        assert(size > 0);
+                        vstd::arithmetic::power2::lemma_pow2_pos((fl + Self::granularity_log2_spec()
+                                       - Self::sli_spec()) as nat);
+
+                        bit_mask_is_mod_for_pow2(size >> sl_shift_amount, SLLEN);
+                    };
                 };
-            } else {
-                if GRANULARITY == 32 {
-                    assert(Self::sli_spec() <= 6) by {
-                        Self::sli_pow2_is_sllen();
-                        assert(log(2, 64) == 6);
-                        assert(pow2(6) == 64);
-                        assert(SLLEN <= 64);
-                        vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
-                    };
-                    assert(Self::granularity_log2_spec() == 5) by { assert(log(2, 32) == 5) };
-                    assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
-                } else if GRANULARITY == 16 {
-                    assert(Self::sli_spec() <= 5) by {
-                        Self::sli_pow2_is_sllen();
-                        assert(log(2, 32) == 5);
-                        assert(pow2(5) == 32);
-                        assert(SLLEN <= 32);
-                    };
-                    assert(Self::granularity_log2_spec() == 4) by { assert(log(2, 16) == 4) };
-                    assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
-                    assert(Self::sli_spec() <= 4);
-                }
             }
 
             // sl_shift_amount > 0 iff 2^fl > SLLEN
             if fl + Self::granularity_log2_spec() >= Self::sli_spec() {
-                //assert(idx.1 == (size - pow2(fl as nat)) / pow2(sl_shift_amount as nat) as int) by (nonlinear_arith);
                 let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
                 let slb = flb / SLLEN as int;
 
@@ -773,7 +740,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     }
                 };
             } else {
-                if GRANULARITY == 32 {
+                Self::plat_basics();
+                if usize::BITS == 64 {
                     assert(pow2((fl + Self::granularity_log2_spec()) as nat)
                         <= pow2(Self::sli_spec() as nat)) by {
                         lemma_pow2_increases(
@@ -782,33 +750,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         );
                     };
                     assert(fl + Self::granularity_log2_spec() < Self::sli_spec()
-                        ==> fl == 0 && SLLEN == 64) by {
-
-                        assert(Self::sli_spec() <= 6) by {
-                            assert(SLLEN <= 64);
-                            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
-                            assert(log(2, SLLEN as int) == Self::sli_spec());
-                            reveal(log);
-                            assert(log(2, 64) == 6);
-                            Self::sli_pow2_is_sllen();
-                        };
-                        assert(Self::granularity_log2_spec() == 5);
-                        Self::sli_pow2_is_sllen();
-                        assert(pow2(6) == 64) by {
-                            reveal(pow2);
-                            assert(pow2(6) == 64);
-                        };
-                        assert(pow2(Self::sli_spec() as nat) == pow2(6));
-                    };
+                        ==> fl == 0 && SLLEN == 64);
                     assert(fl == 0 ==> GRANULARITY <= size < 2*GRANULARITY) by {
-                        assert(log(2, size as int) == 5) by {
-                            assert(Self::granularity_log2_spec() == 5) by {
-                                assert(log(2, 32) == 5);
-                            };
-                            assert(fl == log(2, size as int) - Self::granularity_log2_spec());
-
-                            assert(log(2, size as int) == Self::granularity_log2_spec());
-                        };
                         assert(pow2(log(2, size as int) as nat + 1) == 2*GRANULARITY) by {
                             assert(pow2(log(2, size as int) as nat + 1) == pow2(6));
                             assert(pow2(6) == 64);
@@ -820,7 +763,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     idx.fl_is_zero();
 
                     assert(fl == 0 && SLLEN == 64);
-                } else if GRANULARITY == 16 {
+                } else if usize::BITS == 32 {
                     assert(pow2((fl + Self::granularity_log2_spec()) as nat)
                         <= pow2(Self::sli_spec() as nat)) by {
                         lemma_pow2_increases(
@@ -829,29 +772,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         );
                     };
                     assert(fl + Self::granularity_log2_spec() < Self::sli_spec()
-                        ==> fl == 0 && SLLEN == 32) by {
-
-                        assert(Self::sli_spec() <= 5) by {
-                            assert(SLLEN <= 32);
-                            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 32);
-                            assert(log(2, SLLEN as int) == Self::sli_spec());
-                            reveal(log);
-                            assert(log(2, 16) == 4);
-                            Self::sli_pow2_is_sllen();
-                        };
-                        assert(Self::granularity_log2_spec() == 4);
-                        Self::sli_pow2_is_sllen();
-                        assert(pow2(4) == 16) by {
-                            reveal(pow2);
-                            assert(pow2(4) == 16);
-                        };
-                        assert(pow2(Self::sli_spec() as nat) == pow2(5));
-                    };
+                        ==> fl == 0 && SLLEN == 32);
                     assert(fl == 0 ==> GRANULARITY <= size < 2*GRANULARITY) by {
                         assert(log(2, size as int) == 5) by {
-                            assert(Self::granularity_log2_spec() == 4) by {
-                                assert(log(2, 16) == 4);
-                            };
                             assert(fl == log(2, size as int) - Self::granularity_log2_spec());
 
                             assert(log(2, size as int) == Self::granularity_log2_spec());
@@ -1624,6 +1547,40 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
         } else {
             admit()
+        }
+    }
+
+    spec fn plat64_basics() -> bool
+    {
+        &&& GRANULARITY == 32
+        &&& Self::sli_spec() <= 6
+        &&& Self::granularity_log2_spec() == 5
+    }
+
+    spec fn plat32_basics() -> bool
+    {
+        &&& GRANULARITY == 16
+        &&& Self::sli_spec() <= 5
+        &&& Self::granularity_log2_spec() == 4
+    }
+
+    proof fn plat_basics()
+        requires Self::parameter_validity()
+        ensures
+            usize::BITS == 64 ==> Self::plat64_basics(),
+            usize::BITS == 32 ==> Self::plat32_basics(),
+            pow2(Self::sli_spec() as nat) == SLLEN
+
+    {
+        lemma_pow2_values();
+        lemma_log2_values();
+        Self::sli_pow2_is_sllen();
+        if usize::BITS == 64 {
+            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
+            assert(Self::plat64_basics());
+        } else if usize::BITS == 32 {
+            vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 32);
+            assert(Self::plat32_basics());
         }
     }
 }
