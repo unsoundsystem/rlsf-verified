@@ -67,7 +67,7 @@ global size_of usize == 8;
 //pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
 //pub const GRANULARITY: usize = vstd::layout::size_of::<usize>() as usize * 4;
 #[cfg(target_pointer_width = "64")]
-pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
+pub const GRANULARITY: usize = 8 * 4;
 
 //pub const GRANULARITY_LOG2: u32 = ex_usize_trailing_zeros(GRANULARITY);
 

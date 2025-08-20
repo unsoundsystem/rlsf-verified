@@ -1,4 +1,4 @@
-build
+build*
 .lia.cache
 .nia.cache
 node_modules
@@ -7,3 +7,5 @@ _build
 target
 .verus-log
 .verus-solver-log
+.csdp.cache
+*.long-type-*

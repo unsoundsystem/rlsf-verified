@@ -1,1 +1,0 @@
-fn(block_index::BlockIndex<FLLEN, SLLEN>, block_index::BlockIndex<FLLEN, SLLEN>) -> bool {block_index::BlockIndex::<FLLEN, SLLEN>::block_index_lt}

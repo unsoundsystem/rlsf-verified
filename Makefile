@@ -1,15 +1,8 @@
-OUTDIR := build
+OUTDIR := build_docs
 DOCS_DIR := docs
 ASCIIDOCTOR_OPS := -a linkcss -a copycss -D build -r asciidoctor-diagram 
-SRCS := $(DOCS_DIR)/prop2verif.adoc \
-								$(DOCS_DIR)/rlsf.adoc \
-								$(DOCS_DIR)/zhangetal.adoc \
-								$(DOCS_DIR)/refinedrust.adoc \
 								$(DOCS_DIR)/verus.adoc \
-								$(DOCS_DIR)/verus-rlsf.adoc \
-								$(DOCS_DIR)/rlsf-index-calc.adoc \
-								$(DOCS_DIR)/literature.adoc \
-								status.adoc
+								$(DOCS_DIR)/rlsf-index-calc.adoc
 HTMLS := $(addprefix $(OUTDIR)/, index.html $(subst .adoc,.html,$(SRCS)))
 
 all: $(HTMLS)

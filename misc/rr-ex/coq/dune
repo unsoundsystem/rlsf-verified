@@ -1,4 +1,0 @@
-(coq.theory
-(flags -w -notation-overridden -w -redundant-canonical-projection)
-(name extras)
-(theories stdpp iris Ltac2 Equations RecordUpdate lrust caesium lithium refinedrust QuickChick SimpleIO mathcomp.ssreflect ExtLib ))

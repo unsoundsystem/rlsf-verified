@@ -1,1 +1,0 @@
-vstd::atomic_ghost::AtomicU32<builtin::Tracked<CountOne::Instance>, CountOne::count, InvariantPredicate_auto_C_count>
