@@ -67,7 +67,7 @@ global size_of usize == 8;
 //pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
 //pub const GRANULARITY: usize = vstd::layout::size_of::<usize>() as usize * 4;
 #[cfg(target_pointer_width = "64")]
-pub const GRANULARITY: usize = 8 * 4;
+pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
 
 //pub const GRANULARITY_LOG2: u32 = ex_usize_trailing_zeros(GRANULARITY);
 
@@ -887,16 +887,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: Is it reasonable to assume the free list is empty as a precondition?
         //       As I read the use case, there wasn't code adding new region twice.
     ensures
-        self.gs.root_provenances@.len() > 0
+        self.wf(),
+        self.gs.root_provenances@.len() > 0,
+
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
     {
         None
-//        let tracked mut new_header;
-//        let tracked mut mem_remains;
-//
-//        let mut size_remains = size;
-//        let mut cursor = start as usize;
+        //let tracked mut new_header;
+        //let tracked mut mem_remains;
+
+        //let mut size_remains = size;
+        //let mut cursor = start as usize;
 //
 //
 //        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`

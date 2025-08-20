@@ -41,6 +41,6 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 | link list manipulation
 | ✓
 | ✓
-|
+| ✓
 
 |===
