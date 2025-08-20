@@ -1,4 +1,4 @@
-= Formally verified realtime allocator written by Rust (wip)
+= Formally verified real-time allocator written in Rust (wip)
 ifdef::env-name[:relfilesuffix: .adoc]
 
 Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://github.com/verus-lang/verus[Verus] .
@@ -44,3 +44,10 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 | ✓
 
 |===
+
+
+== Verification
+
+To verify the whole codebase:
+
+    VERUS_SINGULAR_PATH=/usr/bin/Singular $VERUS_ROOT/source/target-verus/release/verus  --crate-type=lib src/lib.rs --expand-errors --verify-root --triggers-mode silent
