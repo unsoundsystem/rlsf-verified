@@ -1493,6 +1493,8 @@ pub proof fn lemma_pow2_values()
 
 pub proof fn lemma_log2_values()
     ensures
+        log(2, 0) == 0,
+        log(2, 1) == 0,
         log(2, 2) == 1,
         log(2, 4) == 2,
         log(2, 8) == 3,
@@ -1502,6 +1504,8 @@ pub proof fn lemma_log2_values()
 {
     reveal(log);
     assert(
+        log(2, 0) == 0 &&
+        log(2, 1) == 0 &&
         log(2, 2) == 1 &&
         log(2, 4) == 2 &&
         log(2, 8) == 3 &&
