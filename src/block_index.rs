@@ -424,7 +424,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         };
 
     }
-    spec fn fl_zero_cond(self) -> bool
+    pub open spec fn fl_zero_cond(self) -> bool
         recommends Self::parameter_validity()
     {
         pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
