@@ -1836,6 +1836,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(Self::plat32_basics());
         }
     }
+
+    spec fn wf_ghost(self) -> bool {
+    }
+
+    spec fn free_header_ptrs(self) -> Set<*mut FreeBlockHdr> {
+        Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| self.first_free[i][j]@).to_set()).to_set()
+    }
 }
 
 impl !Copy for DeallocToken {}
