@@ -19,14 +19,21 @@ pub(crate) struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
 
     // ordered by address
     pub all_ptrs: Ghost<Seq<*mut BlockHdr>>,
+    // FIXME: reflect acutual status of Tlsf field
+    //      * option 1: move related filed to Tlsf
+    //      * option 2: wf paramter taking Tlsf
+    //      * option 3: ensure the condion in Tlsf method
+    pub block_used: Ghost<Map<*mut BlockHdr, bool>>
 
     // provenance of initially added blocks
     // NOTE: Using Seq for extending to allow multiple `insert_free_block_ptr` call
     pub root_provenances: Ghost<Seq<Provenance>>,
-    pub used_headers: Seq<*mut UsedBlockHdr>,
-    pub used_header_perms: Map<*mut UsedBlockHdr, PointsTo<UsedBlockHdr>>,
 }
 
+pub(crate) struct UsedInfo {
+    pub ptrs: Seq<*mut UsedBlockHdr>,
+    pub perms: Map<*mut UsedBlockHdr, PointsTo<UsedBlockHdr>>,
+}
 
 impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
     //FIXME: error: external_type_specification: Const params not yet supported
@@ -62,7 +69,7 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
         })
     }
 
-    pub closed spec fn phys_next_of(self, i: int) -> Option<HeaderPointer>
+    pub closed spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr>
     {
         if i + 1 == self.all_ptrs@.len() {
             None
@@ -70,12 +77,26 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
             Some(self.all_ptrs@[i + 1])
         }
     }
-    pub closed spec fn phys_prev_of(self, i: int) -> Option<HeaderPointer> {
+    pub closed spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
         if i - 1 == 0 {
             None
         } else {
             Some(self.all_ptrs@[i - 1])
         }
+    }
+
+    pub closed spec fn contains_block(self, blk: *mut BlockHdr) -> bool {
+        exists|i: int| self.all_ptrs[i] == blk
+    }
+}
+
+impl UsedInfo {
+    fn wf(self) -> bool {
+        unimplemented!()
+    }
+
+    fn contains_block(self, ptr: *mut UsedBlockHdr) -> bool {
+        unimplemented!()
     }
 }
 

@@ -47,7 +47,7 @@ use crate::block_index::BlockIndex;
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
-use ghost_tlsf::{GhostTlsf, HeaderPointer, HeaderPointsTo};
+use ghost_tlsf::{GhostTlsf, UsedInfo};
 use vstd::std_specs::bits::u64_trailing_zeros;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
@@ -56,6 +56,8 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[DLL; SLLEN]; FLLEN],
     pub tracked gs: GhostTlsf<FLLEN, SLLEN>,
+    pub used_info: UsedInfo,
+
     pub _phantom: PhantomData<&'pool ()>,
 }
 
@@ -142,6 +144,11 @@ struct FreeBlockHdr {
 }
 
 impl FreeBlockHdr {
+    spec fn wf(self) -> bool {
+        // FIXME(blocking): bit mask formalization
+        unimplemented!()
+        //self.common.
+    }
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -272,12 +279,25 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     ///   * TODO: blocks connected to freelist ordered by start address
     /// * bitmap is consistent with the freelist
     /// * TODO: blocks stored in the list have proper size as calculated from their index
-    pub closed spec fn wf(&self) -> bool {
+    pub closed spec fn wf(self) -> bool {
         &&& self.gs.wf(self)
         &&& self.bitmap_wf()
         &&& Self::parameter_validity()
         &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
                 ==> self.first_free[i][j].wf()
+    }
+
+    pub open spec fn block_wf(self) -> bool {
+        &&& forall|blk: *mut UsedBlockHdr|
+                self.used_info.contains_block(blk)
+                    ==> self.gs.contains_block(blk as *mut BlockHdr)
+        &&& forall|blk: *mut FreeBlockHdr|
+                self.free_list_contains_block(blk)
+                    ==> self.gs.contains_block(blk as *mut BlockHdr)
+    }
+
+    pub open spec fn free_list_contains_block(self, blk: *mut FreeBlockHdr) -> bool {
+        exists|i: int, j: int, k: int| self.first_free[i][j].ptrs[k] == blk
     }
 
     pub const fn new() -> (r: Self)
@@ -1779,9 +1799,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires old(self).wf(),
         // NOTE: by the existance of sentinel block, we can conclude that every usual block we can
         //       pop from the free list, we have following
-            exists|i: int| 0 <= i < old(self).gs.all_ptrs@.len() - 1 && #[trigger] old(self).gs.all_ptrs@[i] matches HeaderPointer::Free(fbh)
+            //exists|i: int| 0 <= i < old(self).gs.all_ptrs@.len() - 1 && #[trigger] old(self).gs.all_ptrs@[i] matches HeaderPointer::Free(fbh)
         ensures //self.wf(),
-            self.gs.all_ptrs@.contains(ghost_tlsf::HeaderPointer::Used(r.0)),
+            //self.gs.all_ptrs@.contains(ghost_tlsf::HeaderPointer::Used(r.0)),
             r.0 == r.1@.ptr(),
     {
         let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
