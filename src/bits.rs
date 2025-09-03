@@ -19,20 +19,14 @@ use vstd::calc;
 //#[cfg(target_pointer_width = "64")]
 //global layout usize is size == 8;
 
-// for codes being executed
-#[macro_export]
-macro_rules! get_bit {
-    ($a:expr, $b:expr) => {{
-        (0x1 & ($a >> $b)) == 1
-    }};
+#[inline]
+#[verifier::when_used_as_spec(get_bit)]
+pub fn nth_bit(target: usize, nth: usize) -> bool {
+    0x1 & (target >> nth) == 1
 }
 
-// for spec/proof codes
-#[macro_export]
-macro_rules! nth_bit {
-    ($($a:tt)*) => {
-        verus_proof_macro_exprs!(get_bit!($($a)*))
-    }
+pub open spec fn get_bit(target: usize, nth: usize) -> bool {
+    0x1 & (target >> nth) == 1
 }
 
 
