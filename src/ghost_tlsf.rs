@@ -7,16 +7,6 @@ use core::hint::unreachable_unchecked;
 
 verus! {
 
-/// A proof constract tracking information about Tlsf struct
-///
-/// Things we have to track
-/// * all `PointsTo`s related to registered blocks
-/// * things needed to track the list views 
-///     * singly linked list by prev_phys_block chain 
-///      NOTE: This contains allocated blocks
-///     * doubly linked list by FreeBlockHdr fields
-///
-
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //FIXME: error: external_type_specification: Const params not yet supported
     /// Invariant for the structure tracks global header information
