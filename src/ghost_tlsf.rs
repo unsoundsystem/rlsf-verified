@@ -15,23 +15,9 @@ verus! {
 ///     * singly linked list by prev_phys_block chain 
 ///      NOTE: This contains allocated blocks
 ///     * doubly linked list by FreeBlockHdr fields
-pub(crate) struct GhostTlsf<const FLLEN: usize, const SLLEN: usize> {
-    pub valid_range: Ghost<Set<int>>, // represents region managed by this allocator
+///
 
-    // ordered by address
-    pub all_ptrs: Ghost<Seq<*mut BlockHdr>>,
-    // FIXME: reflect acutual status of Tlsf field
-    //      * option 1: move related filed to Tlsf
-    //      * option 2: wf paramter taking Tlsf
-    //      * option 3: ensure the condion in Tlsf method
-
-    // provenance of initially added blocks
-    // NOTE: Using Seq for extending to allow multiple `insert_free_block_ptr` call
-    pub root_provenances: Ghost<Seq<Provenance>>,
-}
-
-
-impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
+impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //FIXME: error: external_type_specification: Const params not yet supported
     /// Invariant for the structure tracks global header information
     /// 
@@ -43,7 +29,7 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
     /// * To ensure the invariant hold for every block, 
     ///   we must track all the pointers of registered blocks in GhostTlsf.
     /// * all blocks constitues a singly-linked list
-    pub closed spec fn wf(self, tlsf: Tlsf<FLLEN, SLLEN>) -> bool {
+    pub closed spec fn wf_ghost(self) -> bool {
         // all elements of all_ptrs has a corresponding element in first_free/block_used 
         //&&& forall|i: int| exists|j: int|
             //self.all_ptrs[i] as *mut UsedBlockHdr == 
@@ -58,10 +44,10 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
         &&& self.root_provenances@.len() > 0
         // Free block header has corresponding permssion for the region
         &&& forall |i: int, j: int, k: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
-                && 0 <= k < tlsf.first_free[i][j].ptrs@.len() ==>
+                && 0 <= k < self.first_free[i][j].ptrs@.len() ==>
                 ({
-                    let fbh_ptr = tlsf.first_free[i][j].ptrs@[k];
-                    let fbh_size = tlsf.first_free[i][j].perms@[fbh_ptr].value().common.size & SIZE_SIZE_MASK;
+                    let fbh_ptr = self.first_free[i][j].ptrs@[k];
+                    let fbh_size = self.first_free[i][j].perms@[fbh_ptr].value().common.size & SIZE_SIZE_MASK;
                     true
                     //&&& self.all_block_perms@.contains_key(fbh_ptr)
                     //NOTE: hdr.size indicating free block size *includeing* the header size
@@ -96,15 +82,6 @@ impl<const FLLEN: usize, const SLLEN: usize> GhostTlsf<FLLEN, SLLEN> {
 
     pub closed spec fn contains_block(self, blk: *mut BlockHdr) -> bool {
         exists|i: int| self.all_ptrs@[i] == blk
-    }
-
-    pub proof fn remove_block_perm(&mut self, x: *mut FreeBlockHdr) -> PointsToRaw {
-        PointsToRaw::empty(Provenance::null())
-    }
-
-    pub proof fn remove_block_used_header_perm(&mut self, x: *mut UsedBlockHdr)
-        -> (tracked r: Option<PointsTo<UsedBlockHdr>>) {
-        None
     }
 }
 

@@ -50,7 +50,7 @@ use crate::block_index::BlockIndex;
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
-use ghost_tlsf::{GhostTlsf, UsedInfo};
+use ghost_tlsf::UsedInfo;
 use vstd::std_specs::bits::u64_trailing_zeros;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
@@ -58,10 +58,24 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[DLL; SLLEN]; FLLEN],
-    pub tracked gs: GhostTlsf<FLLEN, SLLEN>,
     pub used_info: UsedInfo,
 
     pub _phantom: PhantomData<&'pool ()>,
+
+
+
+    pub valid_range: Ghost<Set<int>>, // represents region managed by this allocator
+
+    // ordered by address
+    pub all_ptrs: Ghost<Seq<*mut BlockHdr>>,
+    // FIXME: reflect acutual status of Tlsf field
+    //      * option 1: move related filed to Tlsf
+    //      * option 2: wf paramter taking Tlsf
+    //      * option 3: ensure the condion in Tlsf method
+
+    // provenance of initially added blocks
+    // NOTE: Using Seq for extending to allow multiple `insert_free_block_ptr` call
+    pub root_provenances: Ghost<Seq<Provenance>>,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -161,7 +175,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * bitmap is consistent with the freelist
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(self) -> bool {
-        &&& self.gs.wf(self)
+        &&& self.wf_ghost()
         &&& self.bitmap_wf()
         &&& Self::parameter_validity()
         &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
@@ -171,10 +185,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     pub closed spec fn block_wf(self) -> bool {
         &&& forall|blk: *mut UsedBlockHdr|
                 self.used_info.contains_block(blk)
-                    ==> self.gs.contains_block(blk as *mut BlockHdr)
+                    ==> self.contains_block(blk as *mut BlockHdr)
         &&& forall|blk: *mut FreeBlockHdr|
                 self.free_list_contains_block(blk)
-                    ==> self.gs.contains_block(blk as *mut BlockHdr)
+                    ==> self.contains_block(blk as *mut BlockHdr)
     }
 
     pub(crate) closed spec fn free_list_contains_block(self, blk: *mut FreeBlockHdr) -> bool {
@@ -192,11 +206,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 ptrs: Ghost(Seq::empty()),
                 perms: Tracked(Map::tracked_empty()),
             },
-            gs: GhostTlsf {
-                all_ptrs: Ghost(Seq::empty()),
-                valid_range: Ghost(Set::empty()),
-                root_provenances: Ghost(Seq::empty()),
-            },
+            all_ptrs: Ghost(Seq::empty()),
+            valid_range: Ghost(Set::empty()),
+            root_provenances: Ghost(Seq::empty()),
             _phantom: PhantomData
         }
     }
@@ -266,7 +278,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //       As I read the use case, there wasn't code adding new region twice.
     ensures
         self.wf(),
-        self.gs.root_provenances@.len() > 0,
+        self.root_provenances@.len() > 0,
 
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
@@ -479,7 +491,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     pub closed spec fn is_root_provenance<T>(self, ptr: *mut T) -> bool {
-        self.gs.root_provenances@.contains(ptr@.provenance)
+        self.root_provenances@.contains(ptr@.provenance)
     }
 
 
@@ -933,10 +945,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 32);
             assert(Self::plat32_basics());
         }
-    }
-
-    spec fn wf_ghost(self) -> bool {
-        arbitrary()
     }
 
     spec fn free_header_ptrs(self) -> Set<*mut FreeBlockHdr> {
