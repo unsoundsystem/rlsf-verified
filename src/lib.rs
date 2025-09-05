@@ -94,7 +94,10 @@ const SIZE_USED: usize = 1;
 const SIZE_SENTINEL: usize = 2;
 // FIXME: cannot call function `lib::bits::ex_usize_trailing_zeros` with mode exec
 // https://verus-lang.github.io/verus/guide/const.html#specexec-consts
-const SIZE_SIZE_MASK: usize =  0; // !((1 << ex_usize_trailing_zeros(GRANULARITY)) - 1); // FIXME
+spec const SPEC_SIZE_SIZE_MASK: usize =
+    !(((1usize << usize_trailing_zeros(GRANULARITY)) as usize - 1usize) as usize);
+#[verifier::when_used_as_spec(SPEC_SIZE_SIZE_MASK)]
+exec const SIZE_SIZE_MASK: usize =  !((1 << GRANULARITY.trailing_zeros()) - 1);
 
 #[repr(C)]
 struct BlockHdr {
@@ -176,10 +179,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(self) -> bool {
         &&& self.wf_ghost()
-        &&& self.bitmap_wf()
         &&& Self::parameter_validity()
+
+        // Each free list is well-formed
         &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
                 ==> self.first_free[i][j].wf()
+
+        // Book keeping with bitmaps
+        &&& self.bitmap_wf()
+        // `sl_bitmap[fl][sl]` is set iff `first_free[fl][sl].is_some()`
+        &&& self.bitmap_sync()
     }
 
     pub closed spec fn block_wf(self) -> bool {

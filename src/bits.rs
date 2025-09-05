@@ -19,14 +19,18 @@ use vstd::calc;
 //#[cfg(target_pointer_width = "64")]
 //global layout usize is size == 8;
 
+/// Check if the n-th bit of the target is present (0 <= n < usize::BITS)
 #[inline]
 #[verifier::when_used_as_spec(get_bit)]
-pub fn nth_bit(target: usize, nth: usize) -> bool {
-    0x1 & (target >> nth) == 1
+pub fn nth_bit(target: usize, nth: usize) -> (r: bool)
+    requires 0 <= nth < usize::BITS,
+    ensures get_bit(target, nth) == r
+{
+    (target & (0x1usize << nth)) != 0
 }
 
 pub open spec fn get_bit(target: usize, nth: usize) -> bool {
-    0x1 & (target >> nth) == 1
+    (target & (0x1usize << nth)) != 0
 }
 
 
@@ -1522,6 +1526,92 @@ pub proof fn lemma_pow2_increases(e1: nat, e2: nat)
     lemma_pow2(e1);
     lemma_pow2(e2);
     lemma_pow_increases(2, e1, e2);
+}
+
+#[cfg(target_pointer_width = "64")]
+#[verifier::bit_vector]
+proof fn bitmap_equivalence(a: usize, b: usize)
+    requires
+        ((a & (0x1usize << 0)) != 0) == ((b & (0x1usize << 0)) != 0),
+        ((a & (0x1usize << 1)) != 0) == ((b & (0x1usize << 1)) != 0),
+        ((a & (0x1usize << 2)) != 0) == ((b & (0x1usize << 2)) != 0),
+        ((a & (0x1usize << 3)) != 0) == ((b & (0x1usize << 3)) != 0),
+        ((a & (0x1usize << 4)) != 0) == ((b & (0x1usize << 4)) != 0),
+        ((a & (0x1usize << 5)) != 0) == ((b & (0x1usize << 5)) != 0),
+        ((a & (0x1usize << 6)) != 0) == ((b & (0x1usize << 6)) != 0),
+        ((a & (0x1usize << 7)) != 0) == ((b & (0x1usize << 7)) != 0),
+        ((a & (0x1usize << 8)) != 0) == ((b & (0x1usize << 8)) != 0),
+        ((a & (0x1usize << 9)) != 0) == ((b & (0x1usize << 9)) != 0),
+        ((a & (0x1usize << 10)) != 0) == ((b & (0x1usize << 10)) != 0),
+        ((a & (0x1usize << 11)) != 0) == ((b & (0x1usize << 11)) != 0),
+        ((a & (0x1usize << 12)) != 0) == ((b & (0x1usize << 12)) != 0),
+        ((a & (0x1usize << 13)) != 0) == ((b & (0x1usize << 13)) != 0),
+        ((a & (0x1usize << 14)) != 0) == ((b & (0x1usize << 14)) != 0),
+        ((a & (0x1usize << 15)) != 0) == ((b & (0x1usize << 15)) != 0),
+        ((a & (0x1usize << 16)) != 0) == ((b & (0x1usize << 16)) != 0),
+        ((a & (0x1usize << 17)) != 0) == ((b & (0x1usize << 17)) != 0),
+        ((a & (0x1usize << 18)) != 0) == ((b & (0x1usize << 18)) != 0),
+        ((a & (0x1usize << 19)) != 0) == ((b & (0x1usize << 19)) != 0),
+        ((a & (0x1usize << 20)) != 0) == ((b & (0x1usize << 20)) != 0),
+        ((a & (0x1usize << 21)) != 0) == ((b & (0x1usize << 21)) != 0),
+        ((a & (0x1usize << 22)) != 0) == ((b & (0x1usize << 22)) != 0),
+        ((a & (0x1usize << 23)) != 0) == ((b & (0x1usize << 23)) != 0),
+        ((a & (0x1usize << 24)) != 0) == ((b & (0x1usize << 24)) != 0),
+        ((a & (0x1usize << 25)) != 0) == ((b & (0x1usize << 25)) != 0),
+        ((a & (0x1usize << 26)) != 0) == ((b & (0x1usize << 26)) != 0),
+        ((a & (0x1usize << 27)) != 0) == ((b & (0x1usize << 27)) != 0),
+        ((a & (0x1usize << 28)) != 0) == ((b & (0x1usize << 28)) != 0),
+        ((a & (0x1usize << 29)) != 0) == ((b & (0x1usize << 29)) != 0),
+        ((a & (0x1usize << 30)) != 0) == ((b & (0x1usize << 30)) != 0),
+        ((a & (0x1usize << 31)) != 0) == ((b & (0x1usize << 31)) != 0),
+        ((a & (0x1usize << 32)) != 0) == ((b & (0x1usize << 32)) != 0),
+        ((a & (0x1usize << 33)) != 0) == ((b & (0x1usize << 33)) != 0),
+        ((a & (0x1usize << 34)) != 0) == ((b & (0x1usize << 34)) != 0),
+        ((a & (0x1usize << 35)) != 0) == ((b & (0x1usize << 35)) != 0),
+        ((a & (0x1usize << 36)) != 0) == ((b & (0x1usize << 36)) != 0),
+        ((a & (0x1usize << 37)) != 0) == ((b & (0x1usize << 37)) != 0),
+        ((a & (0x1usize << 38)) != 0) == ((b & (0x1usize << 38)) != 0),
+        ((a & (0x1usize << 39)) != 0) == ((b & (0x1usize << 39)) != 0),
+        ((a & (0x1usize << 40)) != 0) == ((b & (0x1usize << 40)) != 0),
+        ((a & (0x1usize << 41)) != 0) == ((b & (0x1usize << 41)) != 0),
+        ((a & (0x1usize << 42)) != 0) == ((b & (0x1usize << 42)) != 0),
+        ((a & (0x1usize << 43)) != 0) == ((b & (0x1usize << 43)) != 0),
+        ((a & (0x1usize << 44)) != 0) == ((b & (0x1usize << 44)) != 0),
+        ((a & (0x1usize << 45)) != 0) == ((b & (0x1usize << 45)) != 0),
+        ((a & (0x1usize << 46)) != 0) == ((b & (0x1usize << 46)) != 0),
+        ((a & (0x1usize << 47)) != 0) == ((b & (0x1usize << 47)) != 0),
+        ((a & (0x1usize << 48)) != 0) == ((b & (0x1usize << 48)) != 0),
+        ((a & (0x1usize << 49)) != 0) == ((b & (0x1usize << 49)) != 0),
+        ((a & (0x1usize << 50)) != 0) == ((b & (0x1usize << 50)) != 0),
+        ((a & (0x1usize << 51)) != 0) == ((b & (0x1usize << 51)) != 0),
+        ((a & (0x1usize << 52)) != 0) == ((b & (0x1usize << 52)) != 0),
+        ((a & (0x1usize << 53)) != 0) == ((b & (0x1usize << 53)) != 0),
+        ((a & (0x1usize << 54)) != 0) == ((b & (0x1usize << 54)) != 0),
+        ((a & (0x1usize << 55)) != 0) == ((b & (0x1usize << 55)) != 0),
+        ((a & (0x1usize << 56)) != 0) == ((b & (0x1usize << 56)) != 0),
+        ((a & (0x1usize << 57)) != 0) == ((b & (0x1usize << 57)) != 0),
+        ((a & (0x1usize << 58)) != 0) == ((b & (0x1usize << 58)) != 0),
+        ((a & (0x1usize << 59)) != 0) == ((b & (0x1usize << 59)) != 0),
+        ((a & (0x1usize << 60)) != 0) == ((b & (0x1usize << 60)) != 0),
+        ((a & (0x1usize << 61)) != 0) == ((b & (0x1usize << 61)) != 0),
+        ((a & (0x1usize << 62)) != 0) == ((b & (0x1usize << 62)) != 0),
+        ((a & (0x1usize << 63)) != 0) == ((b & (0x1usize << 63)) != 0),
+    ensures
+        a == b,
+{
+}
+
+#[cfg(target_pointer_width = "64")]
+proof fn bitmap_equiv(a: usize, b: usize)
+    requires forall|i: usize| #![auto] 0 <= i < usize::BITS ==>
+        nth_bit(a, i) == nth_bit(b, i)
+    ensures a == b
+{
+    assert(forall|b: usize, i: usize| #![auto] 0 <= i < usize::BITS ==>
+        nth_bit(a, i) <==> (a & (0x1usize << i) != 0));
+    assert(forall|i: usize| #![auto] 0 <= i < usize::BITS ==>
+        nth_bit(a, i) == nth_bit(b, i));
+    bitmap_equivalence(a, b);
 }
 
 
