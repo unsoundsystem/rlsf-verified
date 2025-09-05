@@ -430,7 +430,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
     }
 
-    proof fn fl_zero_iff(self)
+    pub proof fn fl_zero_iff(self)
         by (nonlinear_arith)
         requires self.wf(), Self::parameter_validity(),
         ensures SLLEN == usize::BITS && self.0 == 0 <==> self.fl_zero_cond()

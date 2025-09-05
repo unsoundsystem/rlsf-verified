@@ -9,3 +9,4 @@ target
 .verus-solver-log
 .csdp.cache
 *.long-type-*
+.verus.log

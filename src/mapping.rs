@@ -187,7 +187,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(Self::granularity_log2() == Self::granularity_log2_spec());
 
             //assert(sl_shift_amount >= 0 <==> fl + Self::granularity_log2_spec() >= Self::sli_spec());
-            assert(Self::map_floor_int(size) == (fl as int, sl as int)) by {
+            assert(Self::map_floor_int(size) == idx) by {
                 assert(fl + Self::granularity_log2_spec() >= Self::sli_spec()
                     ==> pow2((fl + Self::granularity_log2_spec()) as nat) >= SLLEN) by {
                     if fl + Self::granularity_log2_spec() >= Self::sli_spec() {
@@ -434,7 +434,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     // while sli < fl + g, g=GRANULARITY_LOG2
                     lemma_div_before_mult_pow2(fl + Self::granularity_log2_spec(), Self::sli_spec());
                 };
-                assert(Self::map_floor_int(size) == (fl as int, sl as int));
+                assert(Self::map_floor_int(size) matches BlockIndex(fl, sl));
+                Self::lemma_map_floor_int(size);
 
                 assert(slb > 0) by {
                     assert(pow2(Self::sli_spec() as nat)
@@ -532,7 +533,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
        Some(idx)
     }
 
-    spec fn map_floor_int(size: usize) -> (int, int)
+    spec fn map_floor_int(size: usize) -> BlockIndex<FLLEN, SLLEN>
         recommends
             Self::parameter_validity(),
             size % GRANULARITY == 0,
@@ -543,9 +544,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         if flb >= SLLEN {
             let slb = flb / SLLEN as int;
             let sl = ((size as int) / slb) % SLLEN as int;
-            (fl, sl)
+            BlockIndex(fl as usize, sl as usize)
         } else {
-            (0, 0)
+            BlockIndex(0, 0)
         }
     }
 
@@ -557,10 +558,45 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)
         ensures
-            Self::map_floor_int(size) matches (fl, sl) &&
+            Self::map_floor_int(size) matches BlockIndex(fl, sl) &&
                 BlockIndex::<FLLEN, SLLEN>(fl as usize, sl as usize).wf()
     {
         admit()
+    }
+
+    proof fn lemma_map_floor_int(size: usize)
+        requires
+            Self::parameter_validity(),
+            size % GRANULARITY == 0,
+            size >= GRANULARITY,
+            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int)
+        ensures ({
+            let BlockIndex(fl, sl) = Self::map_floor_int(size);
+            if Self::map_floor_int(size).fl_zero_cond() {
+                fl == 0 && sl == 0
+            } else { 
+                let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+                let slb = flb / SLLEN as int;
+                &&& fl == log(2, size as int / GRANULARITY as int) as usize
+                &&& sl == (((size as int) / slb) % SLLEN as int) as usize
+            }
+        })
+    {
+        Self::lemma_map_floor_int_wf(size);
+        let idx = Self::map_floor_int(size);
+        let BlockIndex(fl, sl) = idx;
+
+        let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+        let slb = flb / SLLEN as int;
+        assume(flb >= SLLEN <==> !idx.fl_zero_cond());
+        assume(0 <= log(2, size as int / GRANULARITY as int) < FLLEN);
+        if idx.fl_zero_cond() {
+            idx.fl_zero_iff();
+            //assert(size == GRANULARITY);
+        } else {
+            // FIXME: SMT transcript looks identical but cannot prove this
+            assume(fl == log(2, size as int / GRANULARITY as int) as usize);
+        }
     }
 
 
@@ -572,7 +608,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)
         ensures ({
-            let (fl, sl) = Self::map_floor_int(size);
+            let BlockIndex(fl, sl) = Self::map_floor_int(size);
             let idx = BlockIndex::<FLLEN, SLLEN>(fl as usize, sl as usize);
 
             &&& idx.wf()
@@ -584,7 +620,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     proof fn lemma_map_floor_int_at_granularity() by (nonlinear_arith)
         requires Self::parameter_validity(),
-        ensures Self::map_floor_int(GRANULARITY) == (0int, 0int)
+        ensures Self::map_floor_int(GRANULARITY) matches BlockIndex(0, 0)
     {
         lemma_log2_values();
         lemma_pow2_values();
