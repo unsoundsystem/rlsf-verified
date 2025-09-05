@@ -1002,4 +1002,19 @@ proof fn fbh_pt_into_ubh(tracked mut fbh: PointsTo<FreeBlockHdr>) -> (tracked r:
     fbh_raw.into_typed(size_of::<UsedBlockHdr>())
 }
 
+
+#[macro_export]
+macro_rules! nth_bit_macro {
+    ($a:expr, $b:expr) => {{
+        (0x1usize & ($a >> $b)) == 1
+    }};
+}
+
+#[macro_export]
+macro_rules! nth_bit {
+    ($($a:tt)*) => {
+        verus_proof_macro_exprs!(nth_bit_macro!($($a)*))
+    }
+}
+
 } // verus!
