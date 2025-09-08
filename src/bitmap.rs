@@ -11,6 +11,18 @@ use crate::{
 use crate::block_index::BlockIndex;
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
+
+    #[verifier::bit_vector]
+    pub proof fn lemma_bitmap_or(b: usize, i: usize)
+        requires
+            0 <= i < usize::BITS,
+        ensures
+            nth_bit!(b | (1usize << i), i),
+            forall|j: usize|
+                0 <= j < usize::BITS && i != j ==>
+                    nth_bit!(b | (1usize << i), j) == nth_bit!(b, j)
+    {}
+
     #[inline(always)]
     pub fn set_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
@@ -21,49 +33,52 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap | (1usize << fl);
-        assert(forall|b: usize, i: usize| 0 <= i < usize::BITS
-            ==> ((b | (1usize << i)) & 1usize << i) != 0) by (bit_vector);
-        assert(nth_bit!(self.fl_bitmap, fl)) by (compute);
         // TODO: Confirm that this workaround not needed anymore
         //let tmp = self.sl_bitmap[fl] | (1usize << sl);
         //self.sl_bitmap.set(fl, tmp);
         self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl);
-        assert(nth_bit!(self.sl_bitmap[fl as int], sl));
         proof {
-            assert(old(self).bitmap_wf());
-            assert(nth_bit!(self.sl_bitmap[fl as int], sl) <==> nth_bit!(self.fl_bitmap, fl));
+            assert(nth_bit!(self.fl_bitmap, fl)) by {
+                Self::lemma_bitmap_or(old(self).fl_bitmap, fl);
+            };
+            assert(nth_bit!(self.sl_bitmap[fl as int], sl)) by {
+                Self::lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+            };
+            //assert(old(self).bitmap_wf());
+            //assert(nth_bit!(self.sl_bitmap[fl as int], sl) <==> nth_bit!(self.fl_bitmap, fl));
 
-            assert(forall|b1: usize, b2: usize, i: usize| 0 <= i < usize::BITS ==>
-                b1 & (1usize << i) == b2 & (1usize << i) ==> b1 == b2) by (bit_vector);
-            assert(forall|b1: usize, b2: usize, i: usize| 0 <= i < usize::BITS ==>
-                b1 & (1usize << i) != 0 && b2 & (1usize << i) != 0
-                ==>  b1 & (1usize << i) == b2 & (1usize << i)) by (bit_vector);
-            assert(forall|b1: usize, b2: usize, i: usize| 0 <= i < usize::BITS ==>
-                nth_bit!(b1, i) == nth_bit!(b2, i) ==> b1 == b2);
+            //assert(forall|b1: usize, b2: usize, i: usize| 0 <= i < usize::BITS ==>
+                //b1 & (1usize << i) == b2 & (1usize << i) ==> b1 == b2) by (bit_vector);
+            //assert(forall|b1: usize, b2: usize, i: usize| 0 <= i < usize::BITS ==>
+                //b1 & (1usize << i) != 0 && b2 & (1usize << i) != 0
+                //==>  b1 & (1usize << i) == b2 & (1usize << i)) by (bit_vector);
+            //assert(forall|b1: usize, b2: usize, i: usize| 0 <= i < usize::BITS ==>
+                //nth_bit!(b1, i) == nth_bit!(b2, i) ==> b1 == b2);
 
-            assert(forall|b: usize, i: usize, j: usize|
-                0 <= i < usize::BITS && 0 <= j < usize::BITS && i != j
-                ==> ((b | (1usize << i)) & 1usize << j) == b & 1usize << j) by (bit_vector);
-            assert(forall|b: usize, i: usize, j: usize|
-                0 <= i < usize::BITS && 0 <= j < usize::BITS && i != j
-                ==> nth_bit!(b | (1usize << i), j) == nth_bit!(b, j));
+            //assert(forall|b: usize, i: usize, j: usize|
+                //0 <= i < usize::BITS && 0 <= j < usize::BITS && i != j
+                //==> ((b | (1usize << i)) & 1usize << j) == b & 1usize << j) by (bit_vector);
+            //assert(forall|b: usize, i: usize, j: usize|
+                //0 <= i < usize::BITS && 0 <= j < usize::BITS && i != j
+                //==> nth_bit!(b | (1usize << i), j) == nth_bit!(b, j));
 
-            assert(forall|f: usize|
-                0 <= f < usize::BITS && f != fl
-                ==> nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
+            //assert(forall|f: usize|
+                //0 <= f < usize::BITS && f != fl
+                //==> nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
 
+            //admit()
             assert forall|idx: BlockIndex<FLLEN, SLLEN>|
                 idx.wf() implies idx matches BlockIndex(f, s) &&
                     (nth_bit!(self.sl_bitmap[f as int], s) <==> nth_bit!(self.fl_bitmap, f))
             by {
-                let BlockIndex(f, s) = idx;
-                if f == fl && s == sl {
-                    admit()
-                } else {
-                    assert(old(self).bitmap_wf());
-                    assert(nth_bit!(self.sl_bitmap[f as int], s) == nth_bit!(old(self).sl_bitmap[f as int], s));
-                    assert(nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
-                }
+                //let BlockIndex(f, s) = idx;
+                //if f == fl && s == sl {
+                    //admit()
+                //} else {
+                    //assert(old(self).bitmap_wf());
+                    //assert(nth_bit!(self.sl_bitmap[f as int], s) == nth_bit!(old(self).sl_bitmap[f as int], s));
+                    //assert(nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
+                //}
             }
         }
     }
