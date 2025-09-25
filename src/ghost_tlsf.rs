@@ -17,20 +17,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     ///   2. no consecuitive free/used blocks
     ///   3. blocks must not be overwrapped
     /// * To ensure the invariant hold for every block, 
-    ///   we must track all the pointers of registered blocks in GhostTlsf.
+    ///   we must track all the pointers of registered blocks
     /// * all blocks constitues a singly-linked list
     pub closed spec fn wf_ghost(self) -> bool {
         // all elements of all_ptrs has a corresponding element in first_free/block_used 
         //&&& forall|i: int| exists|j: int|
             //self.all_ptrs[i] as *mut UsedBlockHdr == 
+        // elements of all_ptrs are ordered by their address
         &&& forall|i: int, j: int| i < j ==> (self.all_ptrs@[i] as int) < (self.all_ptrs@[j] as int)
-        // all_ptrs and all_block_headers are kept in sync
-        &&& forall|i: int| 0 <= i < self.all_ptrs@.len() ==>
-            ({
-                //&&& self.all_block_headers@.contains_key(self.all_ptrs@[i])
-                &&& self.phys_next_of(i) matches Some(hdr_ptr) ==> self.all_ptrs@.contains(hdr_ptr)
-                &&& self.phys_prev_of(i) matches Some(hdr_ptr) ==> self.all_ptrs@.contains(hdr_ptr)
-            })
+        // at least one provenance exist for memory pool
         &&& self.root_provenances@.len() > 0
         // Free block header has corresponding permssion for the region
         &&& forall |i: int, j: int, k: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
@@ -72,6 +67,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     pub closed spec fn contains_block(self, blk: *mut BlockHdr) -> bool {
         exists|i: int| self.all_ptrs@[i] == blk
+    }
+
+    pub closed spec fn contains_block_perm(self, blk: *mut BlockHdr) -> bool {
+        ||| self.used_info.perms@.contains_key(blk as *mut UsedBlockHdr)
+        ||| exists |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
+                && self.first_free[i][j].perms@.contains_key(blk as *mut FreeBlockHdr)
     }
 }
 
