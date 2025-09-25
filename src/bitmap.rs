@@ -44,6 +44,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(nth_bit!(self.sl_bitmap[fl as int], sl)) by {
                 Self::lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
             };
+            Self::lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+            Self::lemma_bitmap_or(old(self).fl_bitmap, fl);
+            assert(self.fl_bitmap == old(self).fl_bitmap | (1usize << fl));
+            assert(self.sl_bitmap[fl as int] == old(self).sl_bitmap[fl as int] | (1usize << sl));
             //assert(old(self).bitmap_wf());
             //assert(nth_bit!(self.sl_bitmap[fl as int], sl) <==> nth_bit!(self.fl_bitmap, fl));
 
@@ -67,18 +71,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 //==> nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
 
             //admit()
+            assert(old(self).bitmap_wf());
             assert forall|idx: BlockIndex<FLLEN, SLLEN>|
                 idx.wf() implies idx matches BlockIndex(f, s) &&
-                    (nth_bit!(self.sl_bitmap[f as int], s) <==> nth_bit!(self.fl_bitmap, f))
+                    (self.sl_bitmap[f as int] == 0 <==> !nth_bit!(self.fl_bitmap, f))
             by {
-                //let BlockIndex(f, s) = idx;
-                //if f == fl && s == sl {
-                    //admit()
-                //} else {
-                    //assert(old(self).bitmap_wf());
-                    //assert(nth_bit!(self.sl_bitmap[f as int], s) == nth_bit!(old(self).sl_bitmap[f as int], s));
-                    //assert(nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
-                //}
+                let BlockIndex(f, s) = idx;
+                if f == fl && s == sl {
+                    admit()
+                } else {
+                    //admit();
+                    assert(old(self).bitmap_wf());
+                    assert(nth_bit!(self.sl_bitmap[f as int], s) == nth_bit!(old(self).sl_bitmap[f as int], s));
+                    assert(nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
+                }
             }
         }
     }
@@ -98,14 +104,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     pub closed spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
         forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==>
-            self.sl_bitmap[idx.0 as int] == 0 <==> !(nth_bit!(self.fl_bitmap, idx.0))
+            (self.sl_bitmap[idx.0 as int] == 0 <==> !(nth_bit!(self.fl_bitmap, idx.0)))
     }
 
     /// Bitmap kept sync with segregated free lists.
     pub closed spec fn bitmap_sync(self) -> bool {
         forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
-            nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
-                <==> !self.first_free[idx.0 as int][idx.1 as int].is_empty()
+            (nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
+                <==> !self.first_free[idx.0 as int][idx.1 as int].is_empty())
     }
 }
 }
