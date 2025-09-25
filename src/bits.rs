@@ -1598,5 +1598,39 @@ proof fn eq_if_biwise_equiv(a: usize, b: usize)
     bitwise_equivalence(a, b);
 }
 
+#[verifier::bit_vector]
+pub proof fn lemma_bit_or_nonzero()
+    ensures forall|x: usize, s: usize| 0 <= s < usize::BITS
+                ==> (x | (1usize << s)) != 0
+{}
+
+#[verifier::bit_vector]
+pub proof fn lemma_bit_clear_zero()
+    ensures forall|x: usize, s: usize| 0 <= s < usize::BITS
+                ==> (x & !(1usize << s)) == 0
+{}
+
+#[verifier::bit_vector]
+pub proof fn lemma_bitmap_or(b: usize, i: usize)
+    requires
+        0 <= i < usize::BITS,
+    ensures
+        nth_bit!(b | (1usize << i), i),
+        forall|j: usize|
+            0 <= j < usize::BITS && i != j ==>
+                nth_bit!(b | (1usize << i), j) == nth_bit!(b, j)
+{}
+
+#[verifier::bit_vector]
+pub proof fn lemma_bitmap_clear(b: usize, i: usize)
+    requires
+        0 <= i < usize::BITS,
+    ensures
+        !nth_bit!(b & !(1usize << i), i),
+        forall|j: usize|
+            0 <= j < usize::BITS && i != j ==>
+                nth_bit!(b & !(1usize << i), j) == nth_bit!(b, j)
+{}
+
 
 } // verus!

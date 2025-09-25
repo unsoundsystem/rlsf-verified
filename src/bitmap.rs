@@ -8,20 +8,11 @@ use crate::{
     Tlsf, GRANULARITY
 };
 
+use crate::bits::{lemma_bitmap_or, lemma_bit_clear_zero, lemma_bit_or_nonzero, lemma_bitmap_clear};
+
 use crate::block_index::BlockIndex;
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
-
-    #[verifier::bit_vector]
-    pub proof fn lemma_bitmap_or(b: usize, i: usize)
-        requires
-            0 <= i < usize::BITS,
-        ensures
-            nth_bit!(b | (1usize << i), i),
-            forall|j: usize|
-                0 <= j < usize::BITS && i != j ==>
-                    nth_bit!(b | (1usize << i), j) == nth_bit!(b, j)
-    {}
 
     #[inline(always)]
     pub fn set_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
@@ -39,13 +30,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         self.sl_bitmap[fl] = self.sl_bitmap[fl] | (1usize << sl);
         proof {
             assert(nth_bit!(self.fl_bitmap, fl)) by {
-                Self::lemma_bitmap_or(old(self).fl_bitmap, fl);
+                lemma_bitmap_or(old(self).fl_bitmap, fl);
             };
             assert(nth_bit!(self.sl_bitmap[fl as int], sl)) by {
-                Self::lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+                lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
             };
-            Self::lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
-            Self::lemma_bitmap_or(old(self).fl_bitmap, fl);
+            lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+            lemma_bitmap_or(old(self).fl_bitmap, fl);
             assert(self.fl_bitmap == old(self).fl_bitmap | (1usize << fl));
             assert(self.sl_bitmap[fl as int] == old(self).sl_bitmap[fl as int] | (1usize << sl));
             assert(old(self).bitmap_wf());
@@ -57,7 +48,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let BlockIndex(f, s) = idx;
                 if f == fl && s == sl {
                     // we modified f-th and s-th bits
-                    assert(forall|x: usize, s: usize| 0 <= s < usize::BITS ==> (x | (1usize << s)) != 0) by (bit_vector);
+                    lemma_bit_or_nonzero();
                     assert((old(self).sl_bitmap[fl as int] | (1usize << sl)) != 0);
                     assert(nth_bit!(old(self).fl_bitmap | (1usize << fl), f));
                 } else {
@@ -71,7 +62,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(nth_bit!(self.fl_bitmap, fl));
                             assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int] | (1usize << sl));
                             assert(0 <= sl < usize::BITS);
-                            assert(forall|x: usize, s: usize| 0 <= s < usize::BITS ==> (x | (1usize << s)) != 0) by (bit_vector);
+                            lemma_bit_or_nonzero();
                             assert(self.sl_bitmap[f as int] != 0);
                         }
 
@@ -87,11 +78,44 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //       freelist & bitmaps (thus the postcondition)
     #[inline(always)]
     pub fn clear_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
-        requires idx.wf(), old(self).bitmap_wf()
+        requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
         ensures self.bitmap_wf(),
             idx matches BlockIndex(fl, sl)
                 && !nth_bit!(self.sl_bitmap[fl as int], sl)
-    {}
+                && !nth_bit!(self.fl_bitmap, fl)
+    {
+        let BlockIndex(fl, sl) = idx;
+        self.fl_bitmap = self.fl_bitmap & !(1usize << fl);
+        self.sl_bitmap[fl] = self.sl_bitmap[fl] & !(1usize << sl);
+
+        proof {
+            assert(self.fl_bitmap == old(self).fl_bitmap & !(1usize << fl));
+            assert(self.sl_bitmap[fl as int] == old(self).sl_bitmap[fl as int] & !(1usize << sl));
+            assert(!nth_bit!(self.fl_bitmap, fl)) by {
+                lemma_bitmap_clear(old(self).fl_bitmap, fl);
+            };
+            assert(!nth_bit!(self.sl_bitmap[fl as int], sl)) by {
+                lemma_bitmap_clear(old(self).sl_bitmap[fl as int], sl);
+            };
+            lemma_bitmap_clear(old(self).sl_bitmap[fl as int], sl);
+            lemma_bitmap_clear(old(self).fl_bitmap, fl);
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>|
+                idx.wf() implies idx matches BlockIndex(f, s) &&
+                    (self.sl_bitmap[f as int] == 0 <==> !nth_bit!(self.fl_bitmap, f))
+            by {
+                let BlockIndex(f, s) = idx;
+                if f == fl && s == sl {
+                    // we modified f-th and s-th bits
+                    lemma_bit_clear_zero();
+                } else {
+                    // other bits are same as in old(self)
+                    if s != sl && f == fl {
+                            lemma_bit_clear_zero();
+                    }
+                }
+            }
+        }
+    }
 
     /// State *inner bitmap consistency*
     ///      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
