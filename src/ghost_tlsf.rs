@@ -48,6 +48,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //&&& (self.all_ptrs@[i] is Used ==> !(self.all_ptrs@[i + 1] is Used))
         //})
     }
+    
+    pub closed spec fn get_header_from_pointer(self, *mut BlockHdr) -> Header {
+    }
 
     pub closed spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr>
     {
@@ -83,12 +86,33 @@ pub(crate) struct UsedInfo {
 
 impl UsedInfo {
     pub fn wf(self) -> bool {
-        false
+        &&& sorted_by(self.ptrs@, |ptr1: *mut UsedBlockHdr, ptr2: *mut UsedBlockHdr| {
+                ptr1 as usize as int < ptr2 as usize as int
+        })
+        &&& forall|ptr: *mut UsedBlockHdr|
+                self.perms.contains_key(ptr) <==> self.ptrs.contains(ptr)
+        &&& self.ptrs.no_duplicate()
     }
 
-    pub closed spec fn contains_block(self, ptr: *mut UsedBlockHdr) -> bool {
-        false
+    pub closed spec fn contains_block(self, ptr: *mut UsedBlockHdr) -> bool
+        recommends self.wf()
+    {
+        self.ptrs.contains(ptr)
+    }
+
+    pub proof fn add(&mut self, ptr: *mut UsedBlockHdr, Tracked(perm): Tracked<PointsTo<UsedBlockHdr>>) {
+        self.ptrs = self.ptrs.add(ptr)
+            .sort_by(|ptr1: *mut UsedBlockHdr, ptr2: *mut UsedBlockHdr| {
+                ptr1 as usize as int < ptr2 as usize as int
+            });
+        self.perms.tracked_insert(ptr, perm);
     }
 }
 
+enum Header {
+    Used(*mut UsedBlockHdr),
+    Free(*mut FreeBlockHdr)
 }
+
+}
+
