@@ -28,14 +28,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 ==> (self.all_blocks@[i].to_ptr() as int) < (self.all_blocks@[j].to_ptr() as int)
         // at least one provenance exist for memory pool
         &&& self.root_provenances@ is Some
-        // Elements alternating Free/Used i.e. no adjecent free blocks
-        &&& forall|i: int| 0 <= i < self.all_blocks@.len() ==>
-                if i < self.all_blocks@.len() - 1 {
-                    &&& #[trigger] self.all_blocks@[i] is Used ==> self.all_blocks@[i + 1] is Free
-                    &&& #[trigger] self.all_blocks@[i] is Free ==> self.all_blocks@[i + 1] is Used
-                } else {
-                    true
-                }
+        // No adjecent free blocks
+        &&& forall|i: int|
+                0 <= i < self.all_blocks@.len() - 1
+                    ==> #[trigger] self.all_blocks@[i] is Free
+                            ==> self.all_blocks@[i + 1] is Used
         // TODO: must be connected by prev_phys_block
     }
 
