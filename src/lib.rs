@@ -50,7 +50,7 @@ use crate::block_index::BlockIndex;
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
-use ghost_tlsf::UsedInfo;
+use ghost_tlsf::{UsedInfo, Block};
 use vstd::std_specs::bits::u64_trailing_zeros;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
@@ -67,15 +67,16 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub valid_range: Ghost<Set<int>>, // represents region managed by this allocator
 
     // ordered by address
-    pub all_ptrs: Ghost<Seq<*mut BlockHdr>>,
+    pub all_blocks: Ghost<Seq<Block>>,
     // FIXME: reflect acutual status of Tlsf field
     //      * option 1: move related filed to Tlsf
     //      * option 2: wf paramter taking Tlsf
     //      * option 3: ensure the condion in Tlsf method
 
     // provenance of initially added blocks
-    // NOTE: Using Seq for extending to allow multiple `insert_free_block_ptr` call
-    pub root_provenances: Ghost<Seq<Provenance>>,
+    // NOTE: Assuming that there is only single memory pool and once the pool registered, no more
+    //       new region could be registered to extend.
+    pub root_provenances: Ghost<Option<Provenance>>,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -191,19 +192,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& self.bitmap_sync()
     }
 
-    pub closed spec fn block_wf(self) -> bool {
-        &&& forall|blk: *mut UsedBlockHdr|
-                self.used_info.contains_block(blk)
-                    ==> self.contains_block(blk as *mut BlockHdr)
-        &&& forall|blk: *mut FreeBlockHdr|
-                self.free_list_contains_block(blk)
-                    ==> self.contains_block(blk as *mut BlockHdr)
-    }
-
-    pub(crate) closed spec fn free_list_contains_block(self, blk: *mut FreeBlockHdr) -> bool {
-        exists|i: int, j: int, k: int| self.first_free[i][j].ptrs@[k] == blk
-    }
-
     pub const fn new() -> (r: Self)
         ensures r.wf()
     {
@@ -215,9 +203,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 ptrs: Ghost(Seq::empty()),
                 perms: Tracked(Map::tracked_empty()),
             },
-            all_ptrs: Ghost(Seq::empty()),
+            all_blocks: Ghost(Seq::empty()),
             valid_range: Ghost(Set::empty()),
-            root_provenances: Ghost(Seq::empty()),
+            root_provenances: Ghost(None),
             _phantom: PhantomData
         }
     }
@@ -287,7 +275,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //       As I read the use case, there wasn't code adding new region twice.
     ensures
         self.wf(),
-        self.root_provenances@.len() > 0,
+        self.root_provenances@ is Some
 
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
@@ -500,7 +488,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     pub closed spec fn is_root_provenance<T>(self, ptr: *mut T) -> bool {
-        self.root_provenances@.contains(ptr@.provenance)
+        let ptr = ptr@.provenance;
+        self.root_provenances@ matches Some(ptr)
     }
 
 
