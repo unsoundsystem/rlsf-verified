@@ -15,7 +15,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// We must ensure following holds for all operations allocator provides
     /// * block invariants
     ///   1. blocks precisely covers whole memory pool
-    ///   2. no consecuitive free/used blocks
+    ///   2. no successive free blocks
     ///   3. blocks must not be overwrapped
     /// * To ensure the invariant hold for every block, 
     ///   we must track all the pointers of registered blocks
@@ -32,7 +32,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& forall|i: int|
                 0 <= i < self.all_blocks@.len() - 1
                     ==> #[trigger] self.all_blocks@[i] is Free
-                            ==> self.all_blocks@[i + 1] is Used
+                        ==> self.all_blocks@[i + 1] is Used
         // TODO: must be connected by prev_phys_block
     }
 
@@ -54,7 +54,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     pub closed spec fn wf_block(self, blk: Block) -> bool {
         &&& self.all_blocks@.contains(blk)
-        // xor NOTE: this could be derived actually
         &&& blk matches Block::Used(ptr)
                 ==> self.used_info.perms@.contains_key(ptr)
         &&& blk matches Block::Free(ptr, i, j)
