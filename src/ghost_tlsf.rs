@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 use vstd::raw_ptr::{ptr_mut_write, ptr_ref2, ptr_ref, PointsToRaw, PointsTo, Metadata, Provenance};
-use crate::{FreeBlockHdr, UsedBlockHdr, Tlsf, SIZE_SIZE_MASK, BlockHdr};
+use crate::{FreeBlockHdr, UsedBlockHdr, Tlsf, SIZE_SIZE_MASK, SIZE_SENTINEL, BlockHdr};
 use crate::block_index::BlockIndex;
 use vstd::set_lib::set_int_range;
 use core::hint::unreachable_unchecked;
@@ -58,8 +58,26 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 ==> self.used_info.perms@.contains_key(ptr)
         &&& blk matches Block::Free(ptr, i, j)
                 ==> BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
-                    && self.first_free[i][j].perms@.contains_key(ptr)
+                        && self.first_free[i][j].perms@.contains_key(ptr)
+        // next_phys_block/prev_phys_block invariants
+        // if blk isn't a sentinel then there is block next to it
+        &&& self.phys_next_of(self.all_blocks.index_of(blk)) is None
+                ==> self.is_sentinel(blk)
+        // if blk isn't first one in the pool, prev_phys_block is Some
+        &&& self.block_common(blk).prev_phys_block is Some == blk ==> self.all_blocks.first()
+    }
 
+    pub closed spec fn is_sentinel(self, blk: Block) -> bool {
+        self.block_common().size & SIZE_SENTINEL == 0
+    }
+
+    pub closed spec fn block_common(self, blk: block) -> BlockHdr {
+        match blk {
+            Used(ptr) =>
+                self.used_info.perms@[ptr].common
+            Free(ptr, i, j) =>
+                self.first_free[i][j].perms@[ptr].common
+        }
     }
 }
 

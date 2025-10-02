@@ -127,7 +127,7 @@ impl BlockHdr {
     /// e.g. splitting a large block into two (continuous) small blocks 
     #[inline(always)]
     #[verifier::external_body] // debug
-    unsafe fn next_phys_block(&self) -> *mut BlockHdr
+    unsafe fn next_phys_block(&self) -> (r: (*mut BlockHdr, tracked PointsTo<BlockHdr>))
     {
         ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
     }
