@@ -117,24 +117,19 @@ struct BlockHdr {
 }
 
 impl BlockHdr {
-    /// Get the next block, assuming it exists.
-    ///
-    /// # Safety
-    ///
-    /// `self` must have a next block (it must not be the sentinel block in a
-    /// pool).
-    ///
-    /// e.g. splitting a large block into two (continuous) small blocks 
-    #[inline(always)]
-    #[verifier::external_body] // debug
-    unsafe fn next_phys_block(&self) -> (r: (*mut BlockHdr, Tracked<PointsTo<BlockHdr>>))
-        //requires self.wf()
-    {
-        let ptr = ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast();
-        (
-            ptr,
-            Tracked(PointsToRaw::empty(Provenance::null()).into_typed(0))
-        )
+}
+
+enum BlockPerm {
+    Used(Tracked<PointsTo<UsedBlockHdr>>),
+    Free(Tracked<PointsTo<FreeBlockHdr>>)
+}
+
+impl BlockPerm {
+    pub closed spec fn bhdr_ptr(self) -> *mut BlockHdr {
+        match self {
+            BlockPerm::Used(perm) => perm@.ptr() as *mut BlockHdr,
+            BlockPerm::Free(perm) => perm@.ptr() as *mut BlockHdr
+        }
     }
 }
 
@@ -934,6 +929,44 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     spec fn free_header_ptrs(self) -> Set<*mut FreeBlockHdr> {
         arbitrary()
         //Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| self.first_free[i][j]@).to_set()).to_set()
+    }
+
+
+    /// Get the next block, assuming it exists.
+    ///
+    /// # Safety
+    ///
+    /// `self` must have a next block (it must not be the sentinel block in a
+    /// pool).
+    ///
+    /// e.g. splitting a large block into two (continuous) small blocks 
+    #[inline(always)]
+    #[verifier::external_body] // debug
+    unsafe fn next_phys_block(&mut self, bhdr: &BlockHdr) -> (r: (*mut BlockHdr, Tracked<BlockPerm>))
+        requires old(self).wf_all_blocks(), /* and bhdr is not sentinel */
+        ensures r.0 == r.1@.bhdr_ptr()
+    {
+        let ptr = ((bhdr as *const _ as *mut u8).add(bhdr.size & SIZE_SIZE_MASK)).cast();
+        let tracked mut perm: BlockPerm;
+
+        proof {
+            let i = choose|i: int| bhdr == self.all_blocks@[i].to_ptr() as *mut BlockHdr;
+            let blk = self.all_blocks@[i];
+            let next_block = self.phys_next_of(i).unwrap();
+            affirm(!self.is_sentinel(blk));
+            perm = match next_block {
+                Block::Used(ptr) => {
+                    let perm = self.used_info.perms@.tracked_remove(ptr);
+                    BlockPerm::Used(Tracked(perm))
+                }
+                Block::Free(ptr, i, j) => {
+                    let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
+                    BlockPerm::Free(Tracked(perm))
+                }
+            }
+        }
+
+        (ptr, Tracked(perm))
     }
 }
 

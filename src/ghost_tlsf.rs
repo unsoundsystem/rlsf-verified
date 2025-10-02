@@ -70,7 +70,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.phys_prev_of(i) matches Some(b) && prev_ptr == b.to_ptr()
         // header address = previous header address + block size
         &&& self.phys_prev_of(i) matches Some(prev_block) ==>
-                blk.to_ptr() as int  == prev_block.to_ptr() as int + self.block_common(blk).size
+                blk.to_ptr() as int  == prev_block.to_ptr() as int + self.block_common(prev_block).size
+        &&& self.phys_next_of(i) matches Some(next_block) ==>
+                next_block.to_ptr() as int  == blk.to_ptr() as int + self.block_common(blk).size
     }
 
 
@@ -157,7 +159,7 @@ pub enum Block {
 }
 
 impl Block {
-    spec fn to_ptr(self) -> *mut BlockHdr {
+    pub closed spec fn to_ptr(self) -> *mut BlockHdr {
         match self {
             Block::Used(ptr) => ptr as *mut BlockHdr,
             Block::Free(ptr, _, _) => ptr as *mut BlockHdr,
