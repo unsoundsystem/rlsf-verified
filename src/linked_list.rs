@@ -98,7 +98,7 @@ impl DLL {
         forall|i: int| 0 <= i < self.ptrs@.len() ==> self.ptrs@[i] != node
     }
 
-    pub(crate) fn push_front(&mut self, new_node: *mut FreeBlockHdr, Tracked(perm_new_node): Tracked<&mut PointsTo<FreeBlockHdr>>)
+    pub(crate) fn push_front(&mut self, new_node: *mut FreeBlockHdr, Tracked(perm_new_node): Tracked<PointsTo<FreeBlockHdr>>)
         requires
             old(self).wf(),
             new_node == perm_new_node.ptr(),

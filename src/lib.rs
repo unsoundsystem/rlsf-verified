@@ -127,9 +127,13 @@ impl BlockHdr {
     /// e.g. splitting a large block into two (continuous) small blocks 
     #[inline(always)]
     #[verifier::external_body] // debug
-    unsafe fn next_phys_block(&self) -> (r: (*mut BlockHdr, tracked PointsTo<BlockHdr>))
+    unsafe fn next_phys_block(&self) -> (r: (*mut BlockHdr, Tracked<PointsTo<BlockHdr>>))
     {
-        ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast()
+        let ptr = ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast();
+        (
+            ptr,
+            Tracked(PointsToRaw::empty(Provenance::null()).into_typed(0))
+        )
     }
 }
 
@@ -271,7 +275,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // Given pointer must be aligned
         start as usize as int % GRANULARITY as int == 0,
         // Tlsf is well-formed
-        self.wf()
+        old(self).wf()
     ensures
         self.wf(),
         self.root_provenances@ is Some
@@ -279,86 +283,87 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
     {
-        let tracked mut new_header;
-        let tracked mut mem_remains;
-
-        let mut size_remains = size;
-        let mut cursor = start as usize;
-
-
-        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
-        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */ {
-            let chunk_size = size_remains.min(Self::max_pool_size());
-
-            assert(chunk_size % GRANULARITY == 0);
-
-            proof {
-                let (h, m) =
-                    points_to_block.split(set_int_range(cursor as int, cursor as int + GRANULARITY as int));
-                mem_remains = m;
-                new_header = h.into_typed(cursor);
-            }
-
-            // The new free block
-            // Safety: `cursor` is not zero.
-            let mut block = cursor as *mut FreeBlockHdr;
-
-            // Initialize the new free block
-            // NOTE: header size calculated as GRANULARITY
-            assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(chunk_size - GRANULARITY));
-            let idx = Self::map_floor(chunk_size - GRANULARITY)?;
-
-            // Write the header
-            // NOTE: because Verus doesn't supports field update through raw pointer,
-            //       we have to write it at once with `ptr_mut_write`.
-            ptr_mut_write(block, Tracked(&mut new_header),
-                FreeBlockHdr {
-                    common: BlockHdr {
-                        size: chunk_size - GRANULARITY,
-                        prev_phys_block: None,
-                    },
-                    next_free: None,
-                    prev_free: None,
-                });
-
-            // Link to the list
-            self.free_list_push_front(idx, block, Tracked(&mut new_header));
-
-            // Update bitmaps
-            self.set_bit_for_index(idx);
-            //self.set_fl_bitmap(fl as u32);
-            //self.sl_bitmap[fl].set_bit(sl as u32);
-
-
-
-            // Cap the end with a sentinel block (a permanently-used block)
-            let mut sentinel_block = ptr_ref(block, Tracked(&new_header))
-                .common
-                .next_phys_block()
-                .cast::<UsedBlockHdr>();
-
-            let tracked (sentinel_perm, m) = mem_remains.split(
-                set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
-            mem_remains = m;
-
-            ptr_mut_write(sentinel_block, Tracked(&mut sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize)),
-                UsedBlockHdr { 
-                    common: BlockHdr {
-                        size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
-                        prev_phys_block: Some(block.cast()),
-                    }
-                });
-
-            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
-            // iteration must be the last one
-            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
-            size_remains -= chunk_size;
-            cursor = cursor.wrapping_add(chunk_size);
-        }
-
-        Some(cursor.wrapping_sub(start as usize))
-
-            // TODO: update gs.root_provenances
+        None
+//        let tracked mut new_header;
+//        let tracked mut mem_remains;
+//
+//        let mut size_remains = size;
+//        let mut cursor = start as usize;
+//
+//
+//        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
+//        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */ {
+//            let chunk_size = size_remains.min(Self::max_pool_size());
+//
+//            assert(chunk_size % GRANULARITY == 0);
+//
+//            proof {
+//                let (h, m) =
+//                    points_to_block.split(set_int_range(cursor as int, cursor as int + GRANULARITY as int));
+//                mem_remains = m;
+//                new_header = h.into_typed(cursor);
+//            }
+//
+//            // The new free block
+//            // Safety: `cursor` is not zero.
+//            let mut block = cursor as *mut FreeBlockHdr;
+//
+//            // Initialize the new free block
+//            // NOTE: header size calculated as GRANULARITY
+//            assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(chunk_size - GRANULARITY));
+//            let idx = Self::map_floor(chunk_size - GRANULARITY)?;
+//
+//            // Write the header
+//            // NOTE: because Verus doesn't supports field update through raw pointer,
+//            //       we have to write it at once with `ptr_mut_write`.
+//            ptr_mut_write(block, Tracked(&mut new_header),
+//                FreeBlockHdr {
+//                    common: BlockHdr {
+//                        size: chunk_size - GRANULARITY,
+//                        prev_phys_block: None,
+//                    },
+//                    next_free: None,
+//                    prev_free: None,
+//                });
+//
+//            // Link to the list
+//            self.free_list_push_front(idx, block, Tracked(&mut new_header));
+//
+//            // Update bitmaps
+//            self.set_bit_for_index(idx);
+//            //self.set_fl_bitmap(fl as u32);
+//            //self.sl_bitmap[fl].set_bit(sl as u32);
+//
+//
+//
+//            // Cap the end with a sentinel block (a permanently-used block)
+//            let mut sentinel_block = ptr_ref(block, Tracked(&new_header))
+//                .common
+//                .next_phys_block()
+//                .cast::<UsedBlockHdr>();
+//
+//            let tracked (sentinel_perm, m) = mem_remains.split(
+//                set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
+//            mem_remains = m;
+//
+//            ptr_mut_write(sentinel_block, Tracked(&mut sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize)),
+//                UsedBlockHdr { 
+//                    common: BlockHdr {
+//                        size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
+//                        prev_phys_block: Some(block.cast()),
+//                    }
+//                });
+//
+//            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
+//            // iteration must be the last one
+//            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
+//            size_remains -= chunk_size;
+//            cursor = cursor.wrapping_add(chunk_size);
+//        }
+//
+//        Some(cursor.wrapping_sub(start as usize))
+//
+//            // TODO: update gs.root_provenances
     }
 
 
@@ -381,7 +386,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int));
         if let Some(BlockIndex(fl, sl)) = Self::map_floor(size) {
-            self.free_list_push_front(BlockIndex(fl, sl), block, Tracked(&mut perm_block));
+            self.free_list_push_front(BlockIndex(fl, sl), block, Tracked(perm_block));
             self.set_bit_for_index(BlockIndex(fl, sl));
             proof {
                 assert(BlockIndex::<FLLEN,SLLEN>(fl, sl).block_size_range().contains(size as int));
@@ -804,7 +809,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[verifier::external_body]
     fn free_list_push_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
             node: *mut FreeBlockHdr,
-            Tracked(perm): Tracked<&mut PointsTo<FreeBlockHdr>>)
+            Tracked(perm): Tracked<PointsTo<FreeBlockHdr>>)
         requires old(self).wf(),
             node == perm.ptr(),
             perm.is_init()

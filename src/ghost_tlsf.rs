@@ -61,22 +61,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         && self.first_free[i][j].perms@.contains_key(ptr)
         // next_phys_block/prev_phys_block invariants
         // if blk isn't a sentinel then there is block next to it
-        &&& self.phys_next_of(self.all_blocks.index_of(blk)) is None
+        &&& self.phys_next_of(self.all_blocks@.index_of(blk)) is None
                 ==> self.is_sentinel(blk)
         // if blk isn't first one in the pool, prev_phys_block is Some
-        &&& self.block_common(blk).prev_phys_block is Some == blk ==> self.all_blocks.first()
+        &&& self.block_common(blk).prev_phys_block is Some ==> self.all_blocks@.first() == blk
     }
 
     pub closed spec fn is_sentinel(self, blk: Block) -> bool {
-        self.block_common().size & SIZE_SENTINEL == 0
+        self.block_common(blk).size & SIZE_SENTINEL == 0
     }
 
-    pub closed spec fn block_common(self, blk: block) -> BlockHdr {
+    pub closed spec fn block_common(self, blk: Block) -> BlockHdr {
         match blk {
-            Used(ptr) =>
-                self.used_info.perms@[ptr].common
-            Free(ptr, i, j) =>
-                self.first_free[i][j].perms@[ptr].common
+            Block::Used(ptr) =>
+                self.used_info.perms@[ptr].value().common,
+            Block::Free(ptr, i, j) =>
+                self.first_free[i][j].perms@[ptr].value().common
         }
     }
 }
