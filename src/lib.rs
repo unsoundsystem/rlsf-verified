@@ -128,6 +128,7 @@ impl BlockHdr {
     #[inline(always)]
     #[verifier::external_body] // debug
     unsafe fn next_phys_block(&self) -> (r: (*mut BlockHdr, Tracked<PointsTo<BlockHdr>>))
+        //requires self.wf()
     {
         let ptr = ((self as *const _ as *mut u8).add(self.size & SIZE_SIZE_MASK)).cast();
         (
