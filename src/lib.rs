@@ -846,42 +846,52 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 
     // only used for updating `next_phys_block.prev_phys_block`
-    fn next_phys_block_of_fb(&mut self, fbh: *mut FreeBlockHdr,
-            Tracked(pt): Tracked<&PointsTo<FreeBlockHdr>>)
-          -> (r: (*mut UsedBlockHdr, Tracked<PointsTo<UsedBlockHdr>>))
+    fn next_phys_block_of<H: BlockHeader>(&mut self, ptr: *mut H,
+            Tracked(pt): Tracked<&PointsTo<H>>)
+          -> (r: (*mut BlockHdr, BlockPerm))
         requires old(self).wf_all_blocks(),
             old(self).root_provenances@ is Some,
-            old(self).contains_block_pointer(fbh as *mut BlockHdr),
-            exists|i: int| old(self).all_blocks@[i] matches Block::Free(fbh, _, _),
-            !old(self).is_sentinel_pointer(fbh as *mut BlockHdr)
+            old(self).contains_block_pointer(ptr as *mut BlockHdr),
+            !old(self).is_sentinel_pointer(ptr as *mut BlockHdr)
         ensures
-           r.0 == r.1@.ptr(),
+            r.0 == r.1@.ptr(),
             ({ let i = choose|i: int|
-                    old(self).all_blocks@[i] matches Block::Free(fbh, _, _);
-                old(self).phys_next_of(i) matches Some(Block::Used(p)) &&
-                    p == r.0
+                    old(self).all_blocks@[i] matches Block::Free(ptr, _, _)
+                    || old(self).all_blocks@[i] matches Block::Used(ptr);
+
+                ||| old(self).phys_next_of(i) matches Some(Block::Used(p)) && p == r.0
+                ||| old(self).phys_next_of(i) matches Some(Block::Free(p, _, _)) && p == r.0
             })
     {
-        let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
-        let next_phys_block_addr = (fbh as *mut u8) as usize + size;
+        let size = ptr_ref(ptr, Tracked(pt)).common.size & SIZE_SIZE_MASK;
+        let next_phys_block_addr = (ptr as *mut u8) as usize + size;
         let Tracked(pv) = self.root_provenances;
         let tracked pv = pv.tracked_unwrap();
         let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, Tracked(pv));
-        let tracked uhdr_perm = ({
+        let tracked mut perm;
+        proof {
             let i = choose|i: int|
-                old(self).all_blocks@[i] matches Block::Free(fbh, _, _);
-            let p = self.phys_next_of(i).unwrap();
-            assert(p matches Block::Used(ptr));
-            self.used_info.perms.borrow_mut().tracked_remove(ptr)
-        });
+                old(self).all_blocks@[i] matches Block::Free(ptr, _, _);
+            let next_block = self.phys_next_of(i).unwrap();
 
-        (ptr, Tracked(uhdr_perm))
+            perm = match next_block {
+                Block::Used(ptr) => {
+                    let perm = self.used_info.perms@.tracked_remove(ptr);
+                    BlockPerm::Used { block: next_block, perm: Tracked(perm) }
+                }
+                Block::Free(ptr, i, j) => {
+                    let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
+                    BlockPerm::Free { block: next_block, perm: Tracked(perm) }
+                }
+            };
+        };
+
+        // self.wf_all_blocks() ==> forall|i| 0 <= i < all_blocks.len()
+        //      exists|pt: PointsTo<UsedBlockHdr>| pt
+        //      || exists|pt: PointsTo<FreeBlockHdr>|
+        (ptr, perm)
     }
 
-    //fn next_phys_block_of_ub(&mut self, ubh: *mut UsedBlockHdr, Tracked(pt): Tracked<&PointsTo<UsedBlockHdr>>)
-          //-> (r: (Option<*mut FreeBlockHdr>, Tracked<PointsTo<UsedBlockHdr>>))
-    //{
-    //}
 
 
     spec fn plat64_basics() -> bool
@@ -1020,6 +1030,9 @@ proof fn fbh_pt_into_ubh(tracked mut fbh: PointsTo<FreeBlockHdr>) -> (tracked r:
     fbh_raw.into_typed(size_of::<UsedBlockHdr>())
 }
 
+trait BlockHeader {}
+impl BlockHeader for FreeBlockHdr {}
+impl BlockHeader for UsedBlockHdr {}
 
 #[macro_export]
 macro_rules! nth_bit_macro {
