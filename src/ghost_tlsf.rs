@@ -51,19 +51,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    pub closed spec fn wf_block(self, i: int) -> bool {
+    /// Ensures `Block` abstraction is kept in sync with the actual memory state for index `i`.
+    pub closed spec fn wf_block(self, i: int) -> bool
+        recommends 0 <= i < self.all_blocks@.len()
+    {
         let blk = self.all_blocks@[i];
-        &&& self.all_blocks@.contains(blk)
+        // The actual memory invariant (PointsTo) for the block is accessible using Block.
         &&& blk matches Block::Used(ptr)
                 ==> self.used_info.perms@.contains_key(ptr)
         &&& blk matches Block::Free(ptr, i, j)
                 ==> BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
                         && self.first_free[i][j].perms@.contains_key(ptr)
         // next_phys_block/prev_phys_block invariants
-        // if blk isn't a sentinel then there is block next to it
-        &&& self.phys_next_of(self.all_blocks@.index_of(blk)) is None
-                ==> self.is_sentinel(blk)
-        // if blk isn't first one in the pool, prev_phys_block is Some
+        // if BlockHdr is a sentinel then there is no block next to it
+        &&& self.is_sentinel(blk)
+                ==> self.phys_next_of(self.all_blocks@.index_of(blk)) is None
+        // if BlockHdr has no link to previous block, corresponding blk is the head
         &&& self.block_common(blk).prev_phys_block is None ==> self.all_blocks@.first() == blk
         // prev_phys_block points to next node
         &&& self.block_common(blk).prev_phys_block matches Some(prev_ptr) ==> 
@@ -78,12 +81,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// all elements of all_blocks has a corresponding element in first_free/used_info
     pub closed spec fn wf_all_blocks(self) -> bool {
-        forall|i: int| 0 <= i < self.all_blocks@.len() ==> self.wf_block(i)
+        &&& forall|i: int| 0 <= i < self.all_blocks@.len() ==> self.wf_block(i)
+
+        // NOTE: We can proof that all pointers in all_blocks are distinct provided that
+        //       1. all_blocks[i] has corresponding permission for the header in first_free / used_info
+        //       2. FreeBlockHdr and UsedBlockHdr is non-zero-sized
+        //       3. PointsTo::is_disjoint ensures all pointers are distinct
+        // TODO: self.all_blocks.map_values(|b: Block| b.to_ptr()).no_duplicates()
     }
 
     /// Block is sentinel
     pub closed spec fn is_sentinel(self, blk: Block) -> bool {
-        self.block_common(blk).size & SIZE_SENTINEL == 0
+        self.block_common(blk).size & SIZE_SENTINEL != 0
     }
 
     /// Extract common part of the header
@@ -111,6 +120,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.first_free[i][j].perms@[ptr]
         } else { arbitrary() }
     }
+
+    pub closed spec fn contains_block_pointer(self, ptr: *mut BlockHdr) -> bool {
+        exists|b: Block| self.all_blocks@.contains(b) && b.to_ptr() == ptr
+    }
+
+    pub closed spec fn is_sentinel_pointer(self, ptr: *mut BlockHdr) -> bool
+        recommends self.contains_block_pointer(ptr)
+    {
+        self.is_sentinel(self.choice_block_from_ptr(ptr))
+    }
+
+    pub closed spec fn choice_block_from_ptr(self, ptr: *mut BlockHdr) -> Block
+        recommends self.contains_block_pointer(ptr)
+    {
+        choose|b: Block| self.all_blocks@.contains(b) && b.to_ptr() == ptr
+    }
 }
 
 pub(crate) struct UsedInfo {
@@ -123,7 +148,6 @@ impl UsedInfo {
         &&& sorted_by(self.ptrs@, pointer_le::<UsedBlockHdr>())
         &&& forall|ptr: *mut UsedBlockHdr|
                 self.perms@.contains_key(ptr) <==> self.ptrs@.contains(ptr)
-        &&& self.ptrs@.no_duplicates()
         &&& forall|p: *mut UsedBlockHdr|
                 self.ptrs@.contains(p) ==> self.perms@[p].ptr() == p
     }
@@ -178,6 +202,28 @@ impl Block {
                 //tlsf.first_free[i][j].perms@.tracked_borrow(fhdr).value().common.prev_phys_block
         //}
     //}
+}
+
+
+pub enum BlockPerm {
+    Used { block: Block, perm: Tracked<PointsTo<UsedBlockHdr>> },
+    Free { block: Block, perm: Tracked<PointsTo<FreeBlockHdr>> }
+}
+
+impl BlockPerm {
+    pub open spec fn wf(self) -> bool {
+        match self {
+            Self::Used { block, perm } => block is Used && perm@.ptr() as *mut BlockHdr == block.to_ptr(),
+            Self::Free { block, perm } => block is Free && perm@.ptr() as *mut BlockHdr == block.to_ptr(),
+        }
+    }
+
+    pub closed spec fn bhdr_ptr(self) -> *mut BlockHdr {
+        match self {
+            BlockPerm::Used { perm, .. } => perm@.ptr() as *mut BlockHdr,
+            BlockPerm::Free { perm, .. } => perm@.ptr() as *mut BlockHdr
+        }
+    }
 }
 
 }

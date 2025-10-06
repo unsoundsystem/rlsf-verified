@@ -50,7 +50,7 @@ use crate::block_index::BlockIndex;
 use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
-use ghost_tlsf::{UsedInfo, Block};
+use ghost_tlsf::{UsedInfo, Block, BlockPerm};
 use vstd::std_specs::bits::u64_trailing_zeros;
 
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
@@ -114,23 +114,6 @@ struct BlockHdr {
     ///
     size: usize,
     prev_phys_block: Option<*mut BlockHdr>,
-}
-
-impl BlockHdr {
-}
-
-enum BlockPerm {
-    Used(Tracked<PointsTo<UsedBlockHdr>>),
-    Free(Tracked<PointsTo<FreeBlockHdr>>)
-}
-
-impl BlockPerm {
-    pub closed spec fn bhdr_ptr(self) -> *mut BlockHdr {
-        match self {
-            BlockPerm::Used(perm) => perm@.ptr() as *mut BlockHdr,
-            BlockPerm::Free(perm) => perm@.ptr() as *mut BlockHdr
-        }
-    }
 }
 
 #[repr(C)]
@@ -942,31 +925,35 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// e.g. splitting a large block into two (continuous) small blocks 
     #[inline(always)]
     #[verifier::external_body] // debug
-    unsafe fn next_phys_block(&mut self, bhdr: &BlockHdr) -> (r: (*mut BlockHdr, Tracked<BlockPerm>))
-        requires old(self).wf_all_blocks(), /* and bhdr is not sentinel */
-        ensures r.0 == r.1@.bhdr_ptr()
+    unsafe fn next_phys_block(&mut self, bhdr: &BlockHdr) -> (r: BlockPerm)
+        requires
+            old(self).wf_all_blocks(),
+            !old(self).is_sentinel_pointer(bhdr as *const _ as *mut BlockHdr)
+        ensures r.wf()
+
     {
-        let ptr = ((bhdr as *const _ as *mut u8).add(bhdr.size & SIZE_SIZE_MASK)).cast();
+        let ptr = ((bhdr as *const _ as *mut u8).add(bhdr.size & SIZE_SIZE_MASK)).cast::<*mut BlockHdr>();
         let tracked mut perm: BlockPerm;
 
         proof {
-            let i = choose|i: int| bhdr == self.all_blocks@[i].to_ptr() as *mut BlockHdr;
+            let i = choose|i: int| bhdr as *const _ as *mut BlockHdr
+                == self.all_blocks@[i].to_ptr() as *mut BlockHdr;
             let blk = self.all_blocks@[i];
             let next_block = self.phys_next_of(i).unwrap();
-            affirm(!self.is_sentinel(blk));
+            //affirm(!self.is_sentinel(blk));
             perm = match next_block {
                 Block::Used(ptr) => {
                     let perm = self.used_info.perms@.tracked_remove(ptr);
-                    BlockPerm::Used(Tracked(perm))
+                    BlockPerm::Used { block: next_block, perm: Tracked(perm) }
                 }
                 Block::Free(ptr, i, j) => {
                     let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
-                    BlockPerm::Free(Tracked(perm))
+                    BlockPerm::Free { block: next_block, perm: Tracked(perm) }
                 }
             }
         }
 
-        (ptr, Tracked(perm))
+        perm
     }
 }
 
