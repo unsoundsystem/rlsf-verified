@@ -19,7 +19,8 @@ verus! {
 use vstd::raw_ptr::{
     ptr_mut_read, ptr_mut_write, ptr_ref2, ptr_ref,
     PointsToRaw, PointsTo, Metadata, Provenance,
-    expose_provenance, with_exposed_provenance
+    expose_provenance, with_exposed_provenance,
+    ptr_from_data, PtrData, IsExposed
 };
 use vstd::set_lib::set_int_range;
 use vstd::calc_macro::calc;
@@ -76,7 +77,7 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     // provenance of initially added blocks
     // NOTE: Assuming that there is only single memory pool and once the pool registered, no more
     //       new region could be registered to extend.
-    pub root_provenances: Ghost<Option<Provenance>>,
+    pub root_provenances: Tracked<Option<IsExposed>>,
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -188,7 +189,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             },
             all_blocks: Ghost(Seq::empty()),
             valid_range: Ghost(Set::empty()),
-            root_provenances: Ghost(None),
+            root_provenances: Tracked(None),
             _phantom: PhantomData
         }
     }
@@ -452,8 +453,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     pub closed spec fn is_root_provenance<T>(self, ptr: *mut T) -> bool {
-        let ptr = ptr@.provenance;
-        self.root_provenances@ matches Some(ptr)
+        let pv = ptr@.provenance;
+        self.root_provenances@ matches Some(ex) && ex.provenance() == pv
     }
 
 
@@ -845,22 +846,34 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 
     // only used for updating `next_phys_block.prev_phys_block`
-    fn next_phys_block_of_fb(&mut self, fbh: *mut FreeBlockHdr, Tracked(pt): Tracked<&PointsTo<FreeBlockHdr>>)
-            //NOTE: sentinel is UsedBlockHdr
+    fn next_phys_block_of_fb(&mut self, fbh: *mut FreeBlockHdr,
+            Tracked(pt): Tracked<&PointsTo<FreeBlockHdr>>)
           -> (r: (*mut UsedBlockHdr, Tracked<PointsTo<UsedBlockHdr>>))
-        requires old(self).wf(),
-        // NOTE: by the existance of sentinel block, we can conclude that every usual block we can
-        //       pop from the free list, we have following
-            //exists|i: int| 0 <= i < old(self).gs.all_ptrs@.len() - 1 && #[trigger] old(self).gs.all_ptrs@[i] matches HeaderPointer::Free(fbh)
-        ensures //self.wf(),
-            //self.gs.all_ptrs@.contains(ghost_tlsf::HeaderPointer::Used(r.0)),
-            r.0 == r.1@.ptr(),
+        requires old(self).wf_all_blocks(),
+            old(self).root_provenances@ is Some,
+            old(self).contains_block_pointer(fbh as *mut BlockHdr),
+            exists|i: int| old(self).all_blocks@[i] matches Block::Free(fbh, _, _),
+            !old(self).is_sentinel_pointer(fbh as *mut BlockHdr)
+        ensures
+           r.0 == r.1@.ptr(),
+            ({ let i = choose|i: int|
+                    old(self).all_blocks@[i] matches Block::Free(fbh, _, _);
+                old(self).phys_next_of(i) matches Some(Block::Used(p)) &&
+                    p == r.0
+            })
     {
         let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
         let next_phys_block_addr = (fbh as *mut u8) as usize + size;
-        let pv = expose_provenance(fbh);
-        let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, pv);
-        let tracked uhdr_perm = None.tracked_unwrap();
+        let Tracked(pv) = self.root_provenances;
+        let tracked pv = pv.tracked_unwrap();
+        let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, Tracked(pv));
+        let tracked uhdr_perm = ({
+            let i = choose|i: int|
+                old(self).all_blocks@[i] matches Block::Free(fbh, _, _);
+            let p = self.phys_next_of(i).unwrap();
+            assert(p matches Block::Used(ptr));
+            self.used_info.perms.borrow_mut().tracked_remove(ptr)
+        });
 
         (ptr, Tracked(uhdr_perm))
     }
@@ -925,35 +938,45 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// e.g. splitting a large block into two (continuous) small blocks 
     #[inline(always)]
     #[verifier::external_body] // debug
-    unsafe fn next_phys_block(&mut self, bhdr: &BlockHdr) -> (r: BlockPerm)
+    unsafe fn next_phys_block(&mut self, bhdr: *mut BlockHdr) -> (r: (*mut BlockHdr, BlockPerm))
         requires
             old(self).wf_all_blocks(),
-            !old(self).is_sentinel_pointer(bhdr as *const _ as *mut BlockHdr)
-        ensures r.wf()
+            old(self).contains_block_pointer(bhdr),
+            !old(self).is_sentinel_pointer(bhdr),
+        ensures r.1.wf(), r.0 == r.1.bhdr_ptr()
 
     {
-        let ptr = ((bhdr as *const _ as *mut u8).add(bhdr.size & SIZE_SIZE_MASK)).cast::<*mut BlockHdr>();
-        let tracked mut perm: BlockPerm;
+        arbitrary()
+        //let ptr = ((bhdr as *mut u8).add((ptr_ref(block, Tracked(&perm_block_header)).size) & SIZE_SIZE_MASK)).cast::<BlockHdr>();
+        //let tracked mut perm: BlockPerm;
 
-        proof {
-            let i = choose|i: int| bhdr as *const _ as *mut BlockHdr
-                == self.all_blocks@[i].to_ptr() as *mut BlockHdr;
-            let blk = self.all_blocks@[i];
-            let next_block = self.phys_next_of(i).unwrap();
-            //affirm(!self.is_sentinel(blk));
-            perm = match next_block {
-                Block::Used(ptr) => {
-                    let perm = self.used_info.perms@.tracked_remove(ptr);
-                    BlockPerm::Used { block: next_block, perm: Tracked(perm) }
-                }
-                Block::Free(ptr, i, j) => {
-                    let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
-                    BlockPerm::Free { block: next_block, perm: Tracked(perm) }
-                }
-            }
-        }
 
-        perm
+        //proof {
+            //let i = choose|i: int| bhdr == self.all_blocks@[i].to_ptr();
+            //let blk = self.all_blocks@[i];
+            //let next_block = self.phys_next_of(i).unwrap();
+            ////affirm(!self.is_sentinel(blk));
+            //perm = match next_block {
+                //Block::Used(ptr) => {
+                    //let perm = self.used_info.perms@.tracked_remove(ptr);
+                    //BlockPerm::Used { block: next_block, perm: Tracked(perm) }
+                //}
+                //Block::Free(ptr, i, j) => {
+                    //let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
+                    //BlockPerm::Free { block: next_block, perm: Tracked(perm) }
+                //}
+            //}
+        //}
+
+
+        ////let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
+        ////let next_phys_block_addr = (fbh as *mut u8) as usize + size;
+        ////let pv = expose_provenance(fbh);
+        ////let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, pv);
+        ////let tracked uhdr_perm = None.tracked_unwrap();
+
+
+        //(ptr, perm)
     }
 }
 
