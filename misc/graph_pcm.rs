@@ -54,4 +54,17 @@ verus! {
     proof fn graph_pred_distr<T, N: Node>(pg1: PartialGraph<T, N>, pg2: PartialGraph<T, N>)
         ensures graph_pred(pg1.decomp(pg2)) <==> graph_pred(pg1) && graph_pred(pg2)
     {}
+
+    spec fn dlist<T>(seq: Seq<T>, i_0: *mut T, i_1: *mut T, j_0: *mut T, j_1: *mut T) -> bool
+        decreases seq.len()
+    {
+        if seq.len() == 0 {
+            i_0 == i_1 && j_0 == j_1
+        } else {
+            exists|k: *mut T| {
+                &&& exists|pt: PointsTo<(T, *mut T, *mut T)>| pt.value() == (seq.first(), i_0, k)
+                &&& dlist(seq.drop_first(), k, i_0, j_0, j_1)
+            }
+        }
+    }
 }
