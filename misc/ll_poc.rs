@@ -8,6 +8,7 @@ verus! {
     pub struct Tlsf<const FLLEN: usize, const SLLEN: usize> {
         pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
         pub all_blocks: AllBlocks,
+        pub shadow_free_list: [[Ghost<Seq<*mut BlockHdr>; SLLEN]; FLLEN]
     }
 
     /// Tracks global structure of the header linkage and memory states
@@ -29,7 +30,7 @@ verus! {
             recommends 0 <= i < self.ptrs@.len()
         {
             let ptr = self.ptrs@[i];
-            // 
+            //
             &&& self.ptrs@[i] == self.perms@[ptr].points_to.ptr()
             &&& self.perms@[ptr].points_to.is_init()
             // prev_phys_block invariant
@@ -99,11 +100,25 @@ verus! {
         //              ab.perms@[ptr].free_link_perm.unwrap().value().next_free)
         //
 
-
+        spec fn wf_free_list(self, f: int, s: int) -> bool {
+            self.free_list_pred(self.first_free[f][s])
+        }
     }
 
-    //impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
-    //}
+    impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
+        fn push_node(self, idx: (usize, usize), node: *mut BlockHdr)
+            requires
+                self.free_list_pred(
+                    old(self).shadow_free_list[f][s],
+                    old(self).first_free[f][s])
+            ensures
+                self.first_free[f][s] matches Some(sl) &&
+                    self.free_list_pred(
+                        seq![node].add(old(self).shadow_free_list[f][s]), ls)
+        {
+            let (f, s) = idx;
+        }
+    }
 
     struct BlockHdr {
         size: usize,
