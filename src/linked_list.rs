@@ -1,6 +1,6 @@
+use crate::{BlockHdr, FreeBlockHdr};
 use vstd::prelude::*;
-use crate::{FreeBlockHdr, BlockHdr};
-use vstd::raw_ptr::{MemContents, PointsTo, PointsToRaw, ptr_mut_read, ptr_mut_write};
+use vstd::raw_ptr::{ptr_mut_read, ptr_mut_write, MemContents, PointsTo, PointsToRaw};
 
 verus! {
 
@@ -145,7 +145,7 @@ impl DLL {
                 by {
                     if i > 0 {
                         assert(old(self).wf_node(i - 1));
-                    } 
+                    }
                 };
 
                 assert(self@ == seq![new_node_payload].add(old(self)@));
@@ -219,7 +219,7 @@ impl DLL {
                     by {
                         if i > 0 {
                             assert(old(self).wf_node(i + 1));
-                        } 
+                        }
                     };
 
                     assert(self@ == old(self)@.drop_first());
@@ -366,11 +366,11 @@ impl DLL {
 }
 
 /// External interface for `core::mem::replace`
-/// NOTE: It's seems to easy to verify equivalent implementation of `replace` but Verus currently
+/// NOTE: While it's seems easy to verify equivalent implementation of `replace`, Verus currently
 ///       doesn't support interoperation between mutable references and raw pointers.
 ///
 ///       if you going to do this, confirm that Verus really compile this into *two memcpy's* ref. https://github.com/rust-lang/rust/pull/83022
-pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> (res: T)
+ub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> (res: T)
     ensures
         *dest == src,
         res == *old(dest)
