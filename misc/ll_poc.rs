@@ -48,22 +48,18 @@ verus! {
             // if used flag is not present then it connected to freelist
             &&& if self.value_at(ptr).is_free() {
                 self.perms@[ptr].free_link_perm matches Some(p)
-                        && p.ptr() == Self::get_freelink_ptr(ptr)
+                        && p.ptr() == Self::get_freelink_ptr_spec(ptr)
                 } else { true }
 
             // --- Invariants on tracked/ghost states
             // next block invariant
             &&& self.phys_next_of(i) matches Some(next_ptr) ==>
-                ({
-                    &&& next_ptr == ptr_from_data(
+                    next_ptr == ptr_from_data(
                         PtrData::<BlockHdr> {
                             provenance: ptr@.provenance,
                             addr: (ptr as usize + self.value_at(ptr).size) as usize,
                             metadata: ()
                         }) as *mut BlockHdr
-                    &&& self.contains(next_ptr)
-                    &&& self.ptrs@[i + 1] == next_ptr
-                })
             &&& if self.value_at(ptr).is_free() {
                     self.phys_next_of(i) matches Some(next_ptr)
                         && !self.value_at(next_ptr).is_free()
@@ -107,7 +103,7 @@ verus! {
             forall|i: int| 0 <= i < freelist.len() ==> {
                 let node = self.value_at(freelist[i]);
                 spec_affirm(node.is_free());
-                let node_link_ptr = Self::get_freelink_ptr(freelist[i]);
+                let node_link_ptr = Self::get_freelink_ptr_spec(freelist[i]);
                 let node_link = #[trigger] self.perms@[freelist[i]].free_link_perm.unwrap().value();
                 &&& node_link.next_free matches Some(next_ptr)
                     ==> self.phys_next_of(i) == Some(next_ptr)
@@ -117,12 +113,17 @@ verus! {
             }
         }
 
-        spec fn get_freelink_ptr(ptr: *mut BlockHdr) -> *mut FreeLink {
+        spec fn get_freelink_ptr_spec(ptr: *mut BlockHdr) -> *mut FreeLink {
             ptr_from_data(PtrData::<FreeLink> {
                 provenance: ptr@.provenance,
                 addr: (ptr as usize + size_of::<BlockHdr>()) as usize,
                 metadata: ()
             }) as *mut _
+        }
+
+        fn get_freelink_ptr(ptr: *mut BlockHdr) -> *mut FreeLink {
+            let prov = expose_provenance(ptr);
+            with_exposed_provenance(ptr as usize + size_of::<BlockHdr>(), prov)
         }
 
         // free_list_pred(ab, seq![1, 2, 3], ptr)
@@ -133,29 +134,7 @@ verus! {
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> Tlsf<FLLEN, SLLEN> {
-        fn next_phys_block(&mut self, cur: *mut BlockHdr) -> (r: (*mut BlockHdr, Tracked<BlockPerm>))
-            requires
-                old(self).all_blocks.wf(),
-                old(self).all_blocks.contains(cur),
-                !old(self).all_blocks.is_sentinel_pointer(cur)
-            ensures
-                self.all_blocks.wf(),
-                r.0 == r.1@.points_to.ptr(),
-                ({
-                    let (res_next, res_pt) = r;
-                    let cur_pos = choose|i: int| self.all_blocks.ptrs@[i] == cur;
-                    self.all_blocks.phys_next_of(cur_pos) matches Some(r)
-                })
-        {
-            let tracked mut perm = self.all_blocks.perms.borrow_mut().tracked_remove(cur);
-            let size = ptr_ref(cur, Tracked(&mut perm.points_to)).size & MASK_SIZE;
-            let next_phys_block_addr = (cur as *mut u8) as usize + size;
-            let Tracked(pv) = self.root_provenance;
-            let tracked pv = pv.tracked_unwrap();
-            let ptr: *mut BlockHdr =
-                with_exposed_provenance(next_phys_block_addr, Tracked(pv));
-            (ptr, Tracked(perm))
-        }
+
     }
 
     struct BlockHdr {
@@ -191,4 +170,11 @@ verus! {
         }
     }
 
+
+pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> (res: T)
+    ensures
+        *dest == src,
+        res == *old(dest)
+    opens_invariants none
+    no_unwind;
 }
