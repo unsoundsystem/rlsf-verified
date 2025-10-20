@@ -11,6 +11,7 @@ verus! {
         pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
         pub root_provenance: Tracked<Option<IsExposed>>,
         pub all_blocks: AllBlocks,
+        pub shadow_freelist: [[Seq<*mut BlockHdr>; SLLEN]; FLLEN]
     }
 
     /// Tracks global structure of the header linkage and memory states
@@ -48,7 +49,7 @@ verus! {
             // if used flag is not present then it connected to freelist
             &&& if self.value_at(ptr).is_free() {
                 self.perms@[ptr].free_link_perm matches Some(p)
-                        && p.ptr() == Self::get_freelink_ptr_spec(ptr)
+                        && p.ptr() == get_freelink_ptr_spec(ptr)
                 } else { true }
 
             // --- Invariants on tracked/ghost states
@@ -97,45 +98,72 @@ verus! {
         }
 
 
-        spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
-            recommends self.wf()
-        {
-            forall|i: int| 0 <= i < freelist.len() ==> {
-                let node = self.value_at(freelist[i]);
-                spec_affirm(node.is_free());
-                let node_link_ptr = Self::get_freelink_ptr_spec(freelist[i]);
-                let node_link = #[trigger] self.perms@[freelist[i]].free_link_perm.unwrap().value();
-                &&& node_link.next_free matches Some(next_ptr)
-                    ==> self.phys_next_of(i) == Some(next_ptr)
-                &&& node_link.next_free is None ==> self.phys_next_of(i) is None
-                &&& node_link.prev_free matches Some(prev_ptr) ==> prev_ptr == freelist[i - 1]
-                &&& node_link.prev_free is None ==> i == 0
-            }
-        }
-
-        spec fn get_freelink_ptr_spec(ptr: *mut BlockHdr) -> *mut FreeLink {
-            ptr_from_data(PtrData::<FreeLink> {
-                provenance: ptr@.provenance,
-                addr: (ptr as usize + size_of::<BlockHdr>()) as usize,
-                metadata: ()
-            }) as *mut _
-        }
-
-        fn get_freelink_ptr(ptr: *mut BlockHdr) -> *mut FreeLink {
-            let prov = expose_provenance(ptr);
-            with_exposed_provenance(ptr as usize + size_of::<BlockHdr>(), prov)
-        }
-
         // free_list_pred(ab, seq![1, 2, 3], ptr)
         // <==> ab.value_at(ptr) == 1
         //      && free_list_pred(ab, seq![2, 3],
         //              ab.perms@[ptr].free_link_perm.unwrap().value().next_free)
         //
+
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> Tlsf<FLLEN, SLLEN> {
+        fn link_free_block(&mut self, i: usize, j: usize, node: *mut BlockHdr, Tracked(perm): Tracked<BlockPerm>)
+            requires
+                old(self).all_blocks.wf(),
+                node == perm.points_to.ptr(),
+                perm.wf(),
+                perm.free_link_perm is Some,
+                old(self).tlsf_free_list_pred(
+                    i as int,
+                    j as int,
+                    old(self).shadow_freelist[i as int][j as int])
+            ensures
+                self.all_blocks.wf(),
+                self.tlsf_free_list_pred(
+                    i as int,
+                    j as int,
+                    seq![node].add(self.shadow_freelist[i as int][j as int]))
+        {
+        }
 
+        spec fn tlsf_free_list_pred(self, i: int, j: int, ls: Seq<*mut BlockHdr>) -> bool {
+            self.free_list_pred(ls, self.first_free[i][j])
+        }
+
+        spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: Option<*mut BlockHdr>) -> bool
+            recommends self.all_blocks.wf()
+        {
+            if first.is_none() {
+                freelist.len() == 0
+            } else {
+                forall|i: int| 0 <= i < freelist.len() ==> {
+                    let node = self.all_blocks.value_at(freelist[i]);
+                    spec_affirm(node.is_free());
+                    let node_link_ptr = get_freelink_ptr_spec(freelist[i]);
+                    let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
+                    &&& node_link.next_free matches Some(next_ptr)
+                        ==> self.all_blocks.phys_next_of(i) == Some(next_ptr)
+                    &&& node_link.next_free is None ==> self.all_blocks.phys_next_of(i) is None
+                    &&& node_link.prev_free matches Some(prev_ptr) ==> prev_ptr == freelist[i - 1]
+                    &&& node_link.prev_free is None ==> i == 0
+                }
+            }
+        }
     }
+
+    spec fn get_freelink_ptr_spec(ptr: *mut BlockHdr) -> *mut FreeLink {
+        ptr_from_data(PtrData::<FreeLink> {
+            provenance: ptr@.provenance,
+            addr: (ptr as usize + size_of::<BlockHdr>()) as usize,
+            metadata: ()
+        }) as *mut _
+    }
+
+    fn get_freelink_ptr(ptr: *mut BlockHdr) -> *mut FreeLink {
+        let prov = expose_provenance(ptr);
+        with_exposed_provenance(ptr as usize + size_of::<BlockHdr>(), prov)
+    }
+
 
     struct BlockHdr {
         size: usize,
