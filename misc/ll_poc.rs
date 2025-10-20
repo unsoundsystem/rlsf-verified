@@ -109,7 +109,9 @@ verus! {
     impl<const FLLEN: usize, const SLLEN: usize> Tlsf<FLLEN, SLLEN> {
         fn link_free_block(&mut self, i: usize, j: usize, node: *mut BlockHdr, Tracked(perm): Tracked<BlockPerm>)
             requires
+                0 <= i < FLLEN, 0 <= j < SLLEN,
                 old(self).all_blocks.wf(),
+                old(self).freelist_wf(),
                 node == perm.points_to.ptr(),
                 perm.wf(),
                 perm.free_link_perm is Some,
@@ -118,12 +120,34 @@ verus! {
                     j as int,
                     old(self).shadow_freelist[i as int][j as int])
             ensures
-                self.all_blocks.wf(),
+                self.freelist_wf(),
                 self.tlsf_free_list_pred(
                     i as int,
                     j as int,
                     seq![node].add(self.shadow_freelist[i as int][j as int]))
         {
+            let tracked BlockPerm {
+                points_to: node_pt,
+                free_link_perm: node_fl_pt
+            } = perm;
+            let tracked node_fl_pt = node_fl_pt.tracked_unwrap();
+            if let Some(first_free) = self.first_free[i][j] {
+                // unimplemented
+                let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
+                let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
+            } else {
+                self.set_freelist(i, j, Some(node));
+                ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
+                    next_free: None,
+                    prev_free: None
+                });
+            }
+        }
+
+        spec fn freelist_wf(self) -> bool {
+            forall|i: int, j: int|
+                0 <= i < FLLEN && 0 <= j < SLLEN
+                    ==> self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
         }
 
         spec fn tlsf_free_list_pred(self, i: int, j: int, ls: Seq<*mut BlockHdr>) -> bool {
@@ -148,6 +172,15 @@ verus! {
                     &&& node_link.prev_free is None ==> i == 0
                 }
             }
+        }
+
+        #[verifier::external_body]
+        fn set_freelist(&mut self, i: usize, j: usize, e: Option<*mut BlockHdr>)
+            requires 0 <= i < FLLEN, 0 <= j < SLLEN
+            ensures
+                self.first_free[i as int][j as int] == e
+        {
+            self.first_free[i][j] = e;
         }
     }
 
