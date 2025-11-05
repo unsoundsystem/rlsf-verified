@@ -16,7 +16,9 @@ verus! {
 
     /// Tracks global structure of the header linkage and memory states
     struct AllBlocks {
+        /// Pointers for all blocks, ordered by address.
         pub ptrs: Ghost<Seq<*mut BlockHdr>>,
+        /// Tracked permissions for all blocks, indexed by pointer.
         pub perms: Tracked<Map<*mut BlockHdr, BlockPerm>>,
     }
 
@@ -31,6 +33,17 @@ verus! {
             self.ptrs@.contains(ptr)
         }
 
+        /// States that each block at `self.ptr[i]` is well-formed i.e.
+        ///
+        /// * Block is properly connected to the global list
+        ///     * Ghost state `self.ptrs` properly reflecting physical state;
+        ///       for each p: `self.ptrs[i]`,
+        ///         * self.perms[p] is defined, `Init` and pointer matches p
+        ///         * `self.ptrs` reflects the order of linked list;
+        ///           let pr = self.perms[i],
+        ///              * 0 < i <= self.ptrs.len():
+        ///                  pr.value().prev_phys_block is Some(p') ==> p' == self.ptr[i-1]
+        ///              * i == 0: pr.value().prev_phys_block is None
         spec fn wf_node(self, i: int) -> bool
             recommends 0 <= i < self.ptrs@.len()
         {
@@ -53,15 +66,12 @@ verus! {
                         && p.ptr() == get_freelink_ptr_spec(ptr)
                 } else { true }
 
+            // TODO: Move following to self.wf() ?
             // --- Invariants on tracked/ghost states
-            // next block invariant
+            // Next block address
             &&& self.phys_next_of(i) matches Some(next_ptr) ==>
-                    next_ptr == ptr_from_data(
-                        PtrData::<BlockHdr> {
-                            provenance: ptr@.provenance,
-                            addr: (ptr as usize + self.value_at(ptr).size) as usize,
-                            metadata: ()
-                        }) as *mut BlockHdr
+                    next_ptr as usize == (ptr as usize + self.value_at(ptr).size) as usize
+            // No adjacent free blocks
             &&& if self.value_at(ptr).is_free() {
                     self.phys_next_of(i) matches Some(next_ptr)
                         && !self.value_at(next_ptr).is_free()
@@ -90,12 +100,10 @@ verus! {
             self.value_at(ptr).is_sentinel()
         }
 
+        /// Well-formedness for the global list structure.
         spec fn wf(self) -> bool {
+            // Each block at ptrs[i] is well-formed.
             &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
-            // TLSF block invariant: No adjacent free blocks
-            &&& forall|i: int| 0 <= i < self.ptrs@.len() - 1
-                    ==> #[trigger] self.value_at(self.ptrs@[i]).is_free()
-                    ==> !self.value_at(self.ptrs@[i + 1]).is_free()
         }
 
 
@@ -130,7 +138,7 @@ verus! {
         proof fn freelist_empty(self, i: int, j: int)
             requires
                 0 <= i < FLLEN, 0 <= j < SLLEN,
-                self.freelist_wf(),
+                self.all_freelist_wf(),
                 self.shadow_freelist[i][j].len() == 0
             ensures
                 self.first_free[i][j].is_none()
@@ -140,7 +148,7 @@ verus! {
         proof fn freelist_nonempty(self, i: int, j: int)
             requires
                 0 <= i < FLLEN, 0 <= j < SLLEN,
-                self.freelist_wf(),
+                self.all_freelist_wf(),
                 self.all_blocks.wf(),
                 self.shadow_freelist[i][j].len() > 0
             ensures
@@ -160,7 +168,7 @@ verus! {
             requires
                 0 <= i < FLLEN, 0 <= j < SLLEN,
                 old(self).all_blocks.wf(),
-                old(self).freelist_wf(),
+                old(self).all_freelist_wf(),
                 node == perm.points_to.ptr(),
                 perm.wf(),
                 perm.free_link_perm is Some,
@@ -169,7 +177,7 @@ verus! {
                     j as int,
                     old(self).shadow_freelist[i as int][j as int])
             ensures
-                self.freelist_wf(),
+                self.all_freelist_wf(),
                 self.tlsf_free_list_pred(
                     i as int,
                     j as int,
@@ -183,7 +191,8 @@ verus! {
             if let Some(first_free) = self.first_free[i][j] {
                 assert(self.shadow_freelist[i as int][j as int].first() == first_free);
                 assert(self.shadow_freelist[i as int][j as int].contains(first_free));
-                assert(self.freelist_wf());
+                assert(self.freelist_wf(i as int, j as int));
+                assert(self.all_freelist_wf());
                 assert(self.all_blocks.wf());
                 assert(self.all_blocks.contains(first_free));
                 proof {
@@ -230,6 +239,18 @@ verus! {
                             points_to: first_free_perm.points_to,
                             free_link_perm: Some(first_free_fl_pt)
                         });
+                    assume(self.all_blocks.wf());
+                    assert(self.all_freelist_wf()) by {
+                        assert forall|a: int, b: int| 0 <= a < FLLEN && 0 <= b < SLLEN
+                            implies self.freelist_wf(a as int, b as int) by {
+                                if i == a && j == b {
+                                    assume(self.freelist_wf(i as int, j as int));
+                                    assert(self.freelist_wf(a, b))
+                                } else {
+                                    assert(old(self).freelist_wf(a, b))
+                                }
+                            };
+                    };
                 }
             } else {
                 self.set_freelist(i, j, Some(node));
@@ -237,16 +258,19 @@ verus! {
                     next_free: None,
                     prev_free: None
                 });
+                proof { admit() }
             }
         }
 
-        spec fn freelist_wf(self) -> bool {
-            forall|i: int, j: int| 0 <= i < FLLEN && 0 <= j < SLLEN ==>
-            {
-                &&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
-                &&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
-                        self.all_blocks.contains(self.shadow_freelist[i][j][k])
-            }
+        spec fn freelist_wf(self, i: int, j: int) -> bool {
+            &&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
+            &&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
+                    self.all_blocks.contains(self.shadow_freelist[i][j][k])
+        }
+
+        spec fn all_freelist_wf(self) -> bool {
+            forall|i: int, j: int|
+                0 <= i < FLLEN && 0 <= j < SLLEN ==> self.freelist_wf(i, j)
         }
 
         spec fn tlsf_free_list_pred(self, i: int, j: int, ls: Seq<*mut BlockHdr>) -> bool {
@@ -279,7 +303,10 @@ verus! {
         fn set_freelist(&mut self, i: usize, j: usize, e: Option<*mut BlockHdr>)
             requires 0 <= i < FLLEN, 0 <= j < SLLEN
             ensures
-                self.first_free[i as int][j as int] == e
+                self.first_free[i as int][j as int] == e,
+                forall|a: int, b: int|
+                    0 <= a < FLLEN && 0 <= b < SLLEN && a != i && b != j
+                    ==> old(self).first_free[a][b] == self.first_free[a][b]
         {
             self.first_free[i][j] = e;
         }
