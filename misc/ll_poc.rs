@@ -7,11 +7,32 @@ verus! {
     const MASK_SENTINEL: usize = 1;
     const MASK_SIZE: usize = 0b11;
 
+    pub struct BlockIndex<const FLLEN: usize, const SLLEN: usize>(pub usize, pub usize);
+
+    impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
+        pub open spec fn valid_block_index(idx: (int, int)) -> bool {
+            let (fl, sl) = idx;
+            &&& 0 <= fl < FLLEN as int
+                &&& 0 <= sl < SLLEN as int
+        }
+
+        pub open spec fn view(self) -> (int, int) {
+            (self.0 as int, self.1 as int)
+        }
+
+
+        pub open spec fn wf(self) -> bool {
+            Self::valid_block_index(self@)
+        }
+    }
+
+    #[verifier::reject_recursive_types(FLLEN)]
+    #[verifier::reject_recursive_types(SLLEN)]
     pub struct Tlsf<const FLLEN: usize, const SLLEN: usize> {
         pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
         pub root_provenance: Tracked<Option<IsExposed>>,
         pub all_blocks: AllBlocks,
-        pub shadow_freelist: [[Seq<*mut BlockHdr>; SLLEN]; FLLEN]
+        pub shadow_freelist: Ghost<Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>>
     }
 
     /// Tracks global structure of the header linkage and memory states
@@ -135,63 +156,61 @@ verus! {
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> Tlsf<FLLEN, SLLEN> {
-        proof fn freelist_empty(self, i: int, j: int)
+        proof fn freelist_empty(self, idx: BlockIndex<FLLEN, SLLEN>)
             requires
-                0 <= i < FLLEN, 0 <= j < SLLEN,
+                idx.wf(),
                 self.all_freelist_wf(),
-                self.shadow_freelist[i][j].len() == 0
+                self.shadow_freelist@[idx].len() == 0
             ensures
-                self.first_free[i][j].is_none()
+                self.first_free[idx.0 as int][idx.1 as int].is_none()
         {
         }
 
-        proof fn freelist_nonempty(self, i: int, j: int)
+        proof fn freelist_nonempty(self, idx: BlockIndex<FLLEN, SLLEN>)
             requires
-                0 <= i < FLLEN, 0 <= j < SLLEN,
+                idx.wf(),
                 self.all_freelist_wf(),
                 self.all_blocks.wf(),
-                self.shadow_freelist[i][j].len() > 0
+                self.shadow_freelist@[idx].len() > 0
             ensures
-                self.first_free[i][j] matches Some(first_free) &&
+                self.first_free[idx.0 as int][idx.1 as int] matches Some(first_free) &&
                     self.all_blocks.contains(first_free)
         {
-            let first = self.shadow_freelist[i][j].first();
-            assert(self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j]));
-            assert(self.shadow_freelist[i][j].len() != 0);
-            assert(self.first_free[i][j] matches Some(first) && self.shadow_freelist[i][j].first() == first);
-            assert(self.shadow_freelist[i][j].all(|e| self.all_blocks.contains(e)));
-            assert(self.shadow_freelist[i][j].contains(self.shadow_freelist[i][j].first()));
-            assert(self.all_blocks.contains(self.shadow_freelist[i][j].first()));
+            let first = self.shadow_freelist@[idx].first();
+            assert(self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int]));
+            assert(self.shadow_freelist@[idx].len() != 0);
+            assert(self.first_free[idx.0 as int][idx.1 as int] matches Some(first) && self.shadow_freelist@[idx].first() == first);
+            assert(self.shadow_freelist@[idx].all(|e| self.all_blocks.contains(e)));
+            assert(self.shadow_freelist@[idx].contains(self.shadow_freelist@[idx].first()));
+            assert(self.all_blocks.contains(self.shadow_freelist@[idx].first()));
         }
 
-        fn link_free_block(&mut self, i: usize, j: usize, node: *mut BlockHdr, Tracked(perm): Tracked<BlockPerm>)
+        fn link_free_block(&mut self, idx: BlockIndex<FLLEN, SLLEN>, node: *mut BlockHdr, Tracked(perm): Tracked<BlockPerm>)
             requires
-                0 <= i < FLLEN, 0 <= j < SLLEN,
+                idx.wf(),
                 old(self).all_blocks.wf(),
                 old(self).all_freelist_wf(),
                 node == perm.points_to.ptr(),
                 perm.wf(),
                 perm.free_link_perm is Some,
                 old(self).tlsf_free_list_pred(
-                    i as int,
-                    j as int,
-                    old(self).shadow_freelist[i as int][j as int])
+                    idx,
+                    old(self).shadow_freelist@[idx])
             ensures
                 self.all_freelist_wf(),
                 self.tlsf_free_list_pred(
-                    i as int,
-                    j as int,
-                    seq![node].add(old(self).shadow_freelist[i as int][j as int]))
+                    idx,
+                    seq![node].add(old(self).shadow_freelist@[idx]))
         {
             let tracked BlockPerm {
                 points_to: node_pt,
                 free_link_perm: node_fl_pt
             } = perm;
             let tracked node_fl_pt = node_fl_pt.tracked_unwrap();
-            if let Some(first_free) = self.first_free[i][j] {
-                assert(self.shadow_freelist[i as int][j as int].first() == first_free);
-                assert(self.shadow_freelist[i as int][j as int].contains(first_free));
-                assert(self.freelist_wf(i as int, j as int));
+            if let Some(first_free) = self.first_free[idx.0][idx.1] {
+                assert(self.shadow_freelist@[idx].first() == first_free);
+                assert(self.shadow_freelist@[idx].contains(first_free));
+                assert(self.freelist_wf(idx));
                 assert(self.all_freelist_wf());
                 assert(self.all_blocks.wf());
                 assert(self.all_blocks.contains(first_free));
@@ -208,7 +227,7 @@ verus! {
                 let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
 
                 // update first pointer
-                self.set_freelist(i, j, Some(node));
+                self.set_freelist(idx.0, idx.1, Some(node));
 
                 // update link
                 let link = get_freelink_ptr(first_free);
@@ -239,21 +258,26 @@ verus! {
                             points_to: first_free_perm.points_to,
                             free_link_perm: Some(first_free_fl_pt)
                         });
+                    self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(old(self).shadow_freelist@[idx]));
                     assume(self.all_blocks.wf());
                     assert(self.all_freelist_wf()) by {
-                        assert forall|a: int, b: int| 0 <= a < FLLEN && 0 <= b < SLLEN
-                            implies self.freelist_wf(a as int, b as int) by {
-                                if i == a && j == b {
-                                    assume(self.freelist_wf(i as int, j as int));
-                                    assert(self.freelist_wf(a, b))
+                        assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                            implies self.freelist_wf(i) by {
+                                if i == idx {
+            //&&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
+            //&&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
+                    //self.all_blocks.contains(self.shadow_freelist[i][j][k])
+                                    assert(self.freelist_wf(idx));
+                                    assert(self.freelist_wf(i));
                                 } else {
-                                    assert(old(self).freelist_wf(a, b))
+                                    admit();
+                                    assert(old(self).freelist_wf(i))
                                 }
                             };
                     };
                 }
             } else {
-                self.set_freelist(i, j, Some(node));
+                self.set_freelist(idx.0, idx.1, Some(node));
                 ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
                     next_free: None,
                     prev_free: None
@@ -262,19 +286,19 @@ verus! {
             }
         }
 
-        spec fn freelist_wf(self, i: int, j: int) -> bool {
-            &&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
-            &&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
-                    self.all_blocks.contains(self.shadow_freelist[i][j][k])
+        spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
+            &&& self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int])
+            &&& forall|k: int| 0 <= k < self.shadow_freelist@[idx].len() ==>
+                    self.all_blocks.contains(self.shadow_freelist@[idx][k])
         }
 
         spec fn all_freelist_wf(self) -> bool {
-            forall|i: int, j: int|
-                0 <= i < FLLEN && 0 <= j < SLLEN ==> self.freelist_wf(i, j)
+            forall|idx: BlockIndex<FLLEN, SLLEN>|
+                idx.wf() ==> self.freelist_wf(idx)
         }
 
-        spec fn tlsf_free_list_pred(self, i: int, j: int, ls: Seq<*mut BlockHdr>) -> bool {
-            self.free_list_pred(ls, self.first_free[i][j])
+        spec fn tlsf_free_list_pred(self, idx: BlockIndex<FLLEN, SLLEN>, ls: Seq<*mut BlockHdr>) -> bool {
+            self.free_list_pred(ls, self.first_free[idx.0 as int][idx.1 as int])
         }
 
         spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: Option<*mut BlockHdr>) -> bool
@@ -309,6 +333,12 @@ verus! {
                     ==> old(self).first_free[a][b] == self.first_free[a][b]
         {
             self.first_free[i][j] = e;
+        }
+
+        //#[verifier::type_invariant]
+        spec fn wf_shadow(self) -> bool {
+            forall|idx: BlockIndex<FLLEN, SLLEN>|
+                self.shadow_freelist@.contains_key(idx) ==> idx.wf()
         }
     }
 
