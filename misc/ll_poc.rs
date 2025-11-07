@@ -77,9 +77,11 @@ verus! {
 
             // --- Glue invariants between physical state & tracked/ghost state
             // prev_phys_block invariant
-            &&& self.value_at(ptr).prev_phys_block is None ==> self.phys_prev_of(i) is None
-            &&& self.value_at(ptr).prev_phys_block matches Some(prev_ptr) ==>
-                    self.phys_prev_of(i) == Some(prev_ptr)
+            &&& {
+                ||| self.value_at(ptr).prev_phys_block is None && self.phys_prev_of(i) is None
+                ||| self.value_at(ptr).prev_phys_block matches Some(prev_ptr) &&
+                        self.phys_prev_of(i) == Some(prev_ptr)
+            }
             // if sentinel flag is present then it's last element in ptrs
             &&& self.value_at(ptr).is_sentinel() ==> i == self.ptrs@.len() - 1
             // if used flag is not present then it connected to freelist
@@ -194,6 +196,7 @@ verus! {
                 old(self).all_freelist_wf(),
                 node == perm.points_to.ptr(),
                 perm.wf(),
+                perm.points_to.value().is_free(),
                 perm.free_link_perm is Some,
                 old(self).tlsf_free_list_pred(
                     idx,
@@ -264,6 +267,7 @@ verus! {
                             free_link_perm: Some(first_free_fl_pt)
                         });
                     assert(old(self).shadow_freelist@.contains_key(idx));
+
                     self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx]));
 
                     assert(self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx]));
@@ -280,7 +284,7 @@ verus! {
                     assume(self.all_blocks.wf());
                     assert(self.all_freelist_wf()) by {
                         assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
-                            implies self.freelist_wf(i) by {
+                            implies self.free_list_pred(self.shadow_freelist@[i], self.first_free[i.0 as int][i.1 as int]) by {
                                 if i == idx {
             //&&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
             //&&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
@@ -292,6 +296,15 @@ verus! {
                                     assert(i != idx);
                                     assert(old(self).shadow_freelist@[i] =~= self.shadow_freelist@[i]);
                                     assert(old(self).freelist_wf(i));
+
+                                    admit();
+                                    //assert forall |n: int| 0 <= n < self.shadow_freelist@[i].len()
+                                        //implies #[trigger] self.wf_free_node(self.shadow_freelist@[i], n)
+                                    //by {
+                                        //if n > 0 {
+                                            //assert(old(self).wf_free_node(self.shadow_freelist@[i], n - 1));
+                                        //} 
+                                    //};
                                     //assert(self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int]));
                                     //assert(old(self).freelist_wf(i))
                                 }
@@ -326,6 +339,9 @@ verus! {
             self.free_list_pred(ls, self.first_free[idx.0 as int][idx.1 as int])
         }
 
+        /// Predicate means
+        /// (1) doubly-linked list consists of all nodes in `freelist` with respect for order and
+        /// (2) if the list has an element, first one is the `first`
         spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: Option<*mut BlockHdr>) -> bool
             recommends self.all_blocks.wf()
         {
@@ -333,20 +349,47 @@ verus! {
                 first.is_none()
             } else {
                 &&& first matches Some(p) && freelist.first() == p
-                &&& forall|i: int| 0 <= i < freelist.len() ==> {
-                    let node_link_ptr = get_freelink_ptr_spec(freelist[i]);
-                    let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
-                    &&& self.all_blocks.contains(freelist[i])
-                    &&& self.all_blocks.value_at(freelist[i]).is_free()
-                    &&& node_link.next_free matches Some(next_ptr)
-                            ==> self.all_blocks.phys_next_of(i) == Some(next_ptr)
-                    &&& node_link.next_free is None ==> self.all_blocks.phys_next_of(i) is None
-                    &&& node_link.prev_free matches Some(prev_ptr)
-                            ==> self.all_blocks.phys_prev_of(i) == Some(prev_ptr)
-                    &&& node_link.prev_free is None ==> self.all_blocks.phys_prev_of(i) is None
-                }
+                &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
             }
         }
+
+        spec fn wf_free_node(self, freelist: Seq<*mut BlockHdr>, i: int) -> bool
+            recommends 0 <= i < freelist.len()
+        {
+            let node_link_ptr = get_freelink_ptr_spec(freelist[i]);
+            let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
+            &&& self.all_blocks.contains(freelist[i])
+            &&& self.all_blocks.value_at(freelist[i]).is_free()
+            &&& {
+                ||| node_link.next_free matches Some(next_ptr)
+                        && Self::free_next_of(freelist, i) == Some(next_ptr)
+                ||| node_link.next_free is None
+                        && Self::free_next_of(freelist, i) is None
+            }
+            &&& {
+                ||| node_link.prev_free matches Some(prev_ptr)
+                        && Self::free_prev_of(freelist, i) == Some(prev_ptr)
+                ||| node_link.prev_free is None
+                        && Self::free_prev_of(freelist, i) is None
+            }
+        }
+
+        spec fn free_next_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
+            if i == ls.len() - 1 {
+                None
+            } else {
+                Some(ls[i + 1])
+            }
+        }
+
+        spec fn free_prev_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
+            if i == 0 {
+                None
+            } else {
+                Some(ls[i - 1])
+            }
+        }
+
 
         #[verifier::external_body]
         fn set_freelist(
