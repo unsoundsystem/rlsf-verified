@@ -128,8 +128,65 @@ verus! {
         spec fn wf(self) -> bool {
             // Each block at ptrs[i] is well-formed.
             &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
+            &&& self.ptrs@.no_duplicates()
+            &&& Self::ghost_pointer_ordered(self.ptrs@)
         }
 
+        spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
+            forall|i: int, j: int|
+                0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
+                    (ls[i] as usize as int) <= (ls[j] as usize as int)
+        }
+
+        proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
+            requires Self::ghost_pointer_ordered(ls), ls.len() > 0
+            ensures ls.all(|e: *mut BlockHdr| (ls.first() as usize as int) <= e as usize as int)
+        {
+        }
+
+        proof fn lemma_ghost_pointer_add_least(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
+            requires Self::ghost_pointer_ordered(ls),
+                (p as usize as int) <= ls.first() as usize as int
+            ensures Self::ghost_pointer_ordered(seq![p].add(ls)),
+        {
+            if ls.len() > 0 {
+                Self::lemma_ghost_pointer_first_is_least(ls);
+            }
+        }
+
+        spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
+            recommends Self::ghost_pointer_ordered(ls)
+            decreases ls.len()
+        {
+            if ls.len() == 0 {
+                seq![p]
+            } else {
+                if (p as usize as int) <= ls.first() as usize as int {
+                    seq![p].add(ls)
+                } else {
+                    seq![ls.first()].add(Self::add_ghost_pointer(ls.drop_first(), p))
+                }
+            }
+        }
+
+        proof fn lemma_add_ghost_pointer_ensures(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
+            requires Self::ghost_pointer_ordered(ls)
+            ensures Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls, p))
+            decreases ls.len()
+        {
+            if ls.len() > 0 {
+                Self::lemma_add_ghost_pointer_ensures(ls.drop_first(), p);
+                assert(ls.drop_first().len() < ls.len());
+                assert(Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls.drop_first(), p)));
+                if (p as usize as int) <= ls.first() as usize as int {
+                    assert(Self::ghost_pointer_ordered(seq![p, ls.first()].add(ls.drop_first())));
+                } else {
+                    assert((p as usize as int) > ls.first() as usize as int);
+                    //assert(forall|i: int| 0 <= i < ls.drop_first().len() ==>  p as usize as int <= ls.drop_first()[i] as usize as int);
+                    Self::lemma_ghost_pointer_add_least(Self::add_ghost_pointer(ls.drop_first(), p), ls.first());
+                }
+            }
+        }
 
         // free_list_pred(ab, seq![1, 2, 3], ptr)
         // <==> ab.value_at(ptr) == 1
@@ -219,6 +276,7 @@ verus! {
                 assert(self.shadow_freelist@[idx].contains(first_free));
                 assert(self.freelist_wf(idx));
                 assert(self.all_freelist_wf());
+                assert(self.wf_free_node(self.shadow_freelist@[idx], 0));
                 assert(self.all_blocks.wf());
                 assert(self.all_blocks.contains(first_free));
                 proof {
@@ -266,9 +324,18 @@ verus! {
                             points_to: first_free_perm.points_to,
                             free_link_perm: Some(first_free_fl_pt)
                         });
+
                     assert(old(self).shadow_freelist@.contains_key(idx));
 
+                    self.all_blocks.ptrs@ = AllBlocks::add_ghost_pointer(self.all_blocks.ptrs@, node);
+                    assert(self.all_blocks.ptrs@.push(node).last() == node);
+                    self.all_blocks.ptrs@.lemma_sort_by_ensures(pointer_leq());
                     self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx]));
+                    //lemma_sort_by_ensures
+
+                    assert(forall|i: int, l: Seq<int>| l.push(i).contains(i));
+                    assert(self.all_blocks.ptrs@.contains(node));
+                    assert(self.all_blocks.contains(node) && self.all_blocks.contains(first_free));
 
                     assert(self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx]));
 
@@ -295,15 +362,20 @@ verus! {
                                 } else {
                                     assert(i != idx);
                                     assert(old(self).shadow_freelist@[i] =~= self.shadow_freelist@[i]);
+                                    assert(old(self).first_free[i.0 as int][i.1 as int] == self.first_free[i.0 as int][i.1 as int]);
                                     assert(old(self).freelist_wf(i));
+                                    assert(old(self).free_list_pred(old(self).shadow_freelist@[i], old(self).first_free[i.0 as int][i.1 as int]));
+                                    assert(old(self).free_list_pred(self.shadow_freelist@[i], self.first_free[i.0 as int][i.1 as int]));
+                                    assert(self.free_list_pred(self.shadow_freelist@[i], self.first_free[i.0 as int][i.1 as int]));
+                                    //assert(self.wf_free_node(self.shadow_freelist@[idx], 0));
 
-                                    admit();
+                                    //admit();
                                     //assert forall |n: int| 0 <= n < self.shadow_freelist@[i].len()
                                         //implies #[trigger] self.wf_free_node(self.shadow_freelist@[i], n)
                                     //by {
                                         //if n > 0 {
                                             //assert(old(self).wf_free_node(self.shadow_freelist@[i], n - 1));
-                                        //} 
+                                        //}
                                     //};
                                     //assert(self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int]));
                                     //assert(old(self).freelist_wf(i))
@@ -325,14 +397,11 @@ verus! {
         }
 
         spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
-            &&& self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int])
-            &&& forall|k: int| 0 <= k < self.shadow_freelist@[idx].len() ==>
-                    self.all_blocks.contains(self.shadow_freelist@[idx][k])
+            self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int])
         }
 
         spec fn all_freelist_wf(self) -> bool {
-            forall|idx: BlockIndex<FLLEN, SLLEN>|
-                idx.wf() ==> self.freelist_wf(idx)
+            forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==> self.freelist_wf(idx)
         }
 
         spec fn tlsf_free_list_pred(self, idx: BlockIndex<FLLEN, SLLEN>, ls: Seq<*mut BlockHdr>) -> bool {
@@ -465,6 +534,14 @@ verus! {
                     && pt.is_init()
         }
     }
+
+spec fn pointer_leq<T>() -> spec_fn(*mut T, *mut T) -> bool {
+    |x: *mut T, y: *mut T| {
+        let xi = x as usize as int;
+        let yi = y as usize as int;
+        xi <= yi
+    }
+}
 
 
 pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> (res: T)
