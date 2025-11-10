@@ -169,9 +169,13 @@ verus! {
             }
         }
 
+
         proof fn lemma_add_ghost_pointer_ensures(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
             requires Self::ghost_pointer_ordered(ls)
-            ensures Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls, p))
+            ensures
+                Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls, p)),
+                Self::add_ghost_pointer(ls, p).contains(p),
+                forall|e: *mut BlockHdr| ls.contains(e) ==> Self::add_ghost_pointer(ls, p).contains(e),
             decreases ls.len()
         {
             if ls.len() > 0 {
@@ -180,12 +184,60 @@ verus! {
                 assert(Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls.drop_first(), p)));
                 if (p as usize as int) <= ls.first() as usize as int {
                     assert(Self::ghost_pointer_ordered(seq![p, ls.first()].add(ls.drop_first())));
+                    assert(Self::add_ghost_pointer(ls, p) == seq![p, ls.first()].add(ls.drop_first()));
+                    assert(seq![p, ls.first()].add(ls.drop_first())[0] == p);
+                    assert forall|e: *mut BlockHdr| ls.contains(e)
+                        implies Self::add_ghost_pointer(ls, p).contains(e)
+                    by {
+                        let i = choose|i: int| ls[i] == e;
+                        assert(seq![p, ls.first()].add(ls.drop_first()) == seq![p].add(ls));
+                        Self::lemma_list_add_contains(ls, seq![p], e);
+                    }
                 } else {
                     assert((p as usize as int) > ls.first() as usize as int);
-                    //assert(forall|i: int| 0 <= i < ls.drop_first().len() ==>  p as usize as int <= ls.drop_first()[i] as usize as int);
+                    assert(Self::add_ghost_pointer(ls.drop_first(), p).contains(p));
+                    assert(Self::add_ghost_pointer(ls, p) == seq![ls.first()].add(Self::add_ghost_pointer(ls.drop_first(), p)));
+                    Self::lemma_list_add_contains(Self::add_ghost_pointer(ls.drop_first(), p), seq![ls.first()], p);
                     Self::lemma_ghost_pointer_add_least(Self::add_ghost_pointer(ls.drop_first(), p), ls.first());
+
+
+                    assert(forall|e: *mut BlockHdr| ls.drop_first().contains(e) ==> Self::add_ghost_pointer(ls.drop_first(), p).contains(e));
+                    assert forall|e: *mut BlockHdr| ls.contains(e)
+                        implies Self::add_ghost_pointer(ls, p).contains(e)
+                    by {
+                        let i = choose|i: int| 0 <= i < ls.len() && ls[i] == e;
+                        if i > 0 {
+                            Self::lemma_drop_first_elements(ls);
+                            Self::lemma_list_add_contains(Self::add_ghost_pointer(ls.drop_first(), p),
+                                seq![ls.first()], e);
+                        }
+                    }
                 }
+            } else {
+                assert(Self::add_ghost_pointer(ls, p)[0] == p);
             }
+        }
+
+        proof fn lemma_drop_first_elements<T>(x: Seq<T>)
+            requires x.len() > 0
+            ensures forall|i: int| 0 < i < x.len() ==> x.drop_first().contains(x[i])
+        {
+            assert forall|i: int| 0 < i < x.len()
+                implies x.drop_first().contains(x[i]) by {
+                    if x.len() == 1 {
+                        assert(false);
+                    } else {
+                        assert(x.drop_first()[i - 1] == x[i]);
+                    }
+                }
+        }
+
+        proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
+            requires x.contains(e)
+            ensures  y.add(x).contains(e)
+        {
+            assert(forall|i: int| 0 <= i < x.len() ==>
+                y.add(x)[i + y.len()] == x[i]);
         }
 
         // free_list_pred(ab, seq![1, 2, 3], ptr)
@@ -327,14 +379,17 @@ verus! {
 
                     assert(old(self).shadow_freelist@.contains_key(idx));
 
+                    assert(old(self).all_blocks.ptrs@ == self.all_blocks.ptrs@);
+                    assert(AllBlocks::ghost_pointer_ordered(old(self).all_blocks.ptrs@));
                     self.all_blocks.ptrs@ = AllBlocks::add_ghost_pointer(self.all_blocks.ptrs@, node);
-                    assert(self.all_blocks.ptrs@.push(node).last() == node);
-                    self.all_blocks.ptrs@.lemma_sort_by_ensures(pointer_leq());
+                    AllBlocks::lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, node);
+                    assert(AllBlocks::ghost_pointer_ordered(self.all_blocks.ptrs@));
+
                     self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx]));
                     //lemma_sort_by_ensures
 
-                    assert(forall|i: int, l: Seq<int>| l.push(i).contains(i));
                     assert(self.all_blocks.ptrs@.contains(node));
+                    assert(old(self).all_blocks.ptrs@.contains(first_free));
                     assert(self.all_blocks.contains(node) && self.all_blocks.contains(first_free));
 
                     assert(self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx]));
