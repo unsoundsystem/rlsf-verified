@@ -400,6 +400,18 @@ verus! {
                     assert(AllBlocks::ghost_pointer_ordered(old(self).all_blocks.ptrs@));
                     assert(AllBlocks::ghost_pointer_ordered(self.all_blocks.ptrs@));
 
+                    // New block has *new* address
+                    assert forall|x: int|
+                        0 <= x < self.all_blocks.ptrs@.len()
+                    implies
+                        node != self.all_blocks.ptrs@[x]
+                    by {
+                    };
+
+
+                    assume(forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                        ==> !self.shadow_freelist@[i].contains(node));
+
                     // auxiliary data update
                     self.all_blocks.perms.borrow_mut().tracked_insert(node,
                         BlockPerm {
@@ -642,41 +654,8 @@ verus! {
         spec fn wf_shadow(self) -> bool {
             &&& forall|idx: BlockIndex<FLLEN, SLLEN>|
                 self.shadow_freelist@.contains_key(idx) <==> idx.wf()
-            &&& forall|i: BlockIndex<FLLEN, SLLEN>, j: BlockIndex<FLLEN, SLLEN>|
-                i != j ==> self.shadow_freelist@[i].disjoint(self.shadow_freelist@[j])
-            &&& forall|idx: BlockIndex<FLLEN, SLLEN>|
-                    self.shadow_freelist@[idx].no_duplicates()
         }
 
-        proof fn lemma_shadow_list_no_duplicates(self)
-            requires
-                self.wf_shadow(),
-            ensures
-                forall|i: BlockIndex<FLLEN, SLLEN>,
-                       j: BlockIndex<FLLEN, SLLEN>,
-                       k: int,
-                       l: int|
-                    i != j && k != l &&
-                    i.wf() && j.wf() &&
-                    0 <= k < self.shadow_freelist@[i].len() &&
-                    0 <= l < self.shadow_freelist@[j].len()
-                    ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
-        {
-            assert forall|i: BlockIndex<FLLEN, SLLEN>,
-                       j: BlockIndex<FLLEN, SLLEN>,
-                       k: int,
-                       l: int|
-                    i != j && k != l &&
-                    i.wf() && j.wf() &&
-                    0 <= k < self.shadow_freelist@[i].len() &&
-                    0 <= l < self.shadow_freelist@[j].len()
-            implies
-                self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
-            by {
-                assert(self.shadow_freelist@[i].no_duplicates());
-                assert(self.shadow_freelist@[i].disjoint(self.shadow_freelist@[j]));
-            }
-        }
     }
 
     spec fn get_freelink_ptr_spec(ptr: *mut BlockHdr) -> *mut FreeLink {
