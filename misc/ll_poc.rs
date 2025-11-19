@@ -266,6 +266,7 @@ verus! {
             requires self.contains(x)
             ensures self.wf_node(self.get_ptr_internal_index(x))
         {}
+
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> Tlsf<FLLEN, SLLEN> {
@@ -341,6 +342,9 @@ verus! {
                 self.all_freelist_wf(),
                 self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx])
         {
+            assert(!self.all_blocks.contains(node)) by {
+                admit()
+            };
             let tracked BlockPerm {
                 points_to: node_pt,
                 free_link_perm: node_fl_pt
@@ -390,6 +394,13 @@ verus! {
                 });
 
                 proof {
+
+                    assert(old(self).shadow_freelist@.contains_key(idx));
+                    assert(old(self).all_blocks.ptrs@ == self.all_blocks.ptrs@);
+                    assert(AllBlocks::ghost_pointer_ordered(old(self).all_blocks.ptrs@));
+                    assert(AllBlocks::ghost_pointer_ordered(self.all_blocks.ptrs@));
+
+                    // auxiliary data update
                     self.all_blocks.perms.borrow_mut().tracked_insert(node,
                         BlockPerm {
                             points_to: node_pt,
@@ -400,23 +411,18 @@ verus! {
                             points_to: first_free_perm.points_to,
                             free_link_perm: Some(first_free_fl_pt)
                         });
-
-                    assert(old(self).shadow_freelist@.contains_key(idx));
-
-                    assert(old(self).all_blocks.ptrs@ == self.all_blocks.ptrs@);
-                    assert(AllBlocks::ghost_pointer_ordered(old(self).all_blocks.ptrs@));
                     self.all_blocks.ptrs@ = AllBlocks::add_ghost_pointer(self.all_blocks.ptrs@, node);
                     AllBlocks::lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, node);
-                    assert(AllBlocks::ghost_pointer_ordered(self.all_blocks.ptrs@));
-
                     self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx]));
+
                     //lemma_sort_by_ensures
+                    //assume(forall|m: int| 0 <= m < old_sls.len()
+                        //==> old(self).all_blocks.perms@[old_sls[m]] == self.all_blocks.perms@[old_sls[m]]);
 
                     assert(self.all_blocks.ptrs@.contains(node));
                     assert(old(self).all_blocks.ptrs@.contains(first_free));
                     assert(self.all_blocks.contains(node) && self.all_blocks.contains(first_free));
                     assert(self.shadow_freelist@[idx].first() == node);
-
                     assert(self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx]));
 
                     self.shadow_freelist@.lemma_insert_invariant_contains(
@@ -434,8 +440,11 @@ verus! {
                     assume(self.all_blocks.wf());
                     assert(self.all_freelist_wf()) by {
                         assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
-                            implies self.free_list_pred(self.shadow_freelist@[i], self.first_free[i.0 as int][i.1 as int]) by {
-
+                            implies self.free_list_pred(
+                                self.shadow_freelist@[i],
+                                self.first_free[i.0 as int][i.1 as int]
+                            )
+                        by {
                                 if i == idx {
             //&&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
             //&&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
@@ -446,39 +455,45 @@ verus! {
                                 } else {
                                     assert(i != idx);
                                     assert(old(self).shadow_freelist@[i] =~= self.shadow_freelist@[i]);
-                                    //assert forall|p: *mut BlockHdr|
-                                        //old(self).shadow_freelist@[i].contains(p)
-                                            //==> old(self).all_blocks.contains(p)
-                                    //by {
-                                        //let n = choose|n: int| old(self).shadow_freelist@[i][n] == p;
-                                        //assert(old(self).wf_free_node(old(self).shadow_freelist@[i], n))
-                                    //};
-                                    assert(old(self).first_free[i.0 as int][i.1 as int] == self.first_free[i.0 as int][i.1 as int]);
-
-                                    assert(old(self).freelist_wf(i));
-                                    assert(old(self).free_list_pred(old(self).shadow_freelist@[i], old(self).first_free[i.0 as int][i.1 as int]));
-                                    assert(old(self).freelist_wf(i));
-
                                     if self.shadow_freelist@[i].len() > 0 {
-                                        //assume(self.free_list_pred(self.shadow_freelist@[i], self.first_free[i.0 as int][i.1 as int]));
-                                        assert(self.first_free[i.0 as int][i.1 as int] is Some);
-                                        let first = self.first_free[i.0 as int][i.1 as int].unwrap();
                                         let sls = self.shadow_freelist@[i];
-                                        assert(self.shadow_freelist@[i].first() == first);
-                                        assert(self.all_blocks.wf() ==> forall|a: int, b: int|
-                                            self.all_blocks.ptrs@[a] != self.all_blocks.ptrs@[b]);
+                                        let old_sls = old(self).shadow_freelist@[i];
+
+
+                                        // Proof that all `p ∈ ∪_{i != idx} self.shadow_freelist[i]` agrees on `self.all_blocks.perms[p]` before and after update
+                                        let stable_set = old(self).shadow_freelist@[i];
+
+                                        assert(!stable_set.contains(node));
+                                        assert(!stable_set.contains(first_free));
+                                        assert forall|x: int|
+                                            0 <= x < stable_set.len()
+                                        implies
+                                            old(self).all_blocks.perms@.contains_key(stable_set[x])
+                                        by {
+                                            assert(old(self).wf_free_node(stable_set, x));
+                                            let y = choose|y: int|
+                                                0 <= y < old(self).all_blocks.ptrs@.len() &&
+                                                    old(self).all_blocks.ptrs@[y] == stable_set[x];
+                                            assert(old(self).all_blocks.wf_node(y));
+                                        };
+                                        Self::lemma_map_insert_agrees(
+                                            stable_set,
+                                            self.all_blocks.perms@,
+                                            node,
+                                        );
+
+                                        Self::lemma_map_insert_agrees(
+                                            stable_set,
+                                            self.all_blocks.perms@,
+                                            first_free,
+                                        );
 
                                         assert forall|n: int| 0 <= n < sls.len()
                                             implies self.wf_free_node(sls, n) by {
-                                            let old_sls = old(self).shadow_freelist@[i];
+
                                             assert(old(self).wf_free_node(old_sls, n));
-                                            assert(forall|m: int| 0 <= m < old_sls.len()
-                                                ==> old(self).all_blocks.perms@[old_sls[m]] == self.all_blocks.perms@[old_sls[m]]);
-                                            assert(old_sls =~= sls);
-                                            assert(self.wf_free_node(sls, n));
                                         };
                                     }
-                                    //assert(forall|p: *mut BlockHdr| old(self).shadow_freelist@[i].contains(p) ==> old(self).all_blocks.contains(p));
                                 }
                             };
                     };
@@ -511,16 +526,67 @@ verus! {
         spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: Option<*mut BlockHdr>) -> bool
             recommends self.all_blocks.wf()
         {
-            if freelist.len() == 0 {
+            &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
+            &&& if freelist.len() == 0 {
                 first.is_none()
             } else {
-                &&& first matches Some(p) && freelist.first() == p
-                &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
+                first matches Some(p) && freelist.first() == p
             }
         }
 
+        proof fn lemma_all_ptr_contains_wf_perm(self, p: *mut BlockHdr)
+            requires self.all_blocks.wf(), self.all_blocks.ptrs@.contains(p)
+            ensures self.all_blocks.perms@[p].wf()
+        {
+            assert(exists|n: int|
+                0 <= n < self.all_blocks.ptrs@.len()
+                && self.all_blocks.ptrs@[n] == p);
+            let n = choose|n: int| 0 <= n < self.all_blocks.ptrs@.len()
+                    && self.all_blocks.ptrs@[n] == p;
+            assert(self.all_blocks.wf_node(n));
+        }
+
+        proof fn lemma_all_blocks_contains_if_freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.wf_shadow(),
+            ensures forall|i: int|
+                0 <= i < self.shadow_freelist@[idx].len()
+                    ==> self.all_blocks.contains(self.shadow_freelist@[idx][i])
+        {
+            assert forall|i: int|
+                0 <= i < self.shadow_freelist@[idx].len()
+            implies
+                self.all_blocks.contains(self.shadow_freelist@[idx][i])
+            by {
+                assert(self.free_list_pred(
+                        self.shadow_freelist@[idx],
+                        self.first_free[idx.0 as int][idx.1 as int]));
+                if 0 < self.shadow_freelist@[idx].len() {
+                    assert(self.wf_free_node(self.shadow_freelist@[idx], i));
+                }
+            }
+        }
+
+        proof fn lemma_map_insert_agrees<K, V>(
+            s: Seq<K>,
+            m: Map<K, V>,
+            k: K,
+        )
+            requires
+                !s.contains(k),
+                forall|x: K| s.contains(x)
+                    ==> m.contains_key(x)
+            ensures forall|x: K, v: V| s.contains(x)
+                ==> m.insert(k, v).contains_key(x)
+                    && m[x] == m.insert(k, v)[x]
+        {}
+
         spec fn wf_free_node(self, freelist: Seq<*mut BlockHdr>, i: int) -> bool
-            recommends 0 <= i < freelist.len()
+            recommends
+                self.all_blocks.wf(),
+                0 <= i < freelist.len()
         {
             let node_link_ptr = get_freelink_ptr_spec(freelist[i]);
             let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
@@ -574,8 +640,42 @@ verus! {
 
         //#[verifier::type_invariant]
         spec fn wf_shadow(self) -> bool {
-            forall|idx: BlockIndex<FLLEN, SLLEN>|
+            &&& forall|idx: BlockIndex<FLLEN, SLLEN>|
                 self.shadow_freelist@.contains_key(idx) <==> idx.wf()
+            &&& forall|i: BlockIndex<FLLEN, SLLEN>, j: BlockIndex<FLLEN, SLLEN>|
+                i != j ==> self.shadow_freelist@[i].disjoint(self.shadow_freelist@[j])
+            &&& forall|idx: BlockIndex<FLLEN, SLLEN>|
+                    self.shadow_freelist@[idx].no_duplicates()
+        }
+
+        proof fn lemma_shadow_list_no_duplicates(self)
+            requires
+                self.wf_shadow(),
+            ensures
+                forall|i: BlockIndex<FLLEN, SLLEN>,
+                       j: BlockIndex<FLLEN, SLLEN>,
+                       k: int,
+                       l: int|
+                    i != j && k != l &&
+                    i.wf() && j.wf() &&
+                    0 <= k < self.shadow_freelist@[i].len() &&
+                    0 <= l < self.shadow_freelist@[j].len()
+                    ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
+        {
+            assert forall|i: BlockIndex<FLLEN, SLLEN>,
+                       j: BlockIndex<FLLEN, SLLEN>,
+                       k: int,
+                       l: int|
+                    i != j && k != l &&
+                    i.wf() && j.wf() &&
+                    0 <= k < self.shadow_freelist@[i].len() &&
+                    0 <= l < self.shadow_freelist@[j].len()
+            implies
+                self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
+            by {
+                assert(self.shadow_freelist@[i].no_duplicates());
+                assert(self.shadow_freelist@[i].disjoint(self.shadow_freelist@[j]));
+            }
         }
     }
 
