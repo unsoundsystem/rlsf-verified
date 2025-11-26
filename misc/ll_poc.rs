@@ -1,8 +1,11 @@
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+use vstd::arithmetic::power2::pow2;
 
 verus! {
 
+    #[cfg(target_pointer_width = "64")]
+    pub const GRANULARITY: usize = 8 * 4;
     const MASK_USED: usize = 2;
     const MASK_SENTINEL: usize = 1;
     const MASK_SIZE: usize = 0b11;
@@ -21,6 +24,10 @@ verus! {
             (self.0 as int, self.1 as int)
         }
 
+        pub open spec fn valid_block_size(size: int) -> bool {
+            &&& GRANULARITY <= size && size < (pow2(FLLEN as nat) * GRANULARITY)
+            &&& size % (GRANULARITY as int) == 0
+        }
 
         pub open spec fn wf(self) -> bool {
             Self::valid_block_index(self@)
@@ -32,19 +39,19 @@ verus! {
     pub struct Tlsf<const FLLEN: usize, const SLLEN: usize> {
         pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
         pub root_provenance: Tracked<Option<IsExposed>>,
-        pub all_blocks: AllBlocks,
+        pub all_blocks: AllBlocks<FLLEN, SLLEN>,
         pub shadow_freelist: Ghost<Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>>
     }
 
     /// Tracks global structure of the header linkage and memory states
-    struct AllBlocks {
+    struct AllBlocks<const FLLEN: usize, const SLLEN: usize> {
         /// Pointers for all blocks, ordered by address.
         pub ptrs: Ghost<Seq<*mut BlockHdr>>,
         /// Tracked permissions for all blocks, indexed by pointer.
         pub perms: Tracked<Map<*mut BlockHdr, BlockPerm>>,
     }
 
-    impl AllBlocks {
+    impl<const FLLEN: usize, const SLLEN: usize> AllBlocks<FLLEN, SLLEN> {
         spec fn value_at(self, ptr: *mut BlockHdr) -> BlockHdr
             recommends
                 self.contains(ptr),
@@ -84,11 +91,20 @@ verus! {
                 ||| self.value_at(ptr).prev_phys_block matches Some(prev_ptr) &&
                         self.phys_prev_of(i) == Some(prev_ptr)
             }
-            // if sentinel flag is present then it's last element in ptrs
-            &&& self.value_at(ptr).is_sentinel() ==> i == self.ptrs@.len() - 1
+            // if sentinel flag is present then ...
+            &&& if self.value_at(ptr).is_sentinel() {
+                // it's last element in ptrs
+                &&& i == self.ptrs@.len() - 1
+                // sentinel block has size of 0
+                &&& self.value_at(ptr).size == 0
+            } else {
+                // there no zero-sized block except sentinel block
+                &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(self.value_at(ptr).size as int)
+                &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
+            }
             // if used flag is not present then it connected to freelist
             &&& if self.value_at(ptr).is_free() {
-                self.perms@[ptr].free_link_perm matches Some(p)
+                    self.perms@[ptr].free_link_perm matches Some(p)
                         && p.ptr() == get_freelink_ptr_spec(ptr)
                 } else { true }
 
@@ -112,6 +128,17 @@ verus! {
             }
         }
 
+        proof fn lemma_wf_nodup(self)
+            requires self.wf()
+            ensures self.ptrs@.no_duplicates()
+        {
+            assert forall|i: int| 0 <= i < self.ptrs@.len() - 1
+                implies (#[trigger] self.ptrs@[i] as int) < self.ptrs@[i + 1] as int
+            by {
+                assert(self.wf_node(i));
+            }
+        }
+
         spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
             if i == 0 {
                 None
@@ -130,118 +157,9 @@ verus! {
         spec fn wf(self) -> bool {
             // Each block at ptrs[i] is well-formed.
             &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
-            &&& self.ptrs@.no_duplicates()
-            &&& Self::ghost_pointer_ordered(self.ptrs@)
+            &&& ghost_pointer_ordered(self.ptrs@)
         }
 
-        spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
-            forall|i: int, j: int|
-                0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
-                    (ls[i] as usize as int) <= (ls[j] as usize as int)
-        }
-
-        proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
-            requires Self::ghost_pointer_ordered(ls), ls.len() > 0
-            ensures ls.all(|e: *mut BlockHdr| (ls.first() as usize as int) <= e as usize as int)
-        {
-        }
-
-        proof fn lemma_ghost_pointer_add_least(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
-            requires Self::ghost_pointer_ordered(ls),
-                (p as usize as int) <= ls.first() as usize as int
-            ensures Self::ghost_pointer_ordered(seq![p].add(ls)),
-        {
-            if ls.len() > 0 {
-                Self::lemma_ghost_pointer_first_is_least(ls);
-            }
-        }
-
-        spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
-            recommends Self::ghost_pointer_ordered(ls)
-            decreases ls.len()
-        {
-            if ls.len() == 0 {
-                seq![p]
-            } else {
-                if (p as usize as int) <= ls.first() as usize as int {
-                    seq![p].add(ls)
-                } else {
-                    seq![ls.first()].add(Self::add_ghost_pointer(ls.drop_first(), p))
-                }
-            }
-        }
-
-
-        proof fn lemma_add_ghost_pointer_ensures(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
-            requires Self::ghost_pointer_ordered(ls)
-            ensures
-                Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls, p)),
-                Self::add_ghost_pointer(ls, p).contains(p),
-                forall|e: *mut BlockHdr| ls.contains(e) ==> Self::add_ghost_pointer(ls, p).contains(e),
-            decreases ls.len()
-        {
-            if ls.len() > 0 {
-                Self::lemma_add_ghost_pointer_ensures(ls.drop_first(), p);
-                assert(ls.drop_first().len() < ls.len());
-                assert(Self::ghost_pointer_ordered(Self::add_ghost_pointer(ls.drop_first(), p)));
-                if (p as usize as int) <= ls.first() as usize as int {
-                    assert(Self::ghost_pointer_ordered(seq![p, ls.first()].add(ls.drop_first())));
-                    assert(Self::add_ghost_pointer(ls, p) == seq![p, ls.first()].add(ls.drop_first()));
-                    assert(seq![p, ls.first()].add(ls.drop_first())[0] == p);
-                    assert forall|e: *mut BlockHdr| ls.contains(e)
-                        implies Self::add_ghost_pointer(ls, p).contains(e)
-                    by {
-                        let i = choose|i: int| ls[i] == e;
-                        assert(seq![p, ls.first()].add(ls.drop_first()) == seq![p].add(ls));
-                        Self::lemma_list_add_contains(ls, seq![p], e);
-                    }
-                } else {
-                    assert((p as usize as int) > ls.first() as usize as int);
-                    assert(Self::add_ghost_pointer(ls.drop_first(), p).contains(p));
-                    assert(Self::add_ghost_pointer(ls, p) == seq![ls.first()].add(Self::add_ghost_pointer(ls.drop_first(), p)));
-                    Self::lemma_list_add_contains(Self::add_ghost_pointer(ls.drop_first(), p), seq![ls.first()], p);
-                    Self::lemma_ghost_pointer_add_least(Self::add_ghost_pointer(ls.drop_first(), p), ls.first());
-
-
-                    assert(forall|e: *mut BlockHdr| ls.drop_first().contains(e)
-                        ==> Self::add_ghost_pointer(ls.drop_first(), p).contains(e));
-                    assert forall|e: *mut BlockHdr| ls.contains(e)
-                        implies Self::add_ghost_pointer(ls, p).contains(e)
-                    by {
-                        let i = choose|i: int| 0 <= i < ls.len() && ls[i] == e;
-                        if i > 0 {
-                            Self::lemma_drop_first_elements(ls);
-                            Self::lemma_list_add_contains(Self::add_ghost_pointer(ls.drop_first(), p),
-                                seq![ls.first()], e);
-                        }
-                    }
-                }
-            } else {
-                assert(Self::add_ghost_pointer(ls, p)[0] == p);
-            }
-        }
-
-        proof fn lemma_drop_first_elements<T>(x: Seq<T>)
-            requires x.len() > 0
-            ensures forall|i: int| 0 < i < x.len() ==> x.drop_first().contains(x[i])
-        {
-            assert forall|i: int| 0 < i < x.len()
-                implies x.drop_first().contains(x[i]) by {
-                    if x.len() == 1 {
-                        assert(false);
-                    } else {
-                        assert(x.drop_first()[i - 1] == x[i]);
-                    }
-                }
-        }
-
-        proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
-            requires x.contains(e)
-            ensures  y.add(x).contains(e)
-        {
-            assert(forall|i: int| 0 <= i < x.len() ==>
-                y.add(x)[i + y.len()] == x[i]);
-        }
 
         // free_list_pred(ab, seq![1, 2, 3], ptr)
         // <==> ab.value_at(ptr) == 1
@@ -397,8 +315,8 @@ verus! {
 
                     assert(old(self).shadow_freelist@.contains_key(idx));
                     assert(old(self).all_blocks.ptrs@ == self.all_blocks.ptrs@);
-                    assert(AllBlocks::ghost_pointer_ordered(old(self).all_blocks.ptrs@));
-                    assert(AllBlocks::ghost_pointer_ordered(self.all_blocks.ptrs@));
+                    assert(ghost_pointer_ordered(old(self).all_blocks.ptrs@));
+                    assert(ghost_pointer_ordered(self.all_blocks.ptrs@));
 
                     // New block has *new* address
                     assert forall|x: int|
@@ -423,8 +341,8 @@ verus! {
                             points_to: first_free_perm.points_to,
                             free_link_perm: Some(first_free_fl_pt)
                         });
-                    self.all_blocks.ptrs@ = AllBlocks::add_ghost_pointer(self.all_blocks.ptrs@, node);
-                    AllBlocks::lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, node);
+                    self.all_blocks.ptrs@ = add_ghost_pointer(self.all_blocks.ptrs@, node);
+                    lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, node);
                     self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx]));
 
                     //lemma_sort_by_ensures
@@ -475,8 +393,13 @@ verus! {
                                         // Proof that all `p ∈ ∪_{i != idx} self.shadow_freelist[i]` agrees on `self.all_blocks.perms[p]` before and after update
                                         let stable_set = old(self).shadow_freelist@[i];
 
-                                        assume(!stable_set.contains(node));
-                                        assume(!stable_set.contains(first_free));
+
+                                        assume(self.wf_shadow());
+                                        self.lemma_shadow_list_no_duplicates();
+                                        old(self).lemma_shadow_list_contains_unique(idx, first_free);
+                                        assert(!stable_set.contains(node));
+                                        assert(old(self).shadow_freelist@[idx][0] == first_free);
+                                        assert(!stable_set.contains(first_free));
                                         assert forall|x: int|
                                             0 <= x < stable_set.len()
                                         implies
@@ -506,9 +429,12 @@ verus! {
                                             //assert(self.wf_free_node(sls, 0));
                                             assert(old(self).wf_free_node(old_sls, n));
                                         };
+
                                     }
                                 }
                             };
+
+                        assume(self.wf_shadow());
                     };
                 }
             } else {
@@ -713,9 +639,9 @@ verus! {
             node: *mut BlockHdr)
         ensures ({
             let i = choose|i: int|
-                node == Self::add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
+                node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
             let pi = choose|pi: Pi<FLLEN, SLLEN>| self.identity_injection(pi);
-            self.identity_injection(self.identity_injection_update_both(old_pi, i, (idx, 0), node))
+            self.identity_injection(self.identity_injection_update_both(pi, i, (idx, 0), node))
         })
         {}
 
@@ -724,16 +650,36 @@ verus! {
                 self.wf_shadow(),
                 self.all_blocks.wf(),
             ensures
-                forall|i: BlockIndex<FLLEN, SLLEN>,
-                       j: BlockIndex<FLLEN, SLLEN>,
-                       k: int,
-                       l: int|
-                    (i, k) != (j, l) &&
-                    i.wf() && j.wf() &&
-                    0 <= k < self.shadow_freelist@[i].len() &&
-                    0 <= l < self.shadow_freelist@[j].len()
-                    ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
+                self.shadow_freelist_nodup()
         {
+            self.all_blocks.lemma_wf_nodup();
+        }
+
+        proof fn lemma_shadow_list_contains_unique(self, idx: BlockIndex<FLLEN, SLLEN>, p: *mut BlockHdr)
+            requires
+                self.wf_shadow(),
+                self.all_blocks.wf(),
+                self.shadow_freelist@[idx].contains(p),
+                idx.wf()
+            ensures
+                forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                    ==> !self.shadow_freelist@[i].contains(p)
+        {
+            self.lemma_shadow_list_no_duplicates();
+        }
+
+
+
+        spec fn shadow_freelist_nodup(self) -> bool {
+            forall|i: BlockIndex<FLLEN, SLLEN>,
+                   j: BlockIndex<FLLEN, SLLEN>,
+                   k: int,
+                   l: int|
+                (i, k) != (j, l) &&
+                i.wf() && j.wf() &&
+                0 <= k < self.shadow_freelist@[i].len() &&
+                0 <= l < self.shadow_freelist@[j].len()
+                ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
         }
     }
 
@@ -808,5 +754,116 @@ pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> 
 
 
 type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
+
+spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
+    forall|i: int, j: int|
+        0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
+            (ls[i] as usize as int) <= (ls[j] as usize as int)
+}
+
+proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
+    requires ghost_pointer_ordered(ls), ls.len() > 0
+    ensures ls.all(|e: *mut BlockHdr| (ls.first() as usize as int) <= e as usize as int)
+{
+}
+
+proof fn lemma_ghost_pointer_add_least(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
+    requires ghost_pointer_ordered(ls),
+        (p as usize as int) <= ls.first() as usize as int
+    ensures ghost_pointer_ordered(seq![p].add(ls)),
+{
+    if ls.len() > 0 {
+        lemma_ghost_pointer_first_is_least(ls);
+    }
+}
+
+spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
+    recommends ghost_pointer_ordered(ls)
+    decreases ls.len()
+{
+    if ls.len() == 0 {
+        seq![p]
+    } else {
+        if (p as usize as int) <= ls.first() as usize as int {
+            seq![p].add(ls)
+        } else {
+            seq![ls.first()].add(add_ghost_pointer(ls.drop_first(), p))
+        }
+    }
+}
+
+
+proof fn lemma_add_ghost_pointer_ensures(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
+    requires ghost_pointer_ordered(ls)
+    ensures
+        ghost_pointer_ordered(add_ghost_pointer(ls, p)),
+        add_ghost_pointer(ls, p).contains(p),
+        forall|e: *mut BlockHdr| ls.contains(e) ==> add_ghost_pointer(ls, p).contains(e),
+    decreases ls.len()
+{
+    if ls.len() > 0 {
+        lemma_add_ghost_pointer_ensures(ls.drop_first(), p);
+        assert(ls.drop_first().len() < ls.len());
+        assert(ghost_pointer_ordered(add_ghost_pointer(ls.drop_first(), p)));
+        if (p as usize as int) <= ls.first() as usize as int {
+            assert(ghost_pointer_ordered(seq![p, ls.first()].add(ls.drop_first())));
+            assert(add_ghost_pointer(ls, p) == seq![p, ls.first()].add(ls.drop_first()));
+            assert(seq![p, ls.first()].add(ls.drop_first())[0] == p);
+            assert forall|e: *mut BlockHdr| ls.contains(e)
+                implies add_ghost_pointer(ls, p).contains(e)
+            by {
+                let i = choose|i: int| ls[i] == e;
+                assert(seq![p, ls.first()].add(ls.drop_first()) == seq![p].add(ls));
+                lemma_list_add_contains(ls, seq![p], e);
+            }
+        } else {
+            assert((p as usize as int) > ls.first() as usize as int);
+            assert(add_ghost_pointer(ls.drop_first(), p).contains(p));
+            assert(add_ghost_pointer(ls, p) == seq![ls.first()].add(add_ghost_pointer(ls.drop_first(), p)));
+            lemma_list_add_contains(add_ghost_pointer(ls.drop_first(), p), seq![ls.first()], p);
+            lemma_ghost_pointer_add_least(add_ghost_pointer(ls.drop_first(), p), ls.first());
+
+
+            assert(forall|e: *mut BlockHdr| ls.drop_first().contains(e)
+                ==> add_ghost_pointer(ls.drop_first(), p).contains(e));
+            assert forall|e: *mut BlockHdr| ls.contains(e)
+                implies add_ghost_pointer(ls, p).contains(e)
+            by {
+                let i = choose|i: int| 0 <= i < ls.len() && ls[i] == e;
+                if i > 0 {
+                    lemma_drop_first_elements(ls);
+                    lemma_list_add_contains(add_ghost_pointer(ls.drop_first(), p),
+                        seq![ls.first()], e);
+                }
+            }
+        }
+    } else {
+        assert(add_ghost_pointer(ls, p)[0] == p);
+    }
+}
+
+
+proof fn lemma_drop_first_elements<T>(x: Seq<T>)
+    requires x.len() > 0
+    ensures forall|i: int| 0 < i < x.len() ==> x.drop_first().contains(x[i])
+{
+    assert forall|i: int| 0 < i < x.len()
+        implies x.drop_first().contains(x[i]) by {
+            if x.len() == 1 {
+                assert(false);
+            } else {
+                assert(x.drop_first()[i - 1] == x[i]);
+            }
+        }
+}
+
+proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
+    requires x.contains(e)
+    ensures  y.add(x).contains(e)
+{
+    assert(forall|i: int| 0 <= i < x.len() ==>
+        y.add(x)[i + y.len()] == x[i]);
+}
+
 
 }
