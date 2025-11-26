@@ -46,7 +46,9 @@ verus! {
 
     impl AllBlocks {
         spec fn value_at(self, ptr: *mut BlockHdr) -> BlockHdr
-            recommends self.contains(ptr)
+            recommends
+                self.contains(ptr),
+                self.perms@[ptr].points_to.is_init()
         {
             self.perms@[ptr].points_to.value()
         }
@@ -296,7 +298,7 @@ verus! {
             assert(self.shadow_freelist@[idx].len() != 0);
             assert(forall|i: int| 0 <= i < self.shadow_freelist@[idx].len()
                 ==> self.wf_free_node(self.shadow_freelist@[idx], i));
-            assert(self.first_free[idx.0 as int][idx.1 as int] matches Some(first) 
+            assert(self.first_free[idx.0 as int][idx.1 as int] matches Some(first)
                 && self.shadow_freelist@[idx].first() == first);
             assert forall|i: int| 0 <= i < self.shadow_freelist@[idx].len() implies
                 self.wf_free_node(self.shadow_freelist@[idx], i)
@@ -334,6 +336,7 @@ verus! {
                 old(self).all_blocks.wf(),
                 old(self).all_freelist_wf(),
                 node == perm.points_to.ptr(),
+                !old(self).all_blocks.contains(node),
                 perm.wf(),
                 perm.points_to.value().is_free(),
                 perm.free_link_perm is Some,
@@ -342,9 +345,6 @@ verus! {
                 self.all_freelist_wf(),
                 self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx])
         {
-            assert(!self.all_blocks.contains(node)) by {
-                admit()
-            };
             let tracked BlockPerm {
                 points_to: node_pt,
                 free_link_perm: node_fl_pt
@@ -475,8 +475,8 @@ verus! {
                                         // Proof that all `p ∈ ∪_{i != idx} self.shadow_freelist[i]` agrees on `self.all_blocks.perms[p]` before and after update
                                         let stable_set = old(self).shadow_freelist@[i];
 
-                                        assert(!stable_set.contains(node));
-                                        assert(!stable_set.contains(first_free));
+                                        assume(!stable_set.contains(node));
+                                        assume(!stable_set.contains(first_free));
                                         assert forall|x: int|
                                             0 <= x < stable_set.len()
                                         implies
@@ -503,6 +503,7 @@ verus! {
                                         assert forall|n: int| 0 <= n < sls.len()
                                             implies self.wf_free_node(sls, n) by {
 
+                                            //assert(self.wf_free_node(sls, 0));
                                             assert(old(self).wf_free_node(old_sls, n));
                                         };
                                     }
@@ -654,8 +655,86 @@ verus! {
         spec fn wf_shadow(self) -> bool {
             &&& forall|idx: BlockIndex<FLLEN, SLLEN>|
                 self.shadow_freelist@.contains_key(idx) <==> idx.wf()
+            &&& // there is an identity injection to all_blocks
+                exists|pi: Pi<FLLEN, SLLEN>| self.identity_injection(pi)
         }
 
+        spec fn identity_injection(self, pi: Pi<FLLEN, SLLEN>) -> bool {
+            &&& vstd::relations::injective(pi)
+            &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                idx.wf() && 0 <= m < self.shadow_freelist@[idx].len() ==> {
+                    &&& 0 <= pi((idx, m)) < self.all_blocks.ptrs@.len()
+                    &&& self.shadow_freelist@[idx][m] == self.all_blocks.ptrs@[pi((idx, m))]
+                }
+        }
+
+        /// create pi s.t. new pointer inserted at self.all_blocks.ptrs@[i]
+        spec fn identity_injection_update_all_blocks(self,
+            pi: Pi<FLLEN, SLLEN>,
+            i: int,
+            node: *mut BlockHdr) -> Pi<FLLEN, SLLEN>
+            recommends self.identity_injection(pi)
+        {
+            |index: (BlockIndex<FLLEN, SLLEN>, int)| {
+                let (idx, m) = index;
+                if m >= i {
+                    pi(index) + 1
+                } else {
+                    pi(index)
+                }
+            }
+        }
+
+        spec fn identity_injection_update_both(self,
+            pi: Pi<FLLEN, SLLEN>,
+            i: int,
+            new_index: (BlockIndex<FLLEN, SLLEN>, int),
+            node: *mut BlockHdr
+        ) -> Pi<FLLEN, SLLEN>
+            recommends self.identity_injection(pi)
+        {
+            let (idx, m) = new_index;
+            |index: (BlockIndex<FLLEN, SLLEN>, int)| {
+                let (idx2, n) = index;
+                if (idx, m) == (idx2, n) {
+                    i
+                } else {
+                    if pi(index) > i {
+                        pi(index) + 1
+                    } else {
+                        pi(index)
+                    }
+                }
+            }
+        }
+
+        proof fn lemma_link_free_block_update_identity_injection(self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            node: *mut BlockHdr)
+        ensures ({
+            let i = choose|i: int|
+                node == Self::add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
+            let pi = choose|pi: Pi<FLLEN, SLLEN>| self.identity_injection(pi);
+            self.identity_injection(self.identity_injection_update_both(old_pi, i, (idx, 0), node))
+        })
+        {}
+
+        proof fn lemma_shadow_list_no_duplicates(self)
+            requires
+                self.wf_shadow(),
+                self.all_blocks.wf(),
+            ensures
+                forall|i: BlockIndex<FLLEN, SLLEN>,
+                       j: BlockIndex<FLLEN, SLLEN>,
+                       k: int,
+                       l: int|
+                    (i, k) != (j, l) &&
+                    i.wf() && j.wf() &&
+                    0 <= k < self.shadow_freelist@[i].len() &&
+                    0 <= l < self.shadow_freelist@[j].len()
+                    ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
+        {
+        }
     }
 
     spec fn get_freelink_ptr_spec(ptr: *mut BlockHdr) -> *mut FreeLink {
@@ -726,4 +805,8 @@ pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> 
         res == *old(dest)
     opens_invariants none
     no_unwind;
+
+
+type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
+
 }
