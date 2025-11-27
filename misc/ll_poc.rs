@@ -327,8 +327,8 @@ verus! {
                     };
 
 
-                    assume(forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
-                        ==> !self.shadow_freelist@[i].contains(node));
+                    //assume(forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                        //==> !self.shadow_freelist@[i].contains(node));
 
                     // auxiliary data update
                     self.all_blocks.perms.borrow_mut().tracked_insert(node,
@@ -394,7 +394,12 @@ verus! {
                                         let stable_set = old(self).shadow_freelist@[i];
 
 
-                                        assume(self.wf_shadow());
+                                        let old_pi = choose|pi: Pi<FLLEN, SLLEN>| old(self).is_ii(pi);
+                                        let new_pi = old(self).identity_injection_insert_new_node(old_pi, (idx, 0), node);
+                                        assert(self.is_ii(new_pi)) by {
+                                            // TODO: proof
+                                        };
+                                        assert(self.wf_shadow());
                                         self.lemma_shadow_list_no_duplicates();
                                         old(self).lemma_shadow_list_contains_unique(idx, first_free);
                                         assert(!stable_set.contains(node));
@@ -579,46 +584,28 @@ verus! {
 
         //#[verifier::type_invariant]
         spec fn wf_shadow(self) -> bool {
-            &&& forall|idx: BlockIndex<FLLEN, SLLEN>|
-                self.shadow_freelist@.contains_key(idx) <==> idx.wf()
+            &&& shadow_freelist_has_all_wf_index(self.shadow_freelist@)
             &&& // there is an identity injection to all_blocks
-                exists|pi: Pi<FLLEN, SLLEN>| self.identity_injection(pi)
+                exists|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi)
         }
 
-        spec fn identity_injection(self, pi: Pi<FLLEN, SLLEN>) -> bool {
-            &&& vstd::relations::injective(pi)
-            &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
-                idx.wf() && 0 <= m < self.shadow_freelist@[idx].len() ==> {
-                    &&& 0 <= pi((idx, m)) < self.all_blocks.ptrs@.len()
-                    &&& self.shadow_freelist@[idx][m] == self.all_blocks.ptrs@[pi((idx, m))]
-                }
+        spec fn is_ii(self, pi: Pi<FLLEN, SLLEN>) -> bool {
+            is_identity_injection(self.shadow_freelist@, self.all_blocks, pi)
         }
 
-        /// create pi s.t. new pointer inserted at self.all_blocks.ptrs@[i]
-        spec fn identity_injection_update_all_blocks(self,
+        // updated II would look like like that 
+        spec fn identity_injection_insert_new_node(self,
             pi: Pi<FLLEN, SLLEN>,
-            i: int,
-            node: *mut BlockHdr) -> Pi<FLLEN, SLLEN>
-            recommends self.identity_injection(pi)
-        {
-            |index: (BlockIndex<FLLEN, SLLEN>, int)| {
-                let (idx, m) = index;
-                if m >= i {
-                    pi(index) + 1
-                } else {
-                    pi(index)
-                }
-            }
-        }
-
-        spec fn identity_injection_update_both(self,
-            pi: Pi<FLLEN, SLLEN>,
-            i: int,
+            // shadow_freelist's index
             new_index: (BlockIndex<FLLEN, SLLEN>, int),
             node: *mut BlockHdr
         ) -> Pi<FLLEN, SLLEN>
-            recommends self.identity_injection(pi)
+            recommends
+                self.is_ii(pi)
         {
+            // choose all_blocks's index after inserting node
+            let i = choose|i: int|
+                node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
             let (idx, m) = new_index;
             |index: (BlockIndex<FLLEN, SLLEN>, int)| {
                 let (idx2, n) = index;
@@ -634,14 +621,14 @@ verus! {
             }
         }
 
+        //spec fn lemma_idntity_injection_insert_
+
         proof fn lemma_link_free_block_update_identity_injection(self,
             idx: BlockIndex<FLLEN, SLLEN>,
             node: *mut BlockHdr)
         ensures ({
-            let i = choose|i: int|
-                node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
-            let pi = choose|pi: Pi<FLLEN, SLLEN>| self.identity_injection(pi);
-            self.identity_injection(self.identity_injection_update_both(pi, i, (idx, 0), node))
+            let pi = choose|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi);
+            self.is_ii(self.identity_injection_insert_new_node(pi, (idx, 0), node))
         })
         {}
 
@@ -655,7 +642,9 @@ verus! {
             self.all_blocks.lemma_wf_nodup();
         }
 
-        proof fn lemma_shadow_list_contains_unique(self, idx: BlockIndex<FLLEN, SLLEN>, p: *mut BlockHdr)
+        proof fn lemma_shadow_list_contains_unique(self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            p: *mut BlockHdr)
             requires
                 self.wf_shadow(),
                 self.all_blocks.wf(),
@@ -754,6 +743,8 @@ pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> 
 
 
 type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
+type ShadowFreelist<const FLLEN: usize, const SLLEN: usize>
+    = Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>;
 
 spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
     forall|i: int, j: int|
@@ -865,5 +856,26 @@ proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
         y.add(x)[i + y.len()] == x[i]);
 }
 
+
+spec fn is_identity_injection<const FLLEN: usize, const SLLEN: usize>(
+    shadow_freelist: ShadowFreelist<FLLEN, SLLEN>,
+    all_blocks: AllBlocks<FLLEN, SLLEN>,
+    pi: Pi<FLLEN, SLLEN>) -> bool
+    recommends
+        all_blocks.wf(),
+        shadow_freelist_has_all_wf_index(shadow_freelist)
+{
+    &&& vstd::relations::injective(pi)
+    &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+        idx.wf() && 0 <= m < shadow_freelist[idx].len() ==> {
+            &&& 0 <= pi((idx, m)) < all_blocks.ptrs@.len()
+            &&& shadow_freelist[idx][m] == all_blocks.ptrs@[pi((idx, m))]
+        }
+}
+
+spec fn shadow_freelist_has_all_wf_index<const FLLEN: usize, const SLLEN: usize>(sfl: ShadowFreelist<FLLEN, SLLEN>) -> bool {
+    forall|idx: BlockIndex<FLLEN, SLLEN>|
+        sfl.contains_key(idx) <==> idx.wf()
+}
 
 }
