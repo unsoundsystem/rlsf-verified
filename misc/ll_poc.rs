@@ -1,6 +1,7 @@
+use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
-use vstd::arithmetic::power2::pow2;
+use vstd::relations::injective;
 
 verus! {
 
@@ -186,7 +187,6 @@ verus! {
             requires self.contains(x)
             ensures self.wf_node(self.get_ptr_internal_index(x))
         {}
-
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> Tlsf<FLLEN, SLLEN> {
@@ -396,9 +396,10 @@ verus! {
 
                                         let old_pi = choose|pi: Pi<FLLEN, SLLEN>| old(self).is_ii(pi);
                                         let new_pi = old(self).identity_injection_insert_new_node(old_pi, (idx, 0), node);
-                                        assert(self.is_ii(new_pi)) by {
-                                            // TODO: proof
-                                        };
+
+                                        assert(old(self).wf_shadow());
+                                        old(self).lemma_link_free_block_update_identity_injection(old_pi, idx, node);
+                                        assert(self.is_ii(new_pi));
                                         assert(self.wf_shadow());
                                         self.lemma_shadow_list_no_duplicates();
                                         old(self).lemma_shadow_list_contains_unique(idx, first_free);
@@ -590,10 +591,10 @@ verus! {
         }
 
         spec fn is_ii(self, pi: Pi<FLLEN, SLLEN>) -> bool {
-            is_identity_injection(self.shadow_freelist@, self.all_blocks, pi)
+            is_identity_injection(self.shadow_freelist@, self.all_blocks.ptrs@, pi)
         }
 
-        // updated II would look like like that 
+        // updated II would look like like that
         spec fn identity_injection_insert_new_node(self,
             pi: Pi<FLLEN, SLLEN>,
             // shadow_freelist's index
@@ -606,10 +607,8 @@ verus! {
             // choose all_blocks's index after inserting node
             let i = choose|i: int|
                 node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
-            let (idx, m) = new_index;
             |index: (BlockIndex<FLLEN, SLLEN>, int)| {
-                let (idx2, n) = index;
-                if (idx, m) == (idx2, n) {
+                if new_index == index {
                     i
                 } else {
                     if pi(index) > i {
@@ -621,16 +620,80 @@ verus! {
             }
         }
 
-        //spec fn lemma_idntity_injection_insert_
+        proof fn lemma_identity_injection_insert_new_node_ensures(self,
+            pi: Pi<FLLEN, SLLEN>,
+            // shadow_freelist's index
+            new_index: (BlockIndex<FLLEN, SLLEN>, int),
+            node: *mut BlockHdr)
+            requires
+                self.is_ii(pi),
+                self.all_blocks.wf(),
+            ensures ({
+                let new_pi = self.identity_injection_insert_new_node(pi, new_index, node);
+                let i = choose|i: int|
+                    node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
+
+                forall|index: (BlockIndex<FLLEN, SLLEN>, int)| {
+                    &&& new_index == index ==> new_pi(index) == i
+                    &&& new_index != index && #[trigger] pi(index) > i ==> new_pi(index) == pi(index) + 1
+                    &&& new_index != index && #[trigger] pi(index) <= i ==> new_pi(index) == pi(index)
+                }
+            })
+        {
+            lemma_add_ghost_pointer_ensures(self.all_blocks.ptrs@, node);
+        }
 
         proof fn lemma_link_free_block_update_identity_injection(self,
+            old_pi: Pi<FLLEN, SLLEN>,
             idx: BlockIndex<FLLEN, SLLEN>,
             node: *mut BlockHdr)
-        ensures ({
-            let pi = choose|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi);
-            self.is_ii(self.identity_injection_insert_new_node(pi, (idx, 0), node))
-        })
-        {}
+        requires
+            self.wf_shadow(), self.all_blocks.wf(), self.is_ii(old_pi), !self.all_blocks.contains(node)
+        ensures
+            is_identity_injection(
+                self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx])),
+                add_ghost_pointer(self.all_blocks.ptrs@, node),
+                self.identity_injection_insert_new_node(old_pi, (idx, 0), node))
+        {
+            let new_pi = self.identity_injection_insert_new_node(old_pi, (idx, 0), node);
+            self.all_blocks.lemma_wf_nodup();
+            //assert(self.
+            //assert(self.all_blocks.ptrs@.no_duplicates());
+            assume(add_ghost_pointer(self.all_blocks.ptrs@, node).no_duplicates());
+            assert(injective(new_pi)) by {
+                assert forall|x1: (BlockIndex<FLLEN, SLLEN>, int), x2: (BlockIndex<FLLEN, SLLEN>, int)|
+                    #[trigger] new_pi(x1) == #[trigger] new_pi(x2)
+                    implies x1 == x2
+                by {
+                    let x = choose|x: int| node == add_ghost_pointer(self.all_blocks.ptrs@, node)[x];
+                    self.lemma_identity_injection_insert_new_node_ensures(old_pi, (idx, 0), node);
+                    if x1 == (idx, 0int) {
+                        assert(new_pi(x1) == x);
+                        admit()
+                    } else {
+                        assert(injective(old_pi));
+                        self.lemma_identity_injection_insert_new_node_ensures(old_pi, (idx, 0), node);
+                        if old_pi(x1) > x {
+                            //assert(old_pi((i, k)) + 1 == new_pi((i, k)));
+                            //assert(old_pi((j, l)) + 1 == new_pi((j, l)));
+                            //assert(old_pi((i, k)) == old_pi((j, l)));
+                        } else {
+                            //assert(old_pi((i, k)) + 1 == new_pi((i, k)));
+                            assert(old_pi(x1) == new_pi(x1));
+                            if old_pi(x2) > x {
+                                //admit()
+                            } else {
+                                admit()
+                            }
+                            //assert(old_pi(x2) == new_pi(x2));
+                            //assert(!(old_pi((j, l)) > x) ==> old_pi((j, l)) == new_pi((j, l)));
+                            assume(old_pi(x2) == old_pi(x2));
+                        }
+                    }
+                }
+            };
+            admit();
+        }
 
         proof fn lemma_shadow_list_no_duplicates(self)
             requires
@@ -859,17 +922,17 @@ proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
 
 spec fn is_identity_injection<const FLLEN: usize, const SLLEN: usize>(
     shadow_freelist: ShadowFreelist<FLLEN, SLLEN>,
-    all_blocks: AllBlocks<FLLEN, SLLEN>,
+    all_block_ptrs: Seq<*mut BlockHdr>,
     pi: Pi<FLLEN, SLLEN>) -> bool
     recommends
-        all_blocks.wf(),
+        all_block_ptrs.no_duplicates(),
         shadow_freelist_has_all_wf_index(shadow_freelist)
 {
-    &&& vstd::relations::injective(pi)
+    &&& injective(pi)
     &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
         idx.wf() && 0 <= m < shadow_freelist[idx].len() ==> {
-            &&& 0 <= pi((idx, m)) < all_blocks.ptrs@.len()
-            &&& shadow_freelist[idx][m] == all_blocks.ptrs@[pi((idx, m))]
+            &&& 0 <= pi((idx, m)) < all_block_ptrs.len()
+            &&& shadow_freelist[idx][m] == all_block_ptrs[pi((idx, m))]
         }
 }
 
