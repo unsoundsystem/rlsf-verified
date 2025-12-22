@@ -2,9 +2,7 @@ use vstd::prelude::*;
 
 verus! {
 
-use crate::{
-    Tlsf, GRANULARITY
-};
+    use crate::Tlsf;
 use vstd::calc_macro::calc;
 use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
 use vstd::std_specs::bits::u64_trailing_zeros;
@@ -14,6 +12,27 @@ use crate::bits::{
     usize_trailing_zeros, is_power_of_two,
     usize_trailing_zeros_is_log2_when_pow2_given
 };
+
+
+
+/// Hardcoding the result of `size_of::<usize>()` to use `GRANULARITY` in both spec/exec modes
+// the following doesn't work
+//pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
+//pub const GRANULARITY: usize = vstd::layout::size_of::<usize>() as usize * 4;
+#[cfg(target_pointer_width = "64")]
+pub const GRANULARITY: usize = 8 * 4;
+
+//pub const GRANULARITY_LOG2: u32 = ex_usize_trailing_zeros(GRANULARITY);
+
+pub const SIZE_USED: usize = 1;
+pub const SIZE_SENTINEL: usize = 2;
+// FIXME: cannot call function `lib::bits::ex_usize_trailing_zeros` with mode exec
+// https://verus-lang.github.io/verus/guide/const.html#specexec-consts
+pub spec const SPEC_SIZE_SIZE_MASK: usize =
+    !(((1usize << usize_trailing_zeros(GRANULARITY)) as usize - 1usize) as usize);
+#[verifier::when_used_as_spec(SPEC_SIZE_SIZE_MASK)]
+pub exec const SIZE_SIZE_MASK: usize =  !((1 << GRANULARITY.trailing_zeros()) - 1);
+
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     // workaround: verus doesn't support constants definitions in impl.

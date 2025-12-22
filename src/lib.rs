@@ -12,6 +12,8 @@ mod ghost_tlsf;
 mod parameters;
 mod mapping;
 mod bitmap;
+mod all_blocks;
+mod block;
 
 use vstd::prelude::*;
 
@@ -53,21 +55,27 @@ use vstd::array::*;
 use core::hint::unreachable_unchecked;
 use ghost_tlsf::{UsedInfo, Block, BlockPerm};
 use vstd::std_specs::bits::u64_trailing_zeros;
+use crate::block::*;
+use crate::parameters::*;
 
+#[cfg(target_pointer_width = "64")]
+global size_of usize == 8;
+
+
+#[verifier::reject_recursive_types(FLLEN)]
+#[verifier::reject_recursive_types(SLLEN)]
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[DLL; SLLEN]; FLLEN],
     pub used_info: UsedInfo,
-
     pub _phantom: PhantomData<&'pool ()>,
 
+    /// represents region managed by this allocator
+    pub valid_range: Ghost<Set<int>>,
 
-
-    pub valid_range: Ghost<Set<int>>, // represents region managed by this allocator
-
-    // ordered by address
+    /// ordered by address
     pub all_blocks: Ghost<Seq<Block>>,
     // FIXME: reflect acutual status of Tlsf field
     //      * option 1: move related filed to Tlsf
@@ -78,84 +86,10 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     // NOTE: Assuming that there is only single memory pool and once the pool registered, no more
     //       new region could be registered to extend.
     pub root_provenances: Tracked<Option<IsExposed>>,
+
+    /// Auxiliary data used to verify segregated list
+    pub shadow_freelist: Ghost<Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>>
 }
-
-#[cfg(target_pointer_width = "64")]
-global size_of usize == 8;
-
-/// Hardcoding the result of `size_of::<usize>()` to use `GRANULARITY` in both spec/exec modes
-// the following doesn't work
-//pub const GRANULARITY: usize = core::mem::size_of::<usize>() * 4;
-//pub const GRANULARITY: usize = vstd::layout::size_of::<usize>() as usize * 4;
-#[cfg(target_pointer_width = "64")]
-pub const GRANULARITY: usize = 8 * 4;
-
-//pub const GRANULARITY_LOG2: u32 = ex_usize_trailing_zeros(GRANULARITY);
-
-const SIZE_USED: usize = 1;
-const SIZE_SENTINEL: usize = 2;
-// FIXME: cannot call function `lib::bits::ex_usize_trailing_zeros` with mode exec
-// https://verus-lang.github.io/verus/guide/const.html#specexec-consts
-spec const SPEC_SIZE_SIZE_MASK: usize =
-    !(((1usize << usize_trailing_zeros(GRANULARITY)) as usize - 1usize) as usize);
-#[verifier::when_used_as_spec(SPEC_SIZE_SIZE_MASK)]
-exec const SIZE_SIZE_MASK: usize =  !((1 << GRANULARITY.trailing_zeros()) - 1);
-
-#[repr(C)]
-struct BlockHdr {
-    /// The size of the whole memory block, including the header.
-    ///
-    ///  - `bit[0]` ([`SIZE_USED`]) indicates whether the block is a used memory
-    ///    block or not.
-    ///
-    ///  - `bit[1]` ([`SIZE_LAST_IN_POOL`]) indicates whether the block is the
-    ///    last one of the pool or not.
-    ///
-    ///  - `bit[GRANULARITY_LOG2..]` ([`SIZE_SIZE_MASK`]) represents the size.
-    ///
-    size: usize,
-    prev_phys_block: Option<*mut BlockHdr>,
-}
-
-#[repr(C)]
-struct UsedBlockHdr {
-    common: BlockHdr,
-}
-
-#[repr(C)]
-struct UsedBlockPad {
-    block_hdr: *mut UsedBlockHdr,
-}
-
-impl UsedBlockPad {
-    //#[verifier::external_body] // debug
-    #[inline]
-    fn get_for_allocation(ptr: *mut u8) -> (r: *mut Self) {
-        let Tracked(is_exposed) = expose_provenance(ptr);
-        // FIXME: this subtraction was wrapping_sub
-        let ptr = with_exposed_provenance(
-            ptr as usize - size_of::<FreeBlockHdr>(),
-            Tracked(is_exposed));
-        ptr
-    }
-}
-
-
-#[repr(C)]
-struct FreeBlockHdr {
-    common: BlockHdr,
-    next_free: Option<*mut FreeBlockHdr>,
-    prev_free: Option<*mut FreeBlockHdr>,
-}
-
-impl FreeBlockHdr {
-    spec fn wf(self) -> bool {
-        // FIXME(blocking): bit mask formalization
-        arbitrary()
-        //self.common.
-    }
-}
-
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// well-formedness of Tlsf structure
     /// * freelist well-formedness
@@ -190,7 +124,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             all_blocks: Ghost(Seq::empty()),
             valid_range: Ghost(Set::empty()),
             root_provenances: Tracked(None),
-            _phantom: PhantomData
+            _phantom: PhantomData,
+            shadow_freelist: Ghost(Map::empty())
         }
     }
 
@@ -465,7 +400,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     // TODO: refactor use Layout as an argument (external type?)
     // TODO: refactor array access to unchecked operations e.g. arr.get_unchecked_mut(i)
-    //#[verifier::external_body] // for spec debug
+    #[verifier::external_body] // for spec debug
     pub fn allocate(&mut self, size: usize, align: usize /* layout: Layout */) ->
         (r: (Option<(*mut u8, Tracked<PointsToRaw>, Tracked<DeallocToken>)>))
         requires
@@ -498,175 +433,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             self.wf()
     {
-        unsafe {
-            // The extra bytes consumed by the header and padding.
-            //
-            // After choosing a free block, we need to adjust the payload's location
-            // to meet the alignment requirement. Every block is aligned to
-            // `GRANULARITY` bytes. `size_of::<UsedBlockHdr>` is `GRANULARITY / 2`
-            // bytes, so the address immediately following `UsedBlockHdr` is only
-            // aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
-            // a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
-            let max_overhead =
-                align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
-
-            //NOTE: alignment (`align`) is arbitrary power of 2.
-            //      But following prevents requests have insainly big alignment to be completed.
-            //      i.e. search fails because the requested size is too big
-
-            // Search for a suitable free block
-            let search_size = size.checked_add(max_overhead)?;
-            let search_size = search_size.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
-            let BlockIndex(fl, sl) = self.search_suitable_free_block_list_for_allocation(search_size)?;
-
-            // Detattch & get a free block from the list
-            let first_free = self.free_list_pop_front(BlockIndex(fl, sl));
-            // Get a free block: `block`
-            let (block, Tracked(perm_block_header)) = if let Some(first_free) = first_free {
-                first_free
-            } else {
-                // Unreachable provided `search_suitable_free_block_list_for_allocation`'s
-                // postcondition
-                unreachable_unchecked()
-            };
-            let Tracked(block_is_exposed) = expose_provenance(block);
-            let (mut next_phys_block, Tracked(mut next_phys_block_pt)) = self.next_phys_block_of_fb(block, Tracked(&perm_block_header));
-            let size_and_flags = ptr_ref(block, Tracked(&perm_block_header)).common.size;
-            // NOTE: free block header has no flags -- only indicates about size
-            let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
-            assert(size == size_and_flags & SIZE_SIZE_MASK);
-
-            assert(size >= search_size);
-
-            if self.first_free[fl][sl].is_empty() {
-                // The free list is now empty - update the bitmap
-                self.clear_bit_for_index(BlockIndex(fl, sl));
-            }
-
-            // Get permission for region managed by the header at `block`
-            let tracked mut perm_block_block = PointsToRaw::empty(Provenance::null());
-            assert(perm_block_block.is_range(block.addr() + GRANULARITY, size as int));
-
-            // Decide the starting address of the payload
-            let unaligned_ptr = block.addr() + mem::size_of::<UsedBlockHdr>();
-            let ptr: *mut u8 = with_exposed_provenance(
-                unaligned_ptr.wrapping_add(align - 1) & !(align - 1),
-                Tracked(block_is_exposed));
-            assert(ptr.addr() != 0);
-
-            if align < GRANULARITY {
-                assert(unaligned_ptr == ptr.addr());
-            } else {
-                assert(unaligned_ptr != ptr.addr());
-            }
-
-            // Calculate the actual overhead and the final block size of the
-            // used block being created here
-            let overhead = ptr.addr() - block.addr();
-            assert(overhead <= max_overhead);
-
-            let new_size = overhead + size;
-            let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
-            assert(new_size <= search_size);
-
-            let tracked mut new_block_block_perm = PointsToRaw::empty(Provenance::null());
-            if new_size == size {
-                // The allocation completely fills this free block.
-                // Updating `next_phys_block.prev_phys_block` is unnecessary in this
-                // case because it's still supposed to point to `block`.
-            } else {
-                // The allocation partially fills this free block. Create a new
-                // free block header at `block + new_size..block + size`
-                // of length (`new_free_block_size`).
-                let new_block_addr = block.addr() + new_size;
-                let mut new_free_block: *mut FreeBlockHdr =
-                    with_exposed_provenance(new_block_addr, Tracked(block_is_exposed));
-                let new_free_block_size = size - new_size;
-
-                // Split permission for the new block
-                let tracked (new_block_perm, perm_bb) =
-                    perm_block_block.split(set_int_range(new_block_addr as int, new_block_addr + new_free_block_size as int));
-                proof {
-                    perm_block_block = perm_bb;
-                }
-                let tracked (new_block_header_perm, new_block_block_perm) =
-                    new_block_perm.split(set_int_range(new_block_addr as int, new_block_addr as int + size_of::<FreeBlockHdr>() as int));
-                let tracked mut new_block_header_perm = new_block_header_perm.into_typed(new_block_addr);
-                proof {
-                    new_block_block_perm = new_block_block_perm;
-                }
-
-                // Update `next_phys_block.prev_phys_block` to point to this new
-                // free block
-                // Invariant: No two adjacent free blocks
-                //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
-                let old_next_phys_block_size = ptr_ref(next_phys_block, Tracked(&next_phys_block_pt)).common.size;
-                ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_pt), UsedBlockHdr {
-                    common: BlockHdr {
-                        size: old_next_phys_block_size,
-                        prev_phys_block: Some(new_free_block as *mut BlockHdr),
-                    }
-                });
-
-                // Create the new free block header
-                ptr_mut_write(new_free_block, Tracked(&mut new_block_header_perm),
-                    FreeBlockHdr {
-                        prev_free: None,
-                        next_free: None,
-                        common: BlockHdr {
-                            size: new_free_block_size,
-                            prev_phys_block: Some(block as *mut BlockHdr)
-                        }
-                    });
-
-                self.link_free_block(new_free_block,
-                    new_free_block_size, Tracked(new_block_header_perm));
-            }
-
-            // Turn `block` into a used memory block and initialize the used block
-            // header. `prev_phys_block` is already set.
-            let old_block_prev_block =
-                ptr_ref(block, Tracked(&perm_block_header)).common.prev_phys_block;
-            let mut block = block as *mut UsedBlockHdr;
-
-            let tracked perm_block_header = fbh_pt_into_ubh(perm_block_header);
-            ptr_mut_write(block, Tracked(&mut perm_block_header), UsedBlockHdr {
-                common: BlockHdr {
-                    size: new_size | SIZE_USED,
-                    prev_phys_block: old_block_prev_block
-                }
-            });
-
-            let mut pad: Option<Tracked<PointsTo<UsedBlockPad>>> = None;
-
-            // Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
-            if align >= GRANULARITY {
-                let pad_ptr = UsedBlockPad::get_for_allocation(ptr);
-                let tracked (pad_perm, perm_bb) = perm_block_block.split(set_int_range(pad_ptr.addr() as int, 1));
-                proof {
-                    perm_block_block = perm_bb;
-                }
-                let tracked pad_perm = pad_perm.into_typed::<UsedBlockPad>(pad_ptr.addr());
-                ptr_mut_write(pad_ptr, Tracked(&mut pad_perm), UsedBlockPad {
-                    block_hdr: block as *mut UsedBlockHdr
-                });
-                pad = Some(Tracked(pad_perm));
-            }
-
-            proof {
-                // TODO: update ghost states
-                // * adjast perm_block_block to fit ptr..+(search_size - overhead)
-            }
-
-            // TODO: perm_block_block must be continuous?
-            //      there unnecessary permission to "padding gap" here
-            Some((ptr, Tracked(perm_block_block),
-                Tracked(DeallocToken {
-                    ptr: Ghost(block as *mut UsedBlockHdr),
-                    pad
-                })
-            ))
-        }
+        unimplemented!()
     }
 
     pub fn deallocate(&mut self,
@@ -843,55 +610,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             with_exposed_provenance(ptr, is_exposed)
         }
     }
-
-
-    // only used for updating `next_phys_block.prev_phys_block`
-    fn next_phys_block_of<H: BlockHeader>(&mut self, ptr: *mut H,
-            Tracked(pt): Tracked<&PointsTo<H>>)
-          -> (r: (*mut BlockHdr, BlockPerm))
-        requires old(self).wf_all_blocks(),
-            old(self).root_provenances@ is Some,
-            old(self).contains_block_pointer(ptr as *mut BlockHdr),
-            !old(self).is_sentinel_pointer(ptr as *mut BlockHdr)
-        ensures
-            r.0 == r.1@.ptr(),
-            ({ let i = choose|i: int|
-                    old(self).all_blocks@[i] matches Block::Free(ptr, _, _)
-                    || old(self).all_blocks@[i] matches Block::Used(ptr);
-
-                ||| old(self).phys_next_of(i) matches Some(Block::Used(p)) && p == r.0
-                ||| old(self).phys_next_of(i) matches Some(Block::Free(p, _, _)) && p == r.0
-            })
-    {
-        let size = ptr_ref(ptr, Tracked(pt)).common.size & SIZE_SIZE_MASK;
-        let next_phys_block_addr = (ptr as *mut u8) as usize + size;
-        let Tracked(pv) = self.root_provenances;
-        let tracked pv = pv.tracked_unwrap();
-        let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, Tracked(pv));
-        let tracked mut perm;
-        proof {
-            let i = choose|i: int|
-                old(self).all_blocks@[i] matches Block::Free(ptr, _, _);
-            let next_block = self.phys_next_of(i).unwrap();
-
-            perm = match next_block {
-                Block::Used(ptr) => {
-                    let perm = self.used_info.perms@.tracked_remove(ptr);
-                    BlockPerm::Used { block: next_block, perm: Tracked(perm) }
-                }
-                Block::Free(ptr, i, j) => {
-                    let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
-                    BlockPerm::Free { block: next_block, perm: Tracked(perm) }
-                }
-            };
-        };
-
-        // self.wf_all_blocks() ==> forall|i| 0 <= i < all_blocks.len()
-        //      exists|pt: PointsTo<UsedBlockHdr>| pt
-        //      || exists|pt: PointsTo<FreeBlockHdr>|
-        (ptr, perm)
-    }
-
 
 
     spec fn plat64_basics() -> bool

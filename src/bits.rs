@@ -788,12 +788,12 @@ pub fn usize_hight_mask(b: usize, start: u32) -> usize {
     b & !(usize::MAX >> start)
 }
 
-pub assume_specification [usize::saturating_sub] (x: usize, y: usize) -> (r: usize)
-    ensures
-        x as int - y as int <= 0 ==> r == 0,
-        x as int - y as int > 0 ==> r == x - y,
-    opens_invariants none
-    no_unwind;
+//pub assume_specification [usize::saturating_sub] (x: usize, y: usize) -> (r: usize)
+    //ensures
+        //x as int - y as int <= 0 ==> r == 0,
+        //x as int - y as int > 0 ==> r == x - y,
+    //opens_invariants none
+    //no_unwind;
 
 pub proof fn usize_leading_trailing_zeros(x: usize)
 by (nonlinear_arith)

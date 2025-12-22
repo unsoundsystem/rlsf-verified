@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use crate::{FreeBlockHdr, BlockHdr};
+use crate::block::*;
 use vstd::raw_ptr::{MemContents, PointsTo, PointsToRaw, ptr_mut_read, ptr_mut_write};
 
 verus! {

@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 use vstd::raw_ptr::{ptr_mut_write, ptr_ref2, ptr_ref, PointsToRaw, PointsTo, Metadata, Provenance};
-use crate::{FreeBlockHdr, UsedBlockHdr, Tlsf, SIZE_SIZE_MASK, SIZE_SENTINEL, BlockHdr};
+use crate::{Tlsf, SIZE_SIZE_MASK, SIZE_SENTINEL};
+use crate::block::*;
 use crate::block_index::BlockIndex;
 use vstd::set_lib::set_int_range;
 use core::hint::unreachable_unchecked;
