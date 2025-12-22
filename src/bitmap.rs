@@ -8,6 +8,7 @@ use crate::{
     Tlsf, GRANULARITY
 };
 
+#[cfg(verus_keep_ghost)]
 use crate::bits::{lemma_bitmap_or, lemma_bit_clear_zero, lemma_bit_or_nonzero, lemma_bitmap_clear};
 
 use crate::block_index::BlockIndex;

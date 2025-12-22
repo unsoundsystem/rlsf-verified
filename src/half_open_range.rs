@@ -1,5 +1,6 @@
 use vstd::prelude::*;
 use vstd::{seq::*, seq_lib::*};
+#[cfg(verus_keep_ghost)]
 use vstd::set_lib::set_int_range;
 use vstd::set::Set;
 use vstd::calc;

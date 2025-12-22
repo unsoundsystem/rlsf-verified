@@ -1,6 +1,8 @@
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+#[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
 use crate::parameters::*;
 

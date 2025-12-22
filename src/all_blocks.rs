@@ -1,6 +1,8 @@
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+#[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
 use crate::block::*;
 use crate::block_index::BlockIndex;
@@ -170,6 +172,7 @@ verus! {
     }
 
 
+    #[cfg(verus_keep_ghost)]
     pub(crate) type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
     pub(crate) type ShadowFreelist<const FLLEN: usize, const SLLEN: usize>
         = Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>;

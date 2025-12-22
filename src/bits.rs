@@ -3,17 +3,24 @@ use vstd::prelude::*;
 verus! {
 #[macro_use]
 use crate::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::bits::{
     u64_trailing_zeros, u64_leading_zeros,
     u32_leading_zeros, u32_trailing_zeros,
-    axiom_u64_trailing_zeros
+    axiom_u64_trailing_zeros,
 };
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::logarithm::{log, lemma_log_nonnegative};
-use vstd::arithmetic::power::{pow, lemma_pow_adds, lemma_pow_increases};
+#[cfg(verus_keep_ghost)]
+use vstd::arithmetic::power::{lemma_pow_strictly_increases_converse, pow, lemma_pow_adds, lemma_pow_increases};
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::{pow2, lemma_pow2};
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::div_mod::lemma_mod_breakdown;
+#[cfg(verus_keep_ghost)]
 use vstd::math::abs;
 use vstd::calc;
+
 
 
 //#[cfg(target_pointer_width = "32")]
@@ -54,15 +61,6 @@ pub open spec fn usize_trailing_zeros(x: usize) -> u32
     u64_trailing_zeros(x as u64) as u32
 }
 
-pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
-    ensures r == usize_leading_zeros(x)
-    opens_invariants none
-    no_unwind;
-
-pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
-    ensures r == usize_trailing_zeros(x)
-    opens_invariants none
-    no_unwind;
 
 #[cfg(target_pointer_width = "64")]
 pub proof fn axiom_usize_trailing_zeros(x: usize) {
@@ -72,7 +70,6 @@ pub proof fn axiom_usize_trailing_zeros(x: usize) {
 //pub proof fn power2_log2(x: int)
     //requires is_power_of_two(x)
     //ensures x >> log(2, x) >= 1
-use vstd::arithmetic::power::lemma_pow_strictly_increases_converse;
 pub proof fn pow2_is_single_bit(x: usize, y: nat)
     requires pow(2, y) == x, x > 0,
     ensures x == 1 << y,
@@ -92,7 +89,7 @@ pub proof fn pow2_is_single_bit(x: usize, y: nat)
     } else {
         pow2_is_single_bit(x / 2, (y - 1) as nat);
         assert((x / 2) == 1 << (y - 1));
-        lemma_u64_shl_is_mul(1, y as u64);
+        vstd::bits::lemma_u64_shl_is_mul(1, y as u64);
         assert(1 << y == pow(2, y));
         assert(1 << (y - 1) == pow(2, (y - 1) as nat));
         assert(2*pow(2, (y - 1) as nat) == pow(2, y));
@@ -372,8 +369,6 @@ proof fn lemma_usize_rotate_right_reversible(x: usize, n: i32)
 }
 
 
-use vstd::bits::low_bits_mask;
-
 /// mask with n or higher bits n..usize::BITS set
 pub open spec fn high_mask_usize(n: nat) -> usize {
     !low_mask_usize(n)
@@ -381,7 +376,7 @@ pub open spec fn high_mask_usize(n: nat) -> usize {
 
 /// masks with bits 0..n set
 pub open spec fn low_mask_usize(n: nat) -> usize {
-    low_bits_mask(n) as usize
+    vstd::bits::low_bits_mask(n) as usize
 }
 
 /// mask with n or higher bits n..u64::BITS set
@@ -702,21 +697,9 @@ proof fn u64_bits_basics(x: u64) by (bit_vector)
 
 /// masks with bits 0..n set
 pub open spec fn low_mask_u64(n: nat) -> u64 {
-    low_bits_mask(n) as u64
+    vstd::bits::low_bits_mask(n) as u64
 }
 
-
-#[cfg(target_pointer_width = "64")]
-pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
-    // This primitive cast just work as usual exec code
-    // NOTE: is it ok? primitive cast really just reinterpet bytes?
-    //      ref. `unsigned_to_signed`
-    ensures r == usize_rotate_right(x, n as i32)
-    opens_invariants none
-    no_unwind;
-
-use vstd::bits::*;
-use vstd::arithmetic::power2::*;
 
 proof fn example5() {
 //    reveal(pow2);
@@ -766,11 +749,9 @@ pub open spec fn is_power_of_two_rec(n: int) -> bool
 }
 
 
-use vstd::bits::lemma_u64_low_bits_mask_is_mod;
-
 #[cfg(target_pointer_width = "64")]
 proof fn lemma_usize_low_bits_mask_is_mod(x: usize, n: nat) {
-    lemma_u64_low_bits_mask_is_mod(x as u64, n);
+    vstd::bits::lemma_u64_low_bits_mask_is_mod(x as u64, n);
 }
 
 #[inline(always)]
@@ -787,13 +768,6 @@ pub fn bit_scan_forward(b: usize, start: u32) -> u32 {
 pub fn usize_hight_mask(b: usize, start: u32) -> usize {
     b & !(usize::MAX >> start)
 }
-
-//pub assume_specification [usize::saturating_sub] (x: usize, y: usize) -> (r: usize)
-    //ensures
-        //x as int - y as int <= 0 ==> r == 0,
-        //x as int - y as int > 0 ==> r == x - y,
-    //opens_invariants none
-    //no_unwind;
 
 pub proof fn usize_leading_trailing_zeros(x: usize)
 by (nonlinear_arith)
@@ -816,7 +790,6 @@ pub proof fn granularity_is_power_of_two()
     };
 }
 
-use vstd::std_specs::bits::group_bits_axioms;
 pub proof fn mask_higher_bits_leq_mask(x: usize, y: usize)
     by (bit_vector)
     requires 0 < y
@@ -950,8 +923,8 @@ proof fn lemma_low_mask_pow2_pred_u64(m: u64, n: nat)
     ensures low_mask_u64(n) == m - 1
     decreases m, n
 {
-    assert(low_bits_mask(n) == pow2(n) - 1);
-    assert(low_bits_mask(n) as u64 == m - 1) by {
+    assert(vstd::bits::low_bits_mask(n) == pow2(n) - 1);
+    assert(vstd::bits::low_bits_mask(n) as u64 == m - 1) by {
         lemma_pow2_u64_width(m, n);
         assert(m == pow2(n));
     };
@@ -1631,6 +1604,9 @@ pub proof fn lemma_bitmap_clear(b: usize, i: usize)
             0 <= j < usize::BITS && i != j ==>
                 nth_bit!(b & !(1usize << i), j) == nth_bit!(b, j)
 {}
+
+//#[cfg(feature = "release")]
+//include!("external_spec.rs");
 
 
 } // verus!

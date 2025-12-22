@@ -7,6 +7,7 @@ use vstd::set::Set;
 //       and Verus has no support for impl PartialEq
 
 verus! {
+#[cfg(verus_keep_ghost)]
 use vstd::relations::{transitive, equivalence_relation, irreflexive, reflexive};
 
 pub open spec fn antisymmetric<T>(r: spec_fn(T, T) -> bool, eq: spec_fn(T, T) -> bool) -> bool

@@ -1,6 +1,8 @@
-#![feature(const_mut_refs)]
-#![feature(const_replace)]
-#![feature(strict_provenance)]
+//#![feature(const_mut_refs)]
+//#![feature(const_replace)]
+//#![feature(strict_provenance)]
+#![allow(unused_imports)]
+#![no_std]
 
 mod bits;
 mod block_index;
@@ -18,42 +20,34 @@ mod block;
 use vstd::prelude::*;
 
 verus! {
+use vstd::pervasive::*;
+#[cfg(verus_keep_ghost)]
+use vstd::pervasive::arbitrary;
+#[cfg(verus_keep_ghost)]
+use vstd::raw_ptr::ptr_from_data;
 use vstd::raw_ptr::{
     ptr_mut_read, ptr_mut_write, ptr_ref2, ptr_ref,
     PointsToRaw, PointsTo, Metadata, Provenance,
     expose_provenance, with_exposed_provenance,
-    ptr_from_data, PtrData, IsExposed
+    PtrData, IsExposed
 };
+#[cfg(verus_keep_ghost)]
 use vstd::set_lib::set_int_range;
 use vstd::calc_macro::calc;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 use vstd::{seq::*, seq_lib::*, bytes::*};
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
 use core::alloc::Layout;
 use core::mem;
-use crate::bits::{
-    lemma_pow2_increases,
-    lemma_pow2_values,
-    lemma_log2_values,
-    log2_using_leading_zeros_usize,
-    usize_trailing_zeros, is_power_of_two,
-    bit_scan_forward, usize_leading_trailing_zeros, usize_leading_zeros,
-    granularity_is_power_of_two, mask_higher_bits_leq_mask,
-    bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower,
-    lemma_pow2_log2_div_is_one, log2_power_in_range,
-    lemma_log2_distributes, usize_rotate_right, low_mask_usize,
-    lemma_div_by_powlog, lemma_powlog_leq, log2_power_ordered,
-    log2_is_strictly_ordered_if_rhs_is_pow2, lemma_div_before_mult_pow2,
-    lemma_duplicate_low_mask_usize, lemma_usize_shr_is_div,
-    lemma_pow2_div_sub, lemma_u64_trailing_zeros_same,
-    lemma_usize_trailing_zero_be_log2, usize_trailing_zeros_is_log2_when_pow2_given
-};
+use crate::bits::*;
+//#[cfg(verus_keep_ghost)]
+//use crate::bits::bit_scan_forward;
 use crate::block_index::BlockIndex;
 //use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
 //use ghost_tlsf::{UsedInfo, Block, BlockPerm};
-use vstd::std_specs::bits::u64_trailing_zeros;
 use crate::block::*;
 use crate::parameters::*;
 use crate::all_blocks::*;
@@ -574,7 +568,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         ensures r.1.wf(), //r.0 == r.1.bhdr_ptr()
 
     {
-        arbitrary()
+        unimplemented!()
         //let ptr = ((bhdr as *mut u8).add((ptr_ref(block, Tracked(&perm_block_header)).size) & SIZE_SIZE_MASK)).cast::<BlockHdr>();
         //let tracked mut perm: BlockPerm;
 
@@ -608,7 +602,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 }
 
-impl !Copy for DeallocToken {}
+//impl !Copy for DeallocToken {}
 
 // NOTE: Consider merging block in deallocate(), it's going to be impossible to 
 //        peek usedness and merge if we give permission for hole header to the user
@@ -647,5 +641,24 @@ macro_rules! nth_bit {
         verus_proof_macro_exprs!(nth_bit_macro!($($a)*))
     }
 }
+
+// FIXME: following MUST be commented out while `cargo build`
+pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
+    ensures r == usize_leading_zeros(x)
+    opens_invariants none
+    no_unwind;
+
+pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
+    ensures r == usize_trailing_zeros(x)
+    opens_invariants none
+    no_unwind;
+
+pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
+    // This primitive cast just work as usual exec code
+    // NOTE: is it ok? primitive cast really just reinterpet bytes?
+    //      ref. `unsigned_to_signed`
+    ensures r == usize_rotate_right(x, n as i32)
+    opens_invariants none
+    no_unwind;
 
 } // verus!

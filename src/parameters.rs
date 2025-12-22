@@ -4,8 +4,11 @@ verus! {
 
     use crate::Tlsf;
 use vstd::calc_macro::calc;
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::bits::u64_trailing_zeros;
+#[cfg(verus_keep_ghost)]
 use crate::bits::{
     lemma_pow2_values,
     lemma_log2_values,

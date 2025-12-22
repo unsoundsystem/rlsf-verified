@@ -1,10 +1,13 @@
 use vstd::prelude::*;
-use crate::bits::{usize_trailing_zeros, is_power_of_two};
+use crate::bits::*;
+#[cfg(verus_keep_ghost)]
 use vstd::set_lib::set_int_range;
 use vstd::{seq::*, seq_lib::*, bytes::*};
-use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
-use vstd::arithmetic::power::lemma_pow_increases;
+#[cfg(verus_keep_ghost)]
+use vstd::arithmetic::{logarithm::log, power2::pow2, power::{pow, lemma_pow_increases}};
+#[cfg(verus_keep_ghost)]
 use vstd::math::{clip, max, min};
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2, lemma_pow2_adds};
 use crate::half_open_range::HalfOpenRange;
 //use crate::half_open_range_rat::HalfOpenRangeOnRat;

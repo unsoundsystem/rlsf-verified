@@ -5,6 +5,7 @@ use crate::Tlsf;
 use crate::block::*;
 use crate::block_index::BlockIndex;
 use crate::all_blocks::*;
+#[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
 
 verus! {
@@ -529,18 +530,4 @@ verus! {
             ==> m.insert(k, v).contains_key(x)
                 && m[x] == m.insert(k, v)[x]
     {}
-
-
-/// External interface for `core::mem::replace`
-/// NOTE: It's seems to easy to verify equivalent implementation of `replace` but Verus currently
-///       doesn't support interoperation between mutable references and raw pointers.
-///
-///       if you going to do this, confirm that Verus really compile this into *two memcpy's* ref. https://github.com/rust-lang/rust/pull/83022
-pub assume_specification<T> [core::mem::replace::<T>] (dest: &mut T, src: T) -> (res: T)
-    ensures
-        *dest == src,
-        res == *old(dest)
-    opens_invariants none
-    no_unwind;
-
 }

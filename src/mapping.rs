@@ -8,27 +8,13 @@ use crate::{
 };
 use vstd::calc_macro::calc;
 use vstd::{seq::*, seq_lib::*, bytes::*};
+#[cfg(verus_keep_ghost)]
 use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
-use crate::bits::{
-    lemma_pow2_increases,
-    lemma_pow2_values,
-    lemma_log2_values,
-    log2_using_leading_zeros_usize,
-    usize_trailing_zeros, is_power_of_two,
-    bit_scan_forward, usize_leading_trailing_zeros, usize_leading_zeros,
-    granularity_is_power_of_two, mask_higher_bits_leq_mask,
-    bit_mask_is_mod_for_pow2, lemma_usize_rotr_mask_lower,
-    lemma_pow2_log2_div_is_one, log2_power_in_range,
-    lemma_log2_distributes, usize_rotate_right, low_mask_usize,
-    lemma_div_by_powlog, lemma_powlog_leq, log2_power_ordered,
-    log2_is_strictly_ordered_if_rhs_is_pow2, lemma_div_before_mult_pow2,
-    lemma_duplicate_low_mask_usize, lemma_usize_shr_is_div,
-    lemma_pow2_div_sub, lemma_u64_trailing_zeros_same,
-    lemma_usize_trailing_zero_be_log2, usize_trailing_zeros_is_log2_when_pow2_given
-};
+use crate::bits::*;
 use crate::block_index::BlockIndex;
 //use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
 use core::hint::unreachable_unchecked;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::bits::u64_trailing_zeros;
 
 
