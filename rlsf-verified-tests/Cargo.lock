@@ -43,9 +43,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlsf-verified"
+version = "0.1.0"
+dependencies = [
+ "vstd",
+]
+
+[[package]]
 name = "rlsf-verified-tests"
 version = "0.1.0"
 dependencies = [
+ "rlsf-verified",
  "vstd",
 ]
 
