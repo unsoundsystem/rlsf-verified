@@ -556,12 +556,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    spec fn free_header_ptrs(self) -> Set<*mut FreeBlockHdr> {
-        arbitrary()
-        //Seq::new(FLLEN as nat, |i: int| Seq::new(SLLEN as nat, |j: int| self.first_free[i][j]@).to_set()).to_set()
-    }
-
-
     /// Get the next block, assuming it exists.
     ///
     /// # Safety
