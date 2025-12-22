@@ -1,369 +1,535 @@
 use vstd::prelude::*;
 use crate::block::*;
 use vstd::raw_ptr::{MemContents, PointsTo, PointsToRaw, ptr_mut_read, ptr_mut_write};
+use crate::Tlsf;
+use crate::block::*;
+use crate::block_index::BlockIndex;
+use crate::all_blocks::*;
+use vstd::relations::injective;
 
 verus! {
 
-pub(crate) struct DLL {
-    pub(crate) first: Option<*mut FreeBlockHdr>,
-    // TODO: add more information about managed region to perms
-    pub(crate) perms: Tracked<Map<*mut FreeBlockHdr, PointsTo<FreeBlockHdr>>>,
-    pub(crate) ptrs: Ghost<Seq<*mut FreeBlockHdr>> // node addrs ordered by list order
-    // NOTE: first tried using int as ID for each pointer,
-    //       but this wasn't work because equality issue when used it with Map
-    //       i.e. different pointers not necessarily have distinct addresses.
-    //
-    //       current approach assuming, all managed region should have same provenance
-    //       -- propagated from given pool
-}
+    impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
-global layout FreeBlockHdr is size == 56, align == 8;
-
-pub(crate) proof fn size_of_node()
-    ensures size_of::<FreeBlockHdr>() == 56
-        && align_of::<FreeBlockHdr>() == 8
-{
-}
-
-
-impl DLL {
-    pub closed spec fn wf(self) -> bool {
-        &&& forall |i: int| 0 <= i && i < self.ptrs@.len()
-            ==> #[trigger] self.wf_node(i)
-        &&& self.ptrs@.no_duplicates()
-        &&& if self.ptrs@.len() == 0 {
-            self.first.is_none()
-        } else {
-            self.first matches Some(head)
-                && self.ptrs@[0] == head
+        pub(crate) closed spec fn all_freelist_wf(self) -> bool {
+            &&& self.wf_shadow()
+            &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==> self.freelist_wf(idx)
         }
-    }
 
-    pub closed spec fn view(self) -> Seq<BlockHdr> {
-        Seq::new(self.ptrs@.len(), |i: int| self.perms@[self.ptrs@[i]].value().common)
-    }
-
-    proof fn nodup_index_inj<T>(l: Seq<T>, i: int, j: int)
-        requires
-            l.no_duplicates(),
-            0 <= i < l.len(),
-            0 <= j < l.len(),
-        ensures l[i] == l[j] ==> i == j
-    {}
-
-    spec fn next_of(self, i: int) -> Option<*mut FreeBlockHdr>
-        recommends 0 <= i < self.ptrs@.len() - 1
-    {
-        if i + 1 == self.ptrs@.len() {
-            None
-        } else {
-            Some(self.ptrs@[i + 1])
+        pub(crate) closed spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
+            self.free_list_pred(self.shadow_freelist@[idx], self.first_free[idx.0 as int][idx.1 as int])
         }
-    }
 
-    spec fn prev_of(self, i: int) -> Option<*mut FreeBlockHdr> {
-        if i == 0 || self.ptrs@.len() <= i - 1 {
-            None
-        } else {
-            Some(self.ptrs@[i-1])
+        pub(crate) closed spec fn wf_shadow(self) -> bool {
+            &&& shadow_freelist_has_all_wf_index(self.shadow_freelist@)
+            &&& // there is an identity injection to all_blocks
+                exists|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi)
         }
-    }
 
-    pub closed spec fn wf_node(self, i: int) -> bool {
-        let node_addr = self.ptrs@[i];
-        &&& 0 <= i < self.ptrs@.len()
-        &&& self.perms@.contains_key(node_addr)
-        // NOTE: following condition states two,
-        // * if ptrs[i] exists then perms[ptrs[i]] is present
-        // * moreover, PointsTo<FreeBlockHdr> in perms[ptrs[i]] is about
-        //   the pointer contained in ptrs[i]
-        &&& self.ptrs@[i] == self.perms@[self.ptrs@[i]].ptr()
-        // header must be initialized
-        &&& self.perms@[node_addr].opt_value() matches MemContents::Init(node)
-            // just asserting that the addresses are same i.e. except provenance etc.
-            && (node.next_free matches Some(ptr) ==> self.next_of(i) == Some(ptr))
-            && (node.next_free == <Option<*mut FreeBlockHdr>>::None ==> self.next_of(i) == <Option<*mut FreeBlockHdr>>::None)
-            && (node.prev_free matches Some(ptr) ==> self.prev_of(i) == Some(ptr))
-            && (node.prev_free == <Option<*mut FreeBlockHdr>>::None ==> self.prev_of(i) == <Option<*mut FreeBlockHdr>>::None)
-            // TODO: assert that free block has approprate region by e.g. PointsToRaw
-    }
-
-    pub(crate) closed spec fn wf_node_ptr(self, p: *mut FreeBlockHdr) -> bool {
-        let node_addr = p as usize as int;
-        exists|i: int| 0 <= i < self.ptrs@.len()
-            && self.ptrs@[i] == p && #[trigger] self.wf_node(i)
-    }
-
-    pub(crate) closed spec fn has_no_duplicate(self, node: *mut FreeBlockHdr) -> bool {
-        forall|i: int| 0 <= i < self.ptrs@.len() ==> self.ptrs@[i] != node
-    }
-
-    pub(crate) fn push_front(&mut self, new_node: *mut FreeBlockHdr, Tracked(perm_new_node): Tracked<PointsTo<FreeBlockHdr>>)
-        requires
-            old(self).wf(),
-            new_node == perm_new_node.ptr(),
-            perm_new_node.is_init(),
-            old(self).has_no_duplicate(new_node),
-        ensures
-           self.wf(),
-           self.wf_node_ptr(new_node),
-           self@ == seq![self.perms@[new_node].value().common].add(old(self)@)
-    {
-        let tracked mut perm_new_node = perm_new_node;
-        let new_node_payload = {
-            ptr_mut_read(new_node, Tracked(&mut perm_new_node)).common
-        };
-
-        if let Some(mut next_node) = core::mem::replace(&mut self.first, Some(new_node)) {
-            assert(old(self).wf_node(0));
-            let tracked mut perm_next = self.perms.borrow_mut().tracked_remove(next_node);
-
-            ptr_mut_write(new_node, Tracked(&mut perm_new_node), FreeBlockHdr {
-                prev_free: None,
-                next_free: Some(next_node),
-                common: new_node_payload,
-            });
-            let (next_node_next, next_node_payload) = {
-                let n = ptr_mut_read(next_node, Tracked(&mut perm_next));
-                (n.next_free, n.common)
-            };
-            ptr_mut_write(next_node, Tracked(&mut perm_next), FreeBlockHdr {
-                prev_free: Some(new_node),
-                next_free: next_node_next,
-                common: next_node_payload
-            });
-            proof {
-                self.perms.borrow_mut().tracked_insert(next_node, perm_next);
-                self.perms.borrow_mut().tracked_insert(new_node, perm_new_node);
-                //
-                // update pointer set
-                self.ptrs@ = seq![new_node].add(old(self).ptrs@);
+        spec fn is_ii(self, pi: Pi<FLLEN, SLLEN>) -> bool {
+            is_identity_injection(self.shadow_freelist@, self.all_blocks.ptrs@, pi)
+        }
 
 
-                assert forall |i: int| 0 <= i && i < self.ptrs@.len()
-                    implies #[trigger] self.wf_node(i)
-                by {
-                    if i > 0 {
-                        assert(old(self).wf_node(i - 1));
-                    } 
-                };
+        pub(crate) closed spec fn shadow_freelist_nodup(self) -> bool {
+            forall|i: BlockIndex<FLLEN, SLLEN>,
+                   j: BlockIndex<FLLEN, SLLEN>,
+                   k: int,
+                   l: int|
+                (i, k) != (j, l) &&
+                i.wf() && j.wf() &&
+                0 <= k < self.shadow_freelist@[i].len() &&
+                0 <= l < self.shadow_freelist@[j].len()
+                ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
+        }
 
-                assert(self@ == seq![new_node_payload].add(old(self)@));
-            }
-        } else {
-            assert(self@.len() == 0);
-            self.first = Some(new_node);
-            ptr_mut_write(new_node, Tracked(&mut perm_new_node), FreeBlockHdr {
-                prev_free: None,
-                next_free: None,
-                common: new_node_payload,
-            });
-            proof {
-                self.perms.borrow_mut().tracked_insert(new_node, perm_new_node);
-
-                // update pointer set
-                self.ptrs@ = seq![new_node].add(old(self).ptrs@);
-
-                assert(self@ == seq![new_node_payload]);
+        /// Predicate means
+        /// (1) doubly-linked list consists of all nodes in `freelist` with respect for order and
+        /// (2) if the list has an element, first one is the `first`
+        spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: Option<*mut BlockHdr>) -> bool
+            recommends self.all_blocks.wf()
+        {
+            &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
+            &&& if freelist.len() == 0 {
+                first.is_none()
+            } else {
+                first matches Some(p) && freelist.first() == p
             }
         }
-    }
 
 
-    pub(crate) fn pop_front(&mut self) -> (r: Option<(*mut FreeBlockHdr, Tracked<PointsTo<FreeBlockHdr>>)>)
-        requires old(self).wf()
-        ensures self.wf(),
-            old(self)@.len() == 0 ==> r.is_none() && self@ == Seq::<BlockHdr>::empty(),
-            old(self)@.len() > 0 ==>
-                self@ == old(self)@.drop_first() &&
-                (r matches Some((node, perm)) &&
-                    // FreeBlockHdr is detached
-                    // not in ptrs/perms
-                     !self.ptrs@.contains(node) && !self.perms@.contains_key(node) &&
-                    // unlinked
-                    perm@.ptr() == node &&
-                    perm@.is_init()
-                ),
-    {
-        if let Some(head) = self.first {
-            assert(old(self).wf_node(0));
-            let tracked head_perm = self.perms.borrow_mut().tracked_remove(head);
-            let (head_payload, head_next) = {
-                let n = ptr_mut_read(head, Tracked(&mut head_perm));
-                (n.common, n.next_free)
-            };
+        spec fn wf_free_node(self, freelist: Seq<*mut BlockHdr>, i: int) -> bool
+            recommends
+                self.all_blocks.wf(),
+                0 <= i < freelist.len()
+        {
+            let node_link_ptr = get_freelink_ptr_spec(freelist[i]);
+            let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
+            &&& self.all_blocks.contains(freelist[i])
+            &&& self.all_blocks.value_at(freelist[i]).is_free()
+            &&& {
+                ||| node_link.next_free matches Some(next_ptr)
+                        && Self::free_next_of(freelist, i) == Some(next_ptr)
+                ||| node_link.next_free is None
+                        && Self::free_next_of(freelist, i) is None
+            }
+            &&& {
+                ||| node_link.prev_free matches Some(prev_ptr)
+                        && Self::free_prev_of(freelist, i) == Some(prev_ptr)
+                ||| node_link.prev_free is None
+                        && Self::free_prev_of(freelist, i) is None
+            }
+        }
 
-            if let Some(new_head) = head_next {
-                // doing *new_head.prev_free = None
-                assert(old(self).wf_node(1));
-                let tracked new_head_perm = self.perms.borrow_mut().tracked_remove(new_head);
-                let (new_head_payload, new_head_next) = {
-                    // NOTE: In ordinary Rust code this is unnecessary read
-                    let n = ptr_mut_read(new_head, Tracked(&mut new_head_perm));
-                    (n.common, n.next_free)
+        spec fn free_next_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
+            if i == ls.len() - 1 {
+                None
+            } else {
+                Some(ls[i + 1])
+            }
+        }
+
+        spec fn free_prev_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
+            if i == 0 {
+                None
+            } else {
+                Some(ls[i - 1])
+            }
+        }
+
+        fn link_free_block(&mut self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            node: *mut BlockHdr,
+            Tracked(perm): Tracked<BlockPerm>)
+                           requires
+                           idx.wf(),
+                           old(self).all_blocks.wf(),
+                           old(self).all_freelist_wf(),
+                           node == perm.points_to.ptr(),
+                           !old(self).all_blocks.contains(node),
+                           perm.wf(),
+                           perm.points_to.value().is_free(),
+                           perm.free_link_perm is Some,
+                           ensures
+                           self.all_blocks.wf(),
+                           self.all_freelist_wf(),
+                           self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx])
+        {
+            let tracked BlockPerm {
+                points_to: node_pt,
+                free_link_perm: node_fl_pt
+            } = perm;
+            let tracked node_fl_pt = node_fl_pt.tracked_unwrap();
+            if let Some(first_free) = self.first_free[idx.0][idx.1] {
+                assert(self.shadow_freelist@[idx].len() != 0);
+                assert(self.shadow_freelist@[idx].first() == first_free);
+                assert(self.shadow_freelist@[idx].contains(first_free));
+                assert(self.freelist_wf(idx));
+                assert(self.all_freelist_wf());
+                assert(self.wf_free_node(self.shadow_freelist@[idx], 0));
+                assert(self.all_blocks.wf());
+                assert(self.all_blocks.contains(first_free));
+                proof {
+                    self.all_blocks.lemma_contains(first_free);
+                    self.all_blocks.lemma_node_is_wf(first_free);
+                }
+                assert(self.all_blocks.perms@.contains_key(first_free));
+                assert(self.all_blocks.wf());
+                let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
+                assert(first_free_perm.wf()) by {
+                    self.all_blocks.lemma_node_is_wf(first_free);
                 };
-                ptr_mut_write(new_head, Tracked(&mut new_head_perm), FreeBlockHdr {
-                    next_free: new_head_next,
-                    prev_free: None,
-                    common: new_head_payload
+                let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
+
+                // update first pointer
+                Self::set_freelist(&mut self.first_free, idx, Some(node));
+                assert(old(self).shadow_freelist@[idx] == self.shadow_freelist@[idx]);
+
+                // update link
+                let link = get_freelink_ptr(first_free);
+                assert(first_free == first_free_perm.points_to.ptr());
+                assert(get_freelink_ptr_spec(first_free) == get_freelink_ptr_spec(first_free_perm.points_to.ptr()));
+                assert(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
+                let link_payload = ptr_mut_read(link, Tracked(&mut first_free_fl_pt));
+                ptr_mut_write(link, Tracked(&mut first_free_fl_pt), FreeLink {
+                    next_free: link_payload.next_free,
+                    prev_free: Some(node)
                 });
 
-                self.first = Some(new_head);
+                // update new node's link
+                let link = get_freelink_ptr(node);
+                ptr_mut_write(link, Tracked(&mut node_fl_pt), FreeLink {
+                    next_free: Some(first_free),
+                    prev_free: None
+                });
 
                 proof {
-                    self.perms.borrow_mut().tracked_insert(new_head, new_head_perm);
-                    self.ptrs@ = old(self).ptrs@.drop_first();
 
-                    assert forall |i: int| 0 <= i && i < self.ptrs@.len()
-                        implies #[trigger] self.wf_node(i)
-                    by {
-                        if i > 0 {
-                            assert(old(self).wf_node(i + 1));
-                        } 
+                    assert(old(self).shadow_freelist@.contains_key(idx));
+                    assert(old(self).all_blocks.ptrs@ == self.all_blocks.ptrs@);
+                    assert(ghost_pointer_ordered(old(self).all_blocks.ptrs@));
+                    assert(ghost_pointer_ordered(self.all_blocks.ptrs@));
+
+                    // New block has *new* address
+                    assert forall|x: int|
+                        0 <= x < self.all_blocks.ptrs@.len()
+                        implies
+                        node != self.all_blocks.ptrs@[x]
+                        by {
+                        };
+
+
+                    //assume(forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                    //==> !self.shadow_freelist@[i].contains(node));
+
+                    // auxiliary data update
+                    self.all_blocks.perms.borrow_mut().tracked_insert(node,
+                        BlockPerm {
+                            points_to: node_pt,
+                            free_link_perm: Some(node_fl_pt)
+                        });
+                    self.all_blocks.perms.borrow_mut().tracked_insert(first_free,
+                        BlockPerm {
+                            points_to: first_free_perm.points_to,
+                            free_link_perm: Some(first_free_fl_pt)
+                        });
+                    self.all_blocks.ptrs@ = add_ghost_pointer(self.all_blocks.ptrs@, node);
+                    lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, node);
+                    self.shadow_freelist@ = self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx]));
+
+                    //lemma_sort_by_ensures
+                    //assume(forall|m: int| 0 <= m < old_sls.len()
+                    //==> old(self).all_blocks.perms@[old_sls[m]] == self.all_blocks.perms@[old_sls[m]]);
+
+                    assert(self.all_blocks.ptrs@.contains(node));
+                    assert(old(self).all_blocks.ptrs@.contains(first_free));
+                    assert(self.all_blocks.contains(node) && self.all_blocks.contains(first_free));
+                    assert(self.shadow_freelist@[idx].first() == node);
+                    assert(self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx]));
+
+                    self.shadow_freelist@.lemma_insert_invariant_contains(
+                        old(self).shadow_freelist@[idx],
+                        idx,
+                        seq![node].add(old(self).shadow_freelist@[idx]));
+
+                    assert(idx.wf() <==> self.shadow_freelist@.contains_key(idx));
+                    assert(forall|i: BlockIndex<FLLEN, SLLEN>| i != idx ==> self.shadow_freelist@[i] == old(self).shadow_freelist@[i]);
+                    assert(forall|i: BlockIndex<FLLEN, SLLEN>| i != idx ==>
+                        self.shadow_freelist@[i] == old(self).shadow_freelist@[i]);
+
+                    assert(forall|p: *mut BlockHdr| old(self).all_blocks.contains(p) ==> self.all_blocks.contains(p));
+
+                    assume(self.all_blocks.wf());
+                    assert(self.all_freelist_wf()) by {
+                        assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                            implies self.free_list_pred(
+                                self.shadow_freelist@[i],
+                                self.first_free[i.0 as int][i.1 as int]
+                            )
+                            by {
+                                if i == idx {
+                                    //&&& self.free_list_pred(self.shadow_freelist[i][j], self.first_free[i][j])
+                                    //&&& forall|k: int| 0 <= k < self.shadow_freelist[i][j].len() ==>
+                                    //self.all_blocks.contains(self.shadow_freelist[i][j][k])
+                                    //assume(self.freelist_wf(idx));
+                                    //assert(self.freelist_wf(i));
+                                    admit();
+                                } else {
+                                    assert(i != idx);
+                                    assert(old(self).shadow_freelist@[i] =~= self.shadow_freelist@[i]);
+                                    if self.shadow_freelist@[i].len() > 0 {
+                                        let sls = self.shadow_freelist@[i];
+                                        let old_sls = old(self).shadow_freelist@[i];
+
+
+                                        // Proof that all `p ∈ ∪_{i != idx} self.shadow_freelist[i]` agrees on `self.all_blocks.perms[p]` before and after update
+                                        let stable_set = old(self).shadow_freelist@[i];
+
+
+                                        let old_pi = choose|pi: Pi<FLLEN, SLLEN>| old(self).is_ii(pi);
+                                        let new_pi = old(self).identity_injection_insert_new_node(old_pi, (idx, 0), node);
+
+                                        assert(old(self).wf_shadow());
+                                        old(self).lemma_link_free_block_update_identity_injection(old_pi, idx, node);
+                                        assert(self.is_ii(new_pi));
+                                        assert(self.wf_shadow());
+                                        self.lemma_shadow_list_no_duplicates();
+                                        old(self).lemma_shadow_list_contains_unique(idx, first_free);
+                                        assert(!stable_set.contains(node));
+                                        assert(old(self).shadow_freelist@[idx][0] == first_free);
+                                        assert(!stable_set.contains(first_free));
+                                        assert forall|x: int|
+                                            0 <= x < stable_set.len()
+                                            implies
+                                            old(self).all_blocks.perms@.contains_key(stable_set[x])
+                                            by {
+                                                assert(old(self).wf_free_node(stable_set, x));
+                                                let y = choose|y: int|
+                                                    0 <= y < old(self).all_blocks.ptrs@.len() &&
+                                                    old(self).all_blocks.ptrs@[y] == stable_set[x];
+                                                assert(old(self).all_blocks.wf_node(y));
+                                            };
+                                        lemma_map_insert_agrees(
+                                            stable_set,
+                                            self.all_blocks.perms@,
+                                            node,
+                                        );
+
+                                        lemma_map_insert_agrees(
+                                            stable_set,
+                                            self.all_blocks.perms@,
+                                            first_free,
+                                        );
+
+                                        assert forall|n: int| 0 <= n < sls.len()
+                                            implies self.wf_free_node(sls, n) by {
+
+                                                //assert(self.wf_free_node(sls, 0));
+                                                assert(old(self).wf_free_node(old_sls, n));
+                                            };
+
+                                    }
+                                }
+                            };
+
+                        assume(self.wf_shadow());
                     };
-
-                    assert(self@ == old(self)@.drop_first());
                 }
             } else {
+                assert(self.shadow_freelist@[idx].len() == 0);
+                Self::set_freelist(&mut self.first_free, idx, Some(node));
+                ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
+                    next_free: None,
+                    prev_free: None
+                });
                 proof {
-                    self.ptrs@ = self.ptrs@.drop_first();
+                    admit()
                 }
-                self.first = None;
+            }
+        }
 
-                assert(self@ == old(self)@.drop_first());
+        #[verifier::external_body]
+        fn set_freelist(
+            freelist: &mut [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
+            idx: BlockIndex<FLLEN, SLLEN>, e: Option<*mut BlockHdr>)
+            requires idx.wf()
+            ensures
+                freelist[idx.0 as int][idx.1 as int] == e,
+                forall|i: BlockIndex<FLLEN, SLLEN>|
+                    i != idx && i.wf() ==>
+                        old(freelist)[i.0 as int][i.1 as int]
+                            == freelist[i.0 as int][i.1 as int],
+        {
+            freelist[idx.0][idx.1] = e;
+        }
+
+
+        pub(crate) proof fn freelist_empty(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                //self.all_freelist_wf(),
+                self.freelist_wf(idx),
+                self.shadow_freelist@[idx].len() == 0
+            ensures
+                self.first_free[idx.0 as int][idx.1 as int].is_none()
+        {
+        }
+
+        pub(crate) proof fn freelist_nonempty(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.all_blocks.wf(),
+                self.shadow_freelist@[idx].len() > 0
+            ensures
+                self.first_free[idx.0 as int][idx.1 as int] matches Some(first_free) &&
+                    self.all_blocks.contains(first_free)
+        {
+            let first = self.shadow_freelist@[idx].first();
+            assert(self.free_list_pred(
+                    self.shadow_freelist@[idx],
+                    self.first_free[idx.0 as int][idx.1 as int]));
+            assert(self.shadow_freelist@[idx].len() != 0);
+            assert(forall|i: int| 0 <= i < self.shadow_freelist@[idx].len()
+                ==> self.wf_free_node(self.shadow_freelist@[idx], i));
+            assert(self.first_free[idx.0 as int][idx.1 as int] matches Some(first)
+                && self.shadow_freelist@[idx].first() == first);
+            assert forall|i: int| 0 <= i < self.shadow_freelist@[idx].len() implies
+                self.wf_free_node(self.shadow_freelist@[idx], i)
+                    ==> self.all_blocks.contains(self.shadow_freelist@[idx][i])
+            by {};
+            assert forall|i: int| 0 <= i < self.shadow_freelist@[idx].len()
+                implies self.all_blocks.contains(self.shadow_freelist@[idx][i]) by {
+                assert(self.wf_free_node(self.shadow_freelist@[idx], i));
             };
+            assert(self.shadow_freelist@[idx].all(|e| self.all_blocks.contains(e)));
+            assert(self.shadow_freelist@[idx].contains(self.shadow_freelist@[idx].first()));
+            assert(self.all_blocks.contains(self.shadow_freelist@[idx].first()));
+        }
 
-            ptr_mut_write(head, Tracked(&mut head_perm), FreeBlockHdr {
-                next_free: None,
-                prev_free: None,
-                common: head_payload
-            });
-            Some((head, Tracked(head_perm)))
-        } else {
-            assert(self@ == Seq::<BlockHdr>::empty());
-            None
+        pub(crate) proof fn lemma_free_block_allblock_contains(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.all_blocks.wf(), ensures
+                forall|p: *mut BlockHdr|
+                    self.shadow_freelist@[idx].contains(p)
+                        ==> self.all_blocks.contains(p)
+        {
+            assert forall|i: int| 0 <= i < self.shadow_freelist@[idx].len()
+                implies self.all_blocks.contains(self.shadow_freelist@[idx][i]) by {
+                assert(self.wf_free_node(self.shadow_freelist@[idx], i));
+            };
+        }
+
+        pub(crate) proof fn lemma_shadow_list_no_duplicates(self)
+            requires
+                self.wf_shadow(),
+                self.all_blocks.wf(),
+            ensures
+                self.shadow_freelist_nodup()
+        {
+            self.all_blocks.lemma_wf_nodup();
+        }
+
+        pub(crate) proof fn lemma_shadow_list_contains_unique(self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            p: *mut BlockHdr)
+            requires
+                self.wf_shadow(),
+                self.all_blocks.wf(),
+                self.shadow_freelist@[idx].contains(p),
+                idx.wf()
+            ensures
+                forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                    ==> !self.shadow_freelist@[i].contains(p)
+        {
+            self.lemma_shadow_list_no_duplicates();
+        }
+
+
+
+        // --------------------------------
+        // Lemmas about identity injection
+        // --------------------------------
+
+
+        // updated II would look like like that
+        spec fn identity_injection_insert_new_node(self,
+            pi: Pi<FLLEN, SLLEN>,
+            // shadow_freelist's index
+            new_index: (BlockIndex<FLLEN, SLLEN>, int),
+            node: *mut BlockHdr
+        ) -> Pi<FLLEN, SLLEN>
+            recommends
+                self.is_ii(pi)
+        {
+            // choose all_blocks's index after inserting node
+            let i = choose|i: int|
+                node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
+            |index: (BlockIndex<FLLEN, SLLEN>, int)| {
+                if new_index == index {
+                    i
+                } else {
+                    if pi(index) > i {
+                        pi(index) + 1
+                    } else {
+                        pi(index)
+                    }
+                }
+            }
+        }
+
+        proof fn lemma_identity_injection_insert_new_node_ensures(self,
+            pi: Pi<FLLEN, SLLEN>,
+            // shadow_freelist's index
+            new_index: (BlockIndex<FLLEN, SLLEN>, int),
+            node: *mut BlockHdr)
+            requires
+                self.is_ii(pi),
+                self.all_blocks.wf(),
+            ensures ({
+                let new_pi = self.identity_injection_insert_new_node(pi, new_index, node);
+                let i = choose|i: int|
+                    node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
+
+                &&& new_pi(new_index) == i
+                &&& forall|index: (BlockIndex<FLLEN, SLLEN>, int)| {
+                    &&& new_index != index && #[trigger] pi(index) > i ==> new_pi(index) == pi(index) + 1
+                    &&& new_index != index && #[trigger] pi(index) <= i ==> new_pi(index) == pi(index)
+                }
+            })
+        {
+            lemma_add_ghost_pointer_ensures(self.all_blocks.ptrs@, node);
+        }
+
+        proof fn lemma_link_free_block_update_identity_injection(self,
+            old_pi: Pi<FLLEN, SLLEN>,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            node: *mut BlockHdr)
+        requires
+            self.wf_shadow(), self.all_blocks.wf(), self.is_ii(old_pi), !self.all_blocks.contains(node)
+        ensures
+            is_identity_injection(
+                self.shadow_freelist@.insert(idx, seq![node].add(self.shadow_freelist@[idx])),
+                add_ghost_pointer(self.all_blocks.ptrs@, node),
+                self.identity_injection_insert_new_node(old_pi, (idx, 0), node))
+        {
+            let new_pi = self.identity_injection_insert_new_node(old_pi, (idx, 0), node);
+            self.all_blocks.lemma_wf_nodup();
+            //assert(self.
+            //assert(self.all_blocks.ptrs@.no_duplicates());
+            assume(add_ghost_pointer(self.all_blocks.ptrs@, node).no_duplicates());
+            assert(injective(new_pi)) by {
+                assert forall|x1: (BlockIndex<FLLEN, SLLEN>, int), x2: (BlockIndex<FLLEN, SLLEN>, int)|
+                    #[trigger] new_pi(x1) == #[trigger] new_pi(x2)
+                    implies x1 == x2
+                by {
+                    let x = choose|x: int| node == add_ghost_pointer(self.all_blocks.ptrs@, node)[x];
+                    self.lemma_identity_injection_insert_new_node_ensures(old_pi, (idx, 0), node);
+                    if x1 == (idx, 0int) {
+                        assert(new_pi(x1) == x);
+                        admit()
+                    } else {
+                        assert(injective(old_pi));
+                        self.lemma_identity_injection_insert_new_node_ensures(old_pi, (idx, 0), node);
+                        if old_pi(x1) > x {
+                            //assert(old_pi((i, k)) + 1 == new_pi((i, k)));
+                            //assert(old_pi((j, l)) + 1 == new_pi((j, l)));
+                            //assert(old_pi((i, k)) == old_pi((j, l)));
+                        } else {
+                            //assert(old_pi((i, k)) + 1 == new_pi((i, k)));
+                            assert(old_pi(x1) == new_pi(x1));
+                            if old_pi(x2) > x {
+                                //admit()
+                            } else {
+                                admit()
+                            }
+                            //assert(old_pi(x2) == new_pi(x2));
+                            //assert(!(old_pi((j, l)) > x) ==> old_pi((j, l)) == new_pi((j, l)));
+                            assume(old_pi(x2) == old_pi(x2));
+                        }
+                    }
+                }
+            };
+            admit();
         }
     }
 
-    pub(crate) closed spec fn is_empty_spec(&self) -> bool {
-        self@.len() == 0
-    }
-
-    #[verifier::when_used_as_spec(is_empty_spec)]
-    pub(crate) fn is_empty(&self) -> (r: bool)
-        ensures r == self.is_empty_spec()
-    {
-        self.first.is_none()
-    }
-
-    proof fn lemma_view_empty_iff_first_none(self)
-        requires self.wf()
-        ensures self.first.is_none() <==> self@.len() == 0
+    proof fn lemma_map_insert_agrees<K, V>(
+        s: Seq<K>,
+        m: Map<K, V>,
+        k: K,
+    )
+        requires
+            !s.contains(k),
+            forall|x: K| s.contains(x)
+                ==> m.contains_key(x)
+        ensures forall|x: K, v: V| s.contains(x)
+            ==> m.insert(k, v).contains_key(x)
+                && m[x] == m.insert(k, v)[x]
     {}
 
-    pub(crate) const fn empty() -> Self {
-        Self {
-            first: None,
-            perms: Tracked(Map::tracked_empty()),
-            ptrs: Ghost(Seq::<*mut FreeBlockHdr>::empty())
-        }
-    }
-
-
-    /// Dettach node through given pointer
-    ///
-    /// * Returns `PointsTo<FreeBlockHdr>`.
-    ///   It ensures the node pointer won't modified by DLL anymore
-    /// * the contents of given pointer is forgotten
-    pub(crate) fn unlink(&mut self, node: *mut FreeBlockHdr) -> (r: Tracked<PointsTo<FreeBlockHdr>>)
-        requires old(self).wf(),
-            // NOTE: this ensures the list is not empty
-            old(self).wf_node_ptr(node)
-        ensures self.wf(),
-            ({
-                let i = choose|i: int| 0 <= i < old(self).ptrs@.len()
-                    && old(self).ptrs@[i] == node && #[trigger] old(self).wf_node(i);
-                &&& old(self)@.len() > 0 ==> self@ == old(self)@.remove(i)
-                    && r@.ptr() == node
-                &&& old(self)@.len() == 0 ==> self@.len() == 0
-            })
-    {
-        let ghost node_index = choose|i: int| 0 <= i < old(self).ptrs@.len()
-            && self.ptrs@[i] == node && #[trigger] self.wf_node(i);
-        let tracked perm = self.perms.borrow_mut().tracked_remove(node);
-        let FreeBlockHdr { next_free: node_next, prev_free: node_prev, common: node_payload } =
-            ptr_mut_read(node, Tracked(&mut perm));
-
-        if let Some(node_next) = node_next {
-            //assert(node == old(self).ptrs[node_index]);
-            assert(old(self).next_of(node_index) matches Some(node_next));
-            assert(old(self).wf_node(node_index + 1));
-            let tracked mut perm_node_next = self.perms.borrow_mut().tracked_remove(node_next);
-            // TODO: unnecessary read in ordinary Rust
-            let (node_next_next, node_next_payload) = {
-                let n = ptr_mut_read(node_next, Tracked(&mut perm_node_next));
-                (n.next_free, n.common)
-            };
-            ptr_mut_write(node_next, Tracked(&mut perm_node_next), FreeBlockHdr {
-                next_free: node_next_next,
-                prev_free: node_prev,
-                common: node_next_payload
-            });
-
-            proof {
-                self.perms.borrow_mut().tracked_insert(node_next, perm_node_next);
-            }
-        } // NOTE: else: node is tail!
-
-        if let Some(node_prev) = node_prev {
-            assert(old(self).prev_of(node_index) matches Some(node_prev));
-            assert(old(self).wf_node(node_index-1));
-            let tracked mut perm_node_prev = self.perms.borrow_mut().tracked_remove(node_prev);
-            // TODO: unnecessary read in ordinary Rust
-            let (node_prev_prev, node_prev_payload) = {
-                let n = ptr_mut_read(node_prev, Tracked(&mut perm_node_prev));
-                (n.prev_free, n.common)
-            };
-            ptr_mut_write(node_prev, Tracked(&mut perm_node_prev), FreeBlockHdr {
-                next_free: node_next,
-                prev_free: node_prev_prev,
-                common: node_prev_payload
-            });
-
-            proof {
-                self.perms.borrow_mut().tracked_insert(node_prev, perm_node_prev);
-                self.ptrs@ = old(self).ptrs@.remove(node_index);
-                assert(self@ == old(self)@.remove(node_index));
-            }
-        } else {
-            // NOTE: node is head! i.e. ptrs[0] == node == self.first
-            assert(self.first matches Some(node));
-
-            self.first = node_next;
-            assert(node_index == 0);
-            proof {
-                if old(self)@.len() > 0 {
-                    self.ptrs@ = old(self).ptrs@.remove(node_index);
-                    assert(self@ == old(self)@.remove(node_index));
-                }
-            }
-        }
-
-        proof {
-            assert forall|i: int| 0 <= i < self.ptrs@.len()
-                implies self.wf_node(i)
-            by {
-                if node_index > i {
-                    assert(old(self).wf_node(i));
-                } else if node_index <= i {
-                    assert(old(self).wf_node(i+1));
-                }
-            }
-        }
-
-        Tracked(perm)
-    }
-}
 
 /// External interface for `core::mem::replace`
 /// NOTE: It's seems to easy to verify equivalent implementation of `replace` but Verus currently

@@ -127,9 +127,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// Bitmap kept sync with segregated free lists.
     pub closed spec fn bitmap_sync(self) -> bool {
-        forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
-            (nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
-                <==> !self.first_free[idx.0 as int][idx.1 as int].is_empty())
+        false
+        // FIXME: restate using new permission store
+        //forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
+            //(nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
+                //<==> !self.first_free[idx.0 as int][idx.1 as int].is_empty())
     }
 }
 }

@@ -16,7 +16,7 @@ verus! {
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> AllBlocks<FLLEN, SLLEN> {
-        spec fn value_at(self, ptr: *mut BlockHdr) -> BlockHdr
+        pub(crate) closed spec fn value_at(self, ptr: *mut BlockHdr) -> BlockHdr
             recommends
             self.contains(ptr),
             self.perms@[ptr].points_to.is_init()
@@ -24,7 +24,7 @@ verus! {
             self.perms@[ptr].points_to.value()
         }
 
-        spec fn contains(self, ptr: *mut BlockHdr) -> bool {
+        pub(crate) closed spec fn contains(self, ptr: *mut BlockHdr) -> bool {
             self.ptrs@.contains(ptr)
         }
 
@@ -39,7 +39,7 @@ verus! {
         ///              * 0 < i <= self.ptrs.len():
         ///                  pr.value().prev_phys_block is Some(p') ==> p' == self.ptr[i-1]
         ///              * i == 0: pr.value().prev_phys_block is None
-        spec fn wf_node(self, i: int) -> bool
+        pub(crate) closed spec fn wf_node(self, i: int) -> bool
             recommends 0 <= i < self.ptrs@.len()
         {
             let ptr = self.ptrs@[i];
@@ -92,7 +92,7 @@ verus! {
             }
         }
 
-        proof fn lemma_wf_nodup(self)
+        pub(crate) proof fn lemma_wf_nodup(self)
             requires self.wf()
             ensures self.ptrs@.no_duplicates()
         {
@@ -111,14 +111,14 @@ verus! {
             }
         }
 
-        spec fn is_sentinel_pointer(self, ptr: *mut BlockHdr) -> bool
+        pub(crate) closed spec fn is_sentinel_pointer(self, ptr: *mut BlockHdr) -> bool
             recommends self.wf(), self.contains(ptr)
         {
             self.value_at(ptr).is_sentinel()
         }
 
         /// Well-formedness for the global list structure.
-        spec fn wf(self) -> bool {
+        pub(crate) closed spec fn wf(self) -> bool {
             // Each block at ptrs[i] is well-formed.
             &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
                 &&& ghost_pointer_ordered(self.ptrs@)
@@ -132,7 +132,7 @@ verus! {
         //
 
 
-        proof fn lemma_contains(self, x: *mut BlockHdr)
+        pub(crate) proof fn lemma_contains(self, x: *mut BlockHdr)
             requires self.wf(), self.contains(x)
             ensures self.perms@.contains_key(x)
         {
@@ -140,16 +140,25 @@ verus! {
             assert(self.wf_node(i));
         }
 
-        spec fn get_ptr_internal_index(self, x: *mut BlockHdr) -> int
+        pub(crate) closed spec fn get_ptr_internal_index(self, x: *mut BlockHdr) -> int
             recommends exists|i: int| self.ptrs@[i] == x && 0 <= i < self.ptrs@.len()
         {
             choose|i: int| self.ptrs@[i] == x && 0 <= i < self.ptrs@.len()
         }
 
-        proof fn lemma_node_is_wf(self, x: *mut BlockHdr)
+        pub(crate) proof fn lemma_node_is_wf(self, x: *mut BlockHdr)
             requires self.contains(x)
             ensures self.wf_node(self.get_ptr_internal_index(x))
         {}
+
+
+        pub fn empty() -> Self {
+            Self {
+                ptrs: Ghost(Seq::empty()),
+                perms: Tracked(Map::tracked_empty()),
+            }
+        }
+
     }
 
     spec fn pointer_leq<T>() -> spec_fn(*mut T, *mut T) -> bool {
@@ -161,23 +170,23 @@ verus! {
     }
 
 
-    type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
-    type ShadowFreelist<const FLLEN: usize, const SLLEN: usize>
+    pub(crate) type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
+    pub(crate) type ShadowFreelist<const FLLEN: usize, const SLLEN: usize>
         = Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>;
 
-    spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
+    pub(crate) open spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
         forall|i: int, j: int|
             0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
                 (ls[i] as usize as int) <= (ls[j] as usize as int)
     }
 
-    proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
+    pub(crate) proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
         requires ghost_pointer_ordered(ls), ls.len() > 0
         ensures ls.all(|e: *mut BlockHdr| (ls.first() as usize as int) <= e as usize as int)
     {
     }
 
-    proof fn lemma_ghost_pointer_add_least(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
+    pub(crate) proof fn lemma_ghost_pointer_add_least(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
         requires ghost_pointer_ordered(ls),
             (p as usize as int) <= ls.first() as usize as int
         ensures ghost_pointer_ordered(seq![p].add(ls)),
@@ -187,7 +196,7 @@ verus! {
         }
     }
 
-    spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
+    pub(crate) open spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
         recommends ghost_pointer_ordered(ls)
         decreases ls.len()
     {
@@ -203,7 +212,7 @@ verus! {
     }
 
 
-    proof fn lemma_add_ghost_pointer_ensures(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
+    pub(crate) proof fn lemma_add_ghost_pointer_ensures(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr)
         requires ghost_pointer_ordered(ls)
         ensures
             ghost_pointer_ordered(add_ghost_pointer(ls, p)),
@@ -253,7 +262,7 @@ verus! {
     }
 
 
-    proof fn lemma_drop_first_elements<T>(x: Seq<T>)
+    pub(crate) proof fn lemma_drop_first_elements<T>(x: Seq<T>)
         requires x.len() > 0
         ensures forall|i: int| 0 < i < x.len() ==> x.drop_first().contains(x[i])
     {
@@ -267,7 +276,7 @@ verus! {
             }
     }
 
-    proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
+    pub(crate) proof fn lemma_list_add_contains<T>(x: Seq<T>, y: Seq<T>, e: T)
         requires x.contains(e)
         ensures  y.add(x).contains(e)
     {
@@ -276,7 +285,7 @@ verus! {
     }
 
 
-    spec fn is_identity_injection<const FLLEN: usize, const SLLEN: usize>(
+    pub(crate) closed spec fn is_identity_injection<const FLLEN: usize, const SLLEN: usize>(
         shadow_freelist: ShadowFreelist<FLLEN, SLLEN>,
         all_block_ptrs: Seq<*mut BlockHdr>,
         pi: Pi<FLLEN, SLLEN>) -> bool
@@ -292,7 +301,7 @@ verus! {
             }
     }
 
-    spec fn shadow_freelist_has_all_wf_index<const FLLEN: usize, const SLLEN: usize>(sfl: ShadowFreelist<FLLEN, SLLEN>) -> bool {
+    pub(crate) closed spec fn shadow_freelist_has_all_wf_index<const FLLEN: usize, const SLLEN: usize>(sfl: ShadowFreelist<FLLEN, SLLEN>) -> bool {
         forall|idx: BlockIndex<FLLEN, SLLEN>|
             sfl.contains_key(idx) <==> idx.wf()
     }

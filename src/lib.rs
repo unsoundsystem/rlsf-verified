@@ -8,7 +8,7 @@ mod block_index;
 mod relation_utils;
 mod half_open_range;
 mod linked_list;
-mod ghost_tlsf;
+//mod ghost_tlsf;
 mod parameters;
 mod mapping;
 mod bitmap;
@@ -50,13 +50,13 @@ use crate::bits::{
 };
 use crate::block_index::BlockIndex;
 //use crate::rational_numbers::{Rational, rational_number_facts, rational_number_properties};
-use crate::linked_list::DLL;
 use vstd::array::*;
 use core::hint::unreachable_unchecked;
-use ghost_tlsf::{UsedInfo, Block, BlockPerm};
+//use ghost_tlsf::{UsedInfo, Block, BlockPerm};
 use vstd::std_specs::bits::u64_trailing_zeros;
 use crate::block::*;
 use crate::parameters::*;
+use crate::all_blocks::*;
 
 #[cfg(target_pointer_width = "64")]
 global size_of usize == 8;
@@ -68,15 +68,16 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
-    pub first_free: [[DLL; SLLEN]; FLLEN],
-    pub used_info: UsedInfo,
+    pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
+    //FIXME: is it valid to have it? clarify which parts of memory is delegated to user.
+    //pub used_info: UsedInfo,
     pub _phantom: PhantomData<&'pool ()>,
 
     /// represents region managed by this allocator
     pub valid_range: Ghost<Set<int>>,
 
     /// ordered by address
-    pub all_blocks: Ghost<Seq<Block>>,
+    pub all_blocks: AllBlocks<FLLEN, SLLEN>,
     // FIXME: reflect acutual status of Tlsf field
     //      * option 1: move related filed to Tlsf
     //      * option 2: wf paramter taking Tlsf
@@ -97,12 +98,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * bitmap is consistent with the freelist
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(self) -> bool {
-        &&& self.wf_ghost()
+        &&& self.all_blocks.wf()
+        &&& self.all_freelist_wf()
         &&& Self::parameter_validity()
 
+        // FIXME: restate it
         // Each free list is well-formed
-        &&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
-                ==> self.first_free[i][j].wf()
+        //&&& forall |i: int, j: int| BlockIndex::<FLLEN, SLLEN>::valid_block_index((i, j))
+                //==> self.first_free[i][j].wf()
 
         // Book keeping with bitmaps
         &&& self.bitmap_wf()
@@ -117,11 +120,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
             first_free: Self::initial_free_lists(),
-            used_info: UsedInfo {
-                ptrs: Ghost(Seq::empty()),
-                perms: Tracked(Map::tracked_empty()),
-            },
-            all_blocks: Ghost(Seq::empty()),
+            //used_info: UsedInfo {
+                //ptrs: Ghost(Seq::empty()),
+                //perms: Tracked(Map::tracked_empty()),
+            //},
+            all_blocks: AllBlocks::empty(),
             valid_range: Ghost(Set::empty()),
             root_provenances: Tracked(None),
             _phantom: PhantomData,
@@ -131,10 +134,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// Due to `error: The verifier does not yet support the following Rust feature: array-fill expresion with non-copy type`
     #[verifier::external_body]
-    const fn initial_free_lists() -> (r: [[DLL; SLLEN]; FLLEN])
-        ensures forall|i: int, j: int| r[i][j]@.len() == 0 && r[i][j].wf()
+    const fn initial_free_lists() -> (r: [[Option<*mut BlockHdr>; SLLEN]; FLLEN])
+        //ensures forall|i: int, j: int| r[i][j]@.len() == 0
     {
-        [const { [const { DLL::empty() }; SLLEN] }; FLLEN]
+        [const { [None; SLLEN] }; FLLEN]
     }
 
     //#[verifier::external_body] // debug
@@ -282,67 +285,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
 
-
-    unsafe fn link_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize,
-        Tracked(perm_block): Tracked<PointsTo<FreeBlockHdr>>)
-        requires
-            old(self).wf(),
-            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
-            block == perm_block.ptr(),
-            perm_block.is_init()
-        ensures
-            self.wf(),
-            ({
-                let BlockIndex(fl, sl) = choose|idx: BlockIndex<FLLEN, SLLEN>|
-                        idx.wf() && idx.block_size_range().contains(size as int);
-                self.first_free[fl as int][sl as int].wf_node_ptr(block)
-            })
-            // TODO: ensure that free list properly updated
-    {
-        assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int));
-        if let Some(BlockIndex(fl, sl)) = Self::map_floor(size) {
-            self.free_list_push_front(BlockIndex(fl, sl), block, Tracked(perm_block));
-            self.set_bit_for_index(BlockIndex(fl, sl));
-            proof {
-                assert(BlockIndex::<FLLEN,SLLEN>(fl, sl).block_size_range().contains(size as int));
-                BlockIndex::<FLLEN,SLLEN>::index_exists_for_valid_size(size);
-                assume(self.first_free[fl as int][sl as int].wf_node_ptr(block));
-            }
-        } else {
-            // unreachable provided `valid_block_size(size)`
-            unreachable_unchecked()
-        }
-    }
-
-    unsafe fn unlink_free_block(&mut self, mut block: *mut FreeBlockHdr, size: usize,
-        Tracked(perm_block): Tracked<PointsTo<FreeBlockHdr>>)
-        requires
-            old(self).wf(),
-            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
-            exists|idx: BlockIndex<FLLEN, SLLEN>|
-                // ensure that free list properly updated
-                idx matches BlockIndex(fl, sl)
-                    && #[trigger] idx.block_size_range().contains(size as int)
-                    && old(self).first_free[fl as int][sl as int].wf_node_ptr(block)
-        ensures
-            self.wf(),
-            ({
-                // ensure that free list properly updated
-                let BlockIndex(fl, sl) = choose|idx: BlockIndex<FLLEN, SLLEN>|
-                    idx.block_size_range().contains(size as int);
-                !self.first_free[fl as int][sl as int].wf_node_ptr(block)
-            })
-    {
-        //TODO: self.first_free.unlink() & set_bit_for_index
-        assert(BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int));
-        if let Some(idx) = Self::map_floor(size) {
-            self.free_list_unlink(idx, block)
-        } else {
-            // FIXME: how to use this: require false
-            unreachable_unchecked()
-        }
-    }
-
     /// Search for a non-empty free block list for allocation.
     //#[verifier::external_body] // debug
     #[inline(always)]
@@ -353,7 +295,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires self.wf()
         ensures
             r matches Some(idx) ==> idx.wf() &&
-                !self.first_free[idx.0 as int][idx.1 as int].is_empty() &&
+                // FIXME:
+                // !self.first_free[idx.0 as int][idx.1 as int].is_empty() &&
                 idx.block_size_range().start() <= min_size as int
         // None ==> invalid size requested or there no free entry
     {
@@ -546,43 +489,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         true
     }
 
-    #[verifier::external_body]
-    fn free_list_pop_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
-        -> (r: Option<(*mut FreeBlockHdr, Tracked<PointsTo<FreeBlockHdr>>)>)
-    {
-        self.first_free[idx.0][idx.1].pop_front()
-    }
-
-    #[verifier::external_body]
-    fn free_list_push_front(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
-            node: *mut FreeBlockHdr,
-            Tracked(perm): Tracked<PointsTo<FreeBlockHdr>>)
-        requires old(self).wf(),
-            node == perm.ptr(),
-            perm.is_init()
-        ensures self.wf(),
-            ({
-                let ls = self.first_free[idx.0 as int][idx.1 as int];
-                let old_ls = old(self).first_free[idx.0 as int][idx.1 as int];
-                ls@ == seq![ls.perms@[node].value().common].add(old_ls@)
-                    && ls.wf_node_ptr(node)
-            })
-            // TODO: propagate push_front postcondition
-    {
-        self.first_free[idx.0][idx.1].push_front(node, Tracked(perm));
-    }
-
-    #[verifier::external_body]
-    fn free_list_unlink(&mut self, idx: BlockIndex<FLLEN, SLLEN>,
-        node: *mut FreeBlockHdr)
-        requires old(self).wf(),
-            old(self).first_free[idx.0 as int][idx.1 as int].wf_node_ptr(node)
-        ensures self.wf()
-            // TODO: propagate unlink postcondition
-    {
-        self.first_free[idx.0][idx.1].unlink(node);
-    }
-
 
     //#[verifier::external_body] //debug
     #[inline]
@@ -668,10 +574,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[verifier::external_body] // debug
     unsafe fn next_phys_block(&mut self, bhdr: *mut BlockHdr) -> (r: (*mut BlockHdr, BlockPerm))
         requires
-            old(self).wf_all_blocks(),
-            old(self).contains_block_pointer(bhdr),
-            !old(self).is_sentinel_pointer(bhdr),
-        ensures r.1.wf(), r.0 == r.1.bhdr_ptr()
+            old(self).all_blocks.wf(),
+            old(self).all_blocks.contains(bhdr),
+            !old(self).all_blocks.is_sentinel_pointer(bhdr),
+        ensures r.1.wf(), //r.0 == r.1.bhdr_ptr()
 
     {
         arbitrary()
@@ -733,24 +639,6 @@ tracked struct DeallocToken {
     /// invariant: pad.ptr() = pad_ptr = PTR_BEEN_DEALLOCATED - 1
     tracked pad: Option<Tracked<PointsTo<UsedBlockPad>>>
 }
-
-#[verifier::external_body]
-const fn mem_replace<T>(dest: &mut T, src: T) -> (r: T)
-    ensures
-    r == *old(dest)
-{
-    core::mem::replace(dest, src)
-}
-
-proof fn fbh_pt_into_ubh(tracked mut fbh: PointsTo<FreeBlockHdr>) -> (tracked r: PointsTo<UsedBlockHdr>) {
-    fbh.leak_contents();
-    let tracked fbh_raw = fbh.into_raw();
-    fbh_raw.into_typed(size_of::<UsedBlockHdr>())
-}
-
-trait BlockHeader {}
-impl BlockHeader for FreeBlockHdr {}
-impl BlockHeader for UsedBlockHdr {}
 
 #[macro_export]
 macro_rules! nth_bit_macro {
