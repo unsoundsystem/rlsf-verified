@@ -7,15 +7,15 @@
 mod bits;
 mod block_index;
 //mod rational_numbers;
-mod relation_utils;
 mod half_open_range;
 mod linked_list;
+mod relation_utils;
 //mod ghost_tlsf;
-mod parameters;
-mod mapping;
-mod bitmap;
 mod all_blocks;
+mod bitmap;
 mod block;
+mod mapping;
+mod parameters;
 
 use vstd::prelude::*;
 
@@ -24,12 +24,12 @@ use vstd::pervasive::*;
 #[cfg(verus_keep_ghost)]
 use vstd::pervasive::arbitrary;
 #[cfg(verus_keep_ghost)]
-use vstd::raw_ptr::ptr_from_data;
+use vstd::raw_ptr::{ptr_from_data, PtrData};
 use vstd::raw_ptr::{
     ptr_mut_read, ptr_mut_write, ptr_ref2, ptr_ref,
     PointsToRaw, PointsTo, Metadata, Provenance,
     expose_provenance, with_exposed_provenance,
-    PtrData, IsExposed
+    IsExposed
 };
 #[cfg(verus_keep_ghost)]
 use vstd::set_lib::set_int_range;
@@ -171,7 +171,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// entire slice pointer (thus safe)". This assumption used in `nonnull_slice_len` in rlsf.
     ///
     /// TODO: As an option we can wrap the address based interface with slice pointer based one
-    ///       `insert_free_block_ptr` out of Verus world and wrap/axiomize it with external_body annotation. 
+    ///       `insert_free_block_ptr` out of Verus world and wrap/axiomize it with external_body annotation.
     ///       (the postcondition would meet the precondition of `insert_free_block_ptr_aligned`)
     // TODO: update ghost_free_list/all_block_headers in insert_free_block_ptr_aligned()
     //#[verifier::external_body] // for spec debug
@@ -259,7 +259,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 //            mem_remains = m;
 //
 //            ptr_mut_write(sentinel_block, Tracked(&mut sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize)),
-//                UsedBlockHdr { 
+//                UsedBlockHdr {
 //                    common: BlockHdr {
 //                        size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
 //                        prev_phys_block: Some(block.cast()),
@@ -342,7 +342,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         (r: (Option<(*mut u8, Tracked<PointsToRaw>, Tracked<DeallocToken>)>))
         requires
             /* TODO: Allocation precondition
-             * - already initialized 
+             * - already initialized
              * */
             old(self).wf()
         ensures
@@ -476,7 +476,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// Assumption about deallocation
     ///
     /// - Given pointer must be previously allocated one
-    ///     - NOTE: In Verus world, it's assured because `deallocate` requires PointsToRaw 
+    ///     - NOTE: In Verus world, it's assured because `deallocate` requires PointsToRaw
     /// - Header of the previously allocated pointer which going to deallocated, must have same size/flags as when it allocated
     ///     (NOTE: header integrity is assumed)
     pub closed spec fn wf_dealloc(&self, tok: Ghost<DeallocToken>) -> bool {
@@ -557,7 +557,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// `self` must have a next block (it must not be the sentinel block in a
     /// pool).
     ///
-    /// e.g. splitting a large block into two (continuous) small blocks 
+    /// e.g. splitting a large block into two (continuous) small blocks
     #[inline(always)]
     #[verifier::external_body] // debug
     unsafe fn next_phys_block(&mut self, bhdr: *mut BlockHdr) -> (r: (*mut BlockHdr, BlockPerm))
@@ -604,20 +604,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 //impl !Copy for DeallocToken {}
 
-// NOTE: Consider merging block in deallocate(), it's going to be impossible to 
+// NOTE: Consider merging block in deallocate(), it's going to be impossible to
 //        peek usedness and merge if we give permission for hole header to the user
 //        option: use header address as an ID
 //TODO: add pointer to start of the allocated region & size of that block
 //      * wf-ness:
 //          * pointer
-//              * the pointer is in the managed region 
+//              * the pointer is in the managed region
 //              * has same provenance with initial block
 //              * aligned to GRANULARITY
 //          * size
 //              * valid size
 //              * aligned to GRANULARITY
 /// Deallocation token
-/// 
+///
 /// * This leaved abstract & tracked
 ///     * `allocate` moves out DeallocToken to ensure absence of double free
 tracked struct DeallocToken {
@@ -643,22 +643,22 @@ macro_rules! nth_bit {
 }
 
 // FIXME: following MUST be commented out while `cargo build`
-pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
-    ensures r == usize_leading_zeros(x)
-    opens_invariants none
-    no_unwind;
+//pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
+    //ensures r == usize_leading_zeros(x)
+    //opens_invariants none
+    //no_unwind;
 
-pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
-    ensures r == usize_trailing_zeros(x)
-    opens_invariants none
-    no_unwind;
+//pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
+    //ensures r == usize_trailing_zeros(x)
+    //opens_invariants none
+    //no_unwind;
 
-pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
-    // This primitive cast just work as usual exec code
-    // NOTE: is it ok? primitive cast really just reinterpet bytes?
-    //      ref. `unsigned_to_signed`
-    ensures r == usize_rotate_right(x, n as i32)
-    opens_invariants none
-    no_unwind;
+//pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
+    //// This primitive cast just work as usual exec code
+    //// NOTE: is it ok? primitive cast really just reinterpet bytes?
+    ////      ref. `unsigned_to_signed`
+    //ensures r == usize_rotate_right(x, n as i32)
+    //opens_invariants none
+    //no_unwind;
 
 } // verus!
