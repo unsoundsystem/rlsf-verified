@@ -633,8 +633,8 @@ verus! {
                 let i = choose|i: int|
                     node == add_ghost_pointer(self.all_blocks.ptrs@, node)[i];
 
-                forall|index: (BlockIndex<FLLEN, SLLEN>, int)| {
-                    &&& new_index == index ==> new_pi(index) == i
+                &&& new_pi(new_index) == i
+                &&& forall|index: (BlockIndex<FLLEN, SLLEN>, int)| {
                     &&& new_index != index && #[trigger] pi(index) > i ==> new_pi(index) == pi(index) + 1
                     &&& new_index != index && #[trigger] pi(index) <= i ==> new_pi(index) == pi(index)
                 }
