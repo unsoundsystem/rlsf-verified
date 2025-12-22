@@ -152,7 +152,7 @@ verus! {
         {}
 
 
-        pub fn empty() -> Self {
+        pub const fn empty() -> Self {
             Self {
                 ptrs: Ghost(Seq::empty()),
                 perms: Tracked(Map::tracked_empty()),

@@ -389,9 +389,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         // Safety: `ptr` is a previously allocated memory block with the same
         //         alignment as `align`. This is upheld by the caller.
-        let block = Self::used_block_hdr_for_allocation(ptr, align, Tracked(token.pad));
+        let block = unsafe { Self::used_block_hdr_for_allocation(ptr, align, Tracked(token.pad)) };
         let tracked ubh_perm = None.tracked_unwrap();
-        self.deallocate_block(block, Tracked(ubh_perm));
+        unsafe { self.deallocate_block(block, Tracked(ubh_perm)) };
     }
 
 

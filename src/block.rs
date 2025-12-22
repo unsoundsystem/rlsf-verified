@@ -76,21 +76,6 @@ verus! {
         }
     }
 
-    //#[repr(C)]
-    //pub(crate) struct FreeBlockHdr {
-        //pub(crate) common: BlockHdr,
-        //pub(crate) next_free: Option<*mut FreeBlockHdr>,
-        //pub(crate) prev_free: Option<*mut FreeBlockHdr>,
-    //}
-
-    //impl FreeBlockHdr {
-        //spec fn wf(self) -> bool {
-            //// FIXME(blocking): bit mask formalization
-            //arbitrary()
-            ////self.common.
-        //}
-    //}
-
     pub closed spec fn get_freelink_ptr_spec(ptr: *mut BlockHdr) -> *mut FreeLink {
         ptr_from_data(PtrData::<FreeLink> {
             provenance: ptr@.provenance,
