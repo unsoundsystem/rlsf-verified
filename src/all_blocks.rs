@@ -86,7 +86,7 @@ verus! {
                 } else { true }
         }
 
-        spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr> {
+        pub(crate) closed spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr> {
             if self.ptrs@.len() - 1 == i {
                 None
             } else {

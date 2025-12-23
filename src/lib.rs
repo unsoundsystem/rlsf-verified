@@ -116,6 +116,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             first_free: Self::initial_free_lists(),
             used_info: UsedInfo {
                 ptrs: Ghost(Seq::empty()),
+                pad_perms: Tracked(Map::tracked_empty())
             },
             all_blocks: AllBlocks::empty(),
             valid_range: Ghost(Set::empty()),
@@ -395,18 +396,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let block = self.first_free[fl][sl].unwrap();
 
             let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(old_head_perm));
+            let tracked next_phys_block_perm: PointsTo<BlockHdr> = {
+                let i = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
+                let perm = self.all_blocks.perms.borrow_mut().tracked_remove(self.all_blocks.phys_next_of(i).unwrap());
+                perm.points_to
+            };
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
             let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
 
             //debug_assert!(size >= search_size);
 
-            let block_freelink = get_freelink_ptr(block);
-            let tracked block_freelink_perm = old_head_perm.free_link_perm.unwrap();
-
             // Unlink the free block. We are not using `unlink_free_block` because
             // we already know `(fl, sl)` and that `block.prev_free` is `None`.
-            Self::set_freelist(&mut self.first_free, idx, ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
+            {
+                let block_freelink = get_freelink_ptr(block);
+                let tracked block_freelink_perm = old_head_perm.free_link_perm.unwrap();
+                Self::set_freelist(&mut self.first_free, idx, ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
+            }
             if self.first_free[fl][sl].is_some() {
                 let next_free = self.first_free[fl][sl].unwrap();
                 let next_free_link = get_freelink_ptr(next_free);
@@ -442,6 +449,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
             //assert(new_size <= search_size);
 
+            //let tracked mut 
+
+            // Permission object for `ptr`
+             let tracked mut new_block_perm = old_head_perm;
             if new_size == size {
                 // The allocation completely fills this free block.
                 // Updating `next_phys_block.prev_phys_block` is unnecessary in this
@@ -453,8 +464,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let new_free_block: *mut BlockHdr = (block as usize + new_size) as *mut _;
                 let new_free_block_size = size - new_size;
 
-                let tracked new_free_block_perm: BlockPerm = arbitrary();
-                let tracked next_phys_block_perm: PointsTo<BlockHdr> = arbitrary();
+                let tracked (m1, m2) = old_head_perm.mem.split(set_int_range(block as int, (block as int) + new_size as int));
+                old_head_perm.mem = m2;
+
+                let tracked (new_block_header_perm, m3) =
+                    m1.split(set_int_range(block as int, (block as int) + size_of::<BlockHdr>() as int));
+                // NOTE: previously new_free_block_perm
+                new_block_perm = BlockPerm {
+                    points_to: new_block_header_perm.into_typed::<BlockHdr>(block as usize),
+                    free_link_perm: None,
+                    mem: m3,
+                };
 
 
                 // Update `next_phys_block.prev_phys_block` to point to this new
@@ -469,14 +489,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 
                 // Create the new free block header
-                ptr_mut_write(new_free_block, Tracked(&mut new_free_block_perm.points_to),
+                ptr_mut_write(new_free_block, Tracked(&mut new_block_perm.points_to),
                     BlockHdr {
                         size: new_free_block_size,
                         prev_phys_block: Some(block.cast()),
                     });
                 // NOTE: This unwrap panics when invalid size is provided
                 let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
-                self.link_free_block(new_block_idx, new_free_block, Tracked(new_free_block_perm));
+                self.link_free_block(new_block_idx, new_free_block, Tracked(new_block_perm));
             }
 
             //// Turn `block` into a used memory block and initialize the used block
@@ -490,14 +510,19 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             //// Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
             if align >= GRANULARITY {
-                ptr_mut_write(UsedBlockPad::get_for_allocation(ptr), arbitrary(),
+                let tracked mut pad: PointsTo<UsedBlockPad> = self.used_info.pad_perms.borrow_mut().tracked_remove(ptr);
+                ptr_mut_write(UsedBlockPad::get_for_allocation(ptr), Tracked(&mut pad),
                     UsedBlockPad { block_hdr: block as *mut UsedBlockHdr });
+                proof {
+                    self.used_info.pad_perms.borrow_mut().tracked_insert(ptr, pad);
+                }
             }
 
-            Some((ptr, arbitrary(), arbitrary()))
+            Some((ptr, Tracked(new_block_perm.mem), Tracked(DeallocToken)))
         }
     }
 
+    /// used_info.pad_perms.contians_key(get_for_allocation(ptr)) can be assumed
     pub fn deallocate(&mut self,
         ptr: *mut u8, align: usize,
         Tracked(token): Tracked<DeallocToken>, //NOTE: pattern matching to move out token
@@ -508,7 +533,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         // Safety: `ptr` is a previously allocated memory block with the same
         //         alignment as `align`. This is upheld by the caller.
-        let block = unsafe { Self::used_block_hdr_for_allocation(ptr, align, Tracked(token.pad)) };
+        let block = unsafe { self.used_block_hdr_for_allocation(ptr, align) };
         let tracked ubh_perm = None.tracked_unwrap();
         unsafe { self.deallocate_block(block, Tracked(ubh_perm)) };
     }
@@ -612,12 +637,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     //#[verifier::external_body] //debug
     #[inline]
     unsafe fn used_block_hdr_for_allocation(
+        &mut self,
         ptr: *mut u8,
         align: usize,
-        tracked Tracked(pad_perm): Tracked<Option<Tracked<PointsTo<UsedBlockPad>>>>
     ) -> *mut UsedBlockHdr
-        requires
-            align >= GRANULARITY ==> pad_perm is Some
     {
         if align >= GRANULARITY {
             // Read the header pointer
@@ -625,10 +648,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //TODO: wf_dealloc(.., token) -->
             //      token.pad.ptr() == get_for_allocation(PTR_BEEN_DEALLOCATED)
             //      or in precondition?
+            let tracked mut pad_perm: PointsTo<UsedBlockPad> = self.used_info.pad_perms.borrow_mut().tracked_remove(ptr);
             let ptr =
                 UsedBlockPad::get_for_allocation(ptr);
-            let tracked Tracked(perm) = pad_perm.tracked_unwrap();
-            ptr_ref(ptr, Tracked(&perm)).block_hdr
+            ptr_ref(ptr, Tracked(&pad_perm)).block_hdr
         } else {
             let is_exposed = expose_provenance(ptr);
             let ptr = ptr as usize - (GRANULARITY / 2);
@@ -745,13 +768,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 ///
 /// * This leaved abstract & tracked
 ///     * `allocate` moves out DeallocToken to ensure absence of double free
-tracked struct DeallocToken {
-    /// Copy of header pointer of allocated region as an allocation identifier
-    ghost ptr: Ghost<*mut UsedBlockHdr>,
-    /// Padding if there exists
-    /// invariant: pad.ptr() = pad_ptr = PTR_BEEN_DEALLOCATED - 1
-    tracked pad: Option<Tracked<PointsTo<UsedBlockPad>>>
-}
+tracked struct DeallocToken;
+//{
+    ///// Copy of header pointer of allocated region as an allocation identifier
+    //ghost ptr: Ghost<*mut UsedBlockHdr>,
+    ///// Padding if there exists
+    ///// invariant: pad.ptr() = pad_ptr = PTR_BEEN_DEALLOCATED - 1
+    //tracked pad: Option<Tracked<PointsTo<UsedBlockPad>>>
+//}
 
 
 #[inline]

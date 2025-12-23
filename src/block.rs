@@ -68,7 +68,8 @@ verus! {
 
     pub(crate) struct UsedInfo {
         pub ptrs: Ghost<Seq<*mut BlockHdr>>,
-        //pub perms: Tracked<Map<*mut UsedBlockHdr, PointsTo<UsedBlockHdr>>>,
+        // map from block start (i.e. allocated pointer) to the padding
+        pub pad_perms: Tracked<Map<*mut u8, PointsTo<UsedBlockPad>>>,
     }
 
     impl UsedInfo {
