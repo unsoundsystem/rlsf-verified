@@ -163,25 +163,10 @@ verus! {
 
     }
 
-    spec fn pointer_leq<T>() -> spec_fn(*mut T, *mut T) -> bool {
-        |x: *mut T, y: *mut T| {
-            let xi = x as usize as int;
-            let yi = y as usize as int;
-            xi <= yi
-        }
-    }
-
-
     #[cfg(verus_keep_ghost)]
     pub(crate) type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
     pub(crate) type ShadowFreelist<const FLLEN: usize, const SLLEN: usize>
         = Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>;
-
-    pub(crate) open spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
-        forall|i: int, j: int|
-            0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
-                (ls[i] as usize as int) <= (ls[j] as usize as int)
-    }
 
     pub(crate) proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
         requires ghost_pointer_ordered(ls), ls.len() > 0

@@ -64,7 +64,7 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
     //FIXME: is it valid to have it? clarify which parts of memory is delegated to user.
-    //pub used_info: UsedInfo,
+    pub used_info: UsedInfo,
     pub _phantom: PhantomData<&'pool ()>,
 
     /// represents region managed by this allocator
@@ -114,10 +114,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
             first_free: Self::initial_free_lists(),
-            //used_info: UsedInfo {
-                //ptrs: Ghost(Seq::empty()),
-                //perms: Tracked(Map::tracked_empty()),
-            //},
+            used_info: UsedInfo {
+                ptrs: Ghost(Seq::empty()),
+            },
             all_blocks: AllBlocks::empty(),
             valid_range: Ghost(Set::empty()),
             root_provenances: Tracked(None),
@@ -483,10 +482,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //// Turn `block` into a used memory block and initialize the used block
             //// header. `prev_phys_block` is already set.
             //let mut block = block.cast::<UsedBlockHdr>();
-            ptr_mut_write(block, arbitrary(),
+            ptr_mut_write(block, Tracked(&mut old_head_perm.points_to),
                 BlockHdr {
                     size: new_size | SIZE_USED,
-                    prev_phys_block: ptr_ref(block, arbitrary()).prev_phys_block
+                    prev_phys_block: ptr_ref(block, Tracked(&old_head_perm.points_to)).prev_phys_block
                 });
 
             //// Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)

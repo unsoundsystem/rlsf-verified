@@ -66,6 +66,38 @@ verus! {
         }
     }
 
+    pub(crate) struct UsedInfo {
+        pub ptrs: Ghost<Seq<*mut BlockHdr>>,
+        //pub perms: Tracked<Map<*mut UsedBlockHdr, PointsTo<UsedBlockHdr>>>,
+    }
+
+    impl UsedInfo {
+        pub closed spec fn wf(self) -> bool {
+            &&& ghost_pointer_ordered(self.ptrs@)
+            // FIXME: replace with II
+            //&&& forall|ptr: *mut UsedBlockHdr|
+                    //self.perms@.contains_key(ptr) <==> self.ptrs@.contains(ptr)
+            //&&& forall|p: *mut UsedBlockHdr|
+                    //self.ptrs@.contains(p) ==> self.perms@[p].ptr() == p
+        }
+
+        pub closed spec fn contains(self, ptr: *mut BlockHdr) -> bool
+            recommends self.wf()
+        {
+            &&& self.wf()
+            &&& self.ptrs@.contains(ptr)
+        }
+
+        //FIXME: should be a macro
+        //pub fn add(&mut self, ptr: *mut UsedBlockHdr, Tracked(perm): Tracked<PointsTo<UsedBlockHdr>>) {
+            //proof {
+                //self.ptrs@ = self.ptrs@.push(ptr)
+                    //.sort_by(pointer_le::<UsedBlockHdr>());
+                //self.perms@.tracked_insert(ptr, perm);
+            //}
+        //}
+    }
+
     #[repr(C)]
     pub(crate) struct UsedBlockHdr {
         pub(crate) common: BlockHdr,
@@ -103,5 +135,20 @@ verus! {
         let prov = expose_provenance(ptr);
         with_exposed_provenance(ptr as usize + size_of::<BlockHdr>(), prov)
     }
+
+    pub(crate) open spec fn pointer_leq<T>() -> spec_fn(*mut T, *mut T) -> bool {
+        |x: *mut T, y: *mut T| {
+            let xi = x as usize as int;
+            let yi = y as usize as int;
+            xi <= yi
+        }
+    }
+
+    pub(crate) open spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
+        forall|i: int, j: int|
+            0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
+                (ls[i] as usize as int) <= (ls[j] as usize as int)
+    }
+
 
 }
