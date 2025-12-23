@@ -370,7 +370,133 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             self.wf()
     {
-        unimplemented!()
+        unsafe {
+            // The extra bytes consumed by the header and padding.
+            //
+            // After choosing a free block, we need to adjust the payload's location
+            // to meet the alignment requirement. Every block is aligned to
+            // `GRANULARITY` bytes. `size_of::<UsedBlockHdr>` is `GRANULARITY / 2`
+            // bytes, so the address immediately following `UsedBlockHdr` is only
+            // aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
+            // a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
+            let max_overhead =
+                align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
+
+            // Search for a suitable free block
+            let search_size = size.checked_add(max_overhead)?;
+            let search_size = search_size.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
+            let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
+            let BlockIndex(fl, sl) = idx;
+
+            let tracked mut old_head_perm: BlockPerm; // permission for first_free
+            let tracked mut new_head_perm: BlockPerm; // permission for next_free
+
+            // Get a free block: `block`
+            //let first_free = self.first_free[fl][sl].unwrap();
+            let block = self.first_free[fl][sl].unwrap();
+
+            let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(old_head_perm));
+            let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
+            let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
+            //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
+
+            //debug_assert!(size >= search_size);
+
+            let block_freelink = get_freelink_ptr(block);
+            let tracked block_freelink_perm = old_head_perm.free_link_perm.unwrap();
+
+            // Unlink the free block. We are not using `unlink_free_block` because
+            // we already know `(fl, sl)` and that `block.prev_free` is `None`.
+            Self::set_freelist(&mut self.first_free, idx, ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
+            if self.first_free[fl][sl].is_some() {
+                let next_free = self.first_free[fl][sl].unwrap();
+                let next_free_link = get_freelink_ptr(next_free);
+                ptr_mut_write(next_free_link,
+                    Tracked(&mut new_head_perm.free_link_perm.unwrap()),
+                    FreeLink {
+                        next_free: ptr_ref(next_free_link, Tracked(&new_head_perm.free_link_perm.unwrap())).next_free,
+                        prev_free: None,
+                    },
+                    );
+            } else {
+                // The free list is now empty - update the bitmap
+                self.clear_bit_for_sl(idx);
+            }
+
+            //// Decide the starting address of the payload
+            let unaligned_ptr =
+                (block as *mut u8).wrapping_add(size_of::<UsedBlockHdr>());
+            let ptr = round_up(unaligned_ptr, align);
+
+            //if align < GRANULARITY {
+                //assert(unaligned_ptr ==  ptr.as_ptr());
+            //} else {
+                //assert(unaligned_ptr != ptr.as_ptr());
+            //}
+
+            //// Calculate the actual overhead and the final block size of the
+            //// used block being created here
+            let overhead = ptr as usize - block as usize;
+            assert(overhead <= max_overhead);
+
+            let new_size = overhead + size;
+            let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
+            //assert(new_size <= search_size);
+
+            if new_size == size {
+                // The allocation completely fills this free block.
+                // Updating `next_phys_block.prev_phys_block` is unnecessary in this
+                // case because it's still supposed to point to `block`.
+            } else {
+                // The allocation partially fills this free block. Create a new
+                // free block header at `block + new_size..block + size`
+                // of length (`new_free_block_size`).
+                let new_free_block: *mut BlockHdr = (block as usize + new_size) as *mut _;
+                let new_free_block_size = size - new_size;
+
+                let tracked new_free_block_perm: BlockPerm = arbitrary();
+                let tracked next_phys_block_perm: PointsTo<BlockHdr> = arbitrary();
+
+
+                // Update `next_phys_block.prev_phys_block` to point to this new
+                // free block
+                // Invariant: No two adjacent free blocks
+                //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
+                ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_perm),
+                    BlockHdr {
+                        size: ptr_ref(next_phys_block, Tracked(&next_phys_block_perm)).size,
+                        prev_phys_block: Some(new_free_block)
+                    });
+
+
+                // Create the new free block header
+                ptr_mut_write(new_free_block, Tracked(&mut new_free_block_perm.points_to),
+                    BlockHdr {
+                        size: new_free_block_size,
+                        prev_phys_block: Some(block.cast()),
+                    });
+                // NOTE: This unwrap panics when invalid size is provided
+                let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
+                self.link_free_block(new_block_idx, new_free_block, Tracked(new_free_block_perm));
+            }
+
+            //// Turn `block` into a used memory block and initialize the used block
+            //// header. `prev_phys_block` is already set.
+            //let mut block = block.cast::<UsedBlockHdr>();
+            ptr_mut_write(block, arbitrary(),
+                BlockHdr {
+                    size: new_size | SIZE_USED,
+                    prev_phys_block: ptr_ref(block, arbitrary()).prev_phys_block
+                });
+
+            //// Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
+            if align >= GRANULARITY {
+                ptr_mut_write(UsedBlockPad::get_for_allocation(ptr), arbitrary(),
+                    UsedBlockPad { block_hdr: block as *mut UsedBlockHdr });
+            }
+
+            Some((ptr, arbitrary(), arbitrary()))
+        }
     }
 
     pub fn deallocate(&mut self,
@@ -628,6 +754,20 @@ tracked struct DeallocToken {
     tracked pad: Option<Tracked<PointsTo<UsedBlockPad>>>
 }
 
+
+#[inline]
+pub unsafe fn round_up(ptr: *mut u8, align: usize) -> *mut u8
+    requires is_power_of_two(align as int)
+    ensures
+{
+    let prov = expose_provenance(ptr);
+    with_exposed_provenance(
+        (ptr as usize).wrapping_add(align - 1) & !(align as usize - 1),
+        prov)
+
+    //ptr.map_addr(|addr| addr.wrapping_add(align - 1) & !(align - 1))
+}
+
 #[macro_export]
 macro_rules! nth_bit_macro {
     ($a:expr, $b:expr) => {{
@@ -643,22 +783,22 @@ macro_rules! nth_bit {
 }
 
 // FIXME: following MUST be commented out while `cargo build`
-//pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
-    //ensures r == usize_leading_zeros(x)
-    //opens_invariants none
-    //no_unwind;
+pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
+    ensures r == usize_leading_zeros(x)
+    opens_invariants none
+    no_unwind;
 
-//pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
-    //ensures r == usize_trailing_zeros(x)
-    //opens_invariants none
-    //no_unwind;
+pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
+    ensures r == usize_trailing_zeros(x)
+    opens_invariants none
+    no_unwind;
 
-//pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
-    //// This primitive cast just work as usual exec code
-    //// NOTE: is it ok? primitive cast really just reinterpet bytes?
-    ////      ref. `unsigned_to_signed`
-    //ensures r == usize_rotate_right(x, n as i32)
-    //opens_invariants none
-    //no_unwind;
+pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
+    // This primitive cast just work as usual exec code
+    // NOTE: is it ok? primitive cast really just reinterpet bytes?
+    //      ref. `unsigned_to_signed`
+    ensures r == usize_rotate_right(x, n as i32)
+    opens_invariants none
+    no_unwind;
 
 } // verus!

@@ -1,10 +1,10 @@
-use vstd::prelude::*;
+use crate::all_blocks::*;
 use crate::block::*;
-use vstd::raw_ptr::{MemContents, PointsTo, PointsToRaw, ptr_mut_read, ptr_mut_write};
-use crate::Tlsf;
 use crate::block::*;
 use crate::block_index::BlockIndex;
-use crate::all_blocks::*;
+use crate::Tlsf;
+use vstd::prelude::*;
+use vstd::raw_ptr::{ptr_mut_read, ptr_mut_write, MemContents, PointsTo, PointsToRaw};
 #[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
 
@@ -98,7 +98,7 @@ verus! {
             }
         }
 
-        fn link_free_block(&mut self,
+        pub(crate) fn link_free_block(&mut self,
             idx: BlockIndex<FLLEN, SLLEN>,
             node: *mut BlockHdr,
             Tracked(perm): Tracked<BlockPerm>)
@@ -118,7 +118,8 @@ verus! {
         {
             let tracked BlockPerm {
                 points_to: node_pt,
-                free_link_perm: node_fl_pt
+                free_link_perm: node_fl_pt,
+                mem: mem
             } = perm;
             let tracked node_fl_pt = node_fl_pt.tracked_unwrap();
             if let Some(first_free) = self.first_free[idx.0][idx.1] {
@@ -187,12 +188,14 @@ verus! {
                     self.all_blocks.perms.borrow_mut().tracked_insert(node,
                         BlockPerm {
                             points_to: node_pt,
-                            free_link_perm: Some(node_fl_pt)
+                            free_link_perm: Some(node_fl_pt),
+                            mem
                         });
                     self.all_blocks.perms.borrow_mut().tracked_insert(first_free,
                         BlockPerm {
                             points_to: first_free_perm.points_to,
-                            free_link_perm: Some(first_free_fl_pt)
+                            free_link_perm: Some(first_free_fl_pt),
+                            mem: first_free_perm.mem,
                         });
                     self.all_blocks.ptrs@ = add_ghost_pointer(self.all_blocks.ptrs@, node);
                     lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, node);
@@ -310,7 +313,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn set_freelist(
+        pub(crate) fn set_freelist(
             freelist: &mut [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
             idx: BlockIndex<FLLEN, SLLEN>, e: Option<*mut BlockHdr>)
             requires idx.wf()

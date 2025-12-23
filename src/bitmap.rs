@@ -118,6 +118,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
+    #[inline]
+    pub fn clear_bit_for_sl(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
+        requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
+        ensures self.bitmap_wf(),
+            idx matches BlockIndex(fl, sl)
+                && !nth_bit!(self.sl_bitmap[fl as int], sl)
+    {
+        let BlockIndex(fl, sl) = idx;
+        self.sl_bitmap[fl] = self.sl_bitmap[fl] & !(1usize << sl);
+        if self.sl_bitmap[fl] == 0 {
+            self.fl_bitmap = self.fl_bitmap & !(1usize << fl);
+        }
+    }
+
     /// State *inner bitmap consistency*
     ///      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
     pub closed spec fn bitmap_wf(&self) -> bool {

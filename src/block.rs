@@ -1,11 +1,10 @@
+use crate::parameters::*;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 #[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
-use crate::parameters::*;
-
 
 verus! {
     #[repr(C)]
@@ -31,6 +30,17 @@ verus! {
         pub(crate) closed spec fn is_free(self) -> bool {
             self.size & SIZE_USED == 0
         }
+
+        pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<BlockPerm>) -> *mut Self {
+            let size = ptr_ref(block, Tracked(&perm.points_to)).size;
+
+            //debug_assert!((size & SIZE_SENTINEL) == 0, "`self` must not be a sentinel");
+
+            // Safety: Since `self.size & SIZE_SENTINEL` is not lying, the
+            //         next block should exist at a non-null location.
+            let prov = expose_provenance(block);
+            with_exposed_provenance((block as usize) + size & SIZE_SIZE_MASK, prov)
+        }
     }
 
     #[repr(C)]
@@ -42,6 +52,7 @@ verus! {
     pub(crate) struct BlockPerm {
         pub(crate) points_to: PointsTo<BlockHdr>,
         pub(crate) free_link_perm: Option<PointsTo<FreeLink>>,
+        pub(crate) mem: PointsToRaw,
     }
 
     impl BlockPerm {

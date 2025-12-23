@@ -1,15 +1,21 @@
-use vstd::prelude::*;
 use crate::bits::*;
+use crate::half_open_range::HalfOpenRange;
 #[cfg(verus_keep_ghost)]
-use vstd::set_lib::set_int_range;
-use vstd::{seq::*, seq_lib::*, bytes::*};
+use vstd::arithmetic::power2::{
+    lemma_pow2, lemma_pow2_adds, lemma_pow2_strictly_increases, lemma_pow2_unfold,
+};
 #[cfg(verus_keep_ghost)]
-use vstd::arithmetic::{logarithm::log, power2::pow2, power::{pow, lemma_pow_increases}};
+use vstd::arithmetic::{
+    logarithm::log,
+    power::{lemma_pow_increases, pow},
+    power2::pow2,
+};
 #[cfg(verus_keep_ghost)]
 use vstd::math::{clip, max, min};
+use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
-use vstd::arithmetic::power2::{lemma_pow2_unfold, lemma_pow2_strictly_increases, lemma_pow2, lemma_pow2_adds};
-use crate::half_open_range::HalfOpenRange;
+use vstd::set_lib::set_int_range;
+use vstd::{bytes::*, seq::*, seq_lib::*};
 //use crate::half_open_range_rat::HalfOpenRangeOnRat;
 //use crate::rational_numbers::Rational;
 
@@ -18,7 +24,7 @@ verus! {
 #[cfg(target_pointer_width = "64")]
 pub const GRANULARITY: usize = 8 * 4;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct BlockIndex<const FLLEN: usize, const SLLEN: usize>(pub usize, pub usize);
 
 impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
@@ -421,7 +427,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
                 == fl_block_bytes + sl_block_bytes
                     * (sl as int + 1)) by {
             assert(self.block_size_range().end()
-                            == fl_block_bytes + sl_block_bytes * (sl as int) + sl_block_bytes); 
+                            == fl_block_bytes + sl_block_bytes * (sl as int) + sl_block_bytes);
             assert(sl_block_bytes * (sl as int) + sl_block_bytes
                 == sl_block_bytes * (sl as int + 1)) by (nonlinear_arith);
         };
