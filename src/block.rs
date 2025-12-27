@@ -31,7 +31,7 @@ verus! {
             self.size & SIZE_USED == 0
         }
 
-        pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<BlockPerm>) -> *mut Self {
+        pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<&BlockPerm>) -> *mut Self {
             let size = ptr_ref(block, Tracked(&perm.points_to)).size;
 
             //debug_assert!((size & SIZE_SENTINEL) == 0, "`self` must not be a sentinel");
@@ -39,7 +39,7 @@ verus! {
             // Safety: Since `self.size & SIZE_SENTINEL` is not lying, the
             //         next block should exist at a non-null location.
             let prov = expose_provenance(block);
-            with_exposed_provenance((block as usize) + size & SIZE_SIZE_MASK, prov)
+            with_exposed_provenance((block as usize) + (size & SIZE_SIZE_MASK), prov)
         }
     }
 
@@ -99,10 +99,8 @@ verus! {
         //}
     }
 
-    #[repr(C)]
-    pub(crate) struct UsedBlockHdr {
-        pub(crate) common: BlockHdr,
-    }
+
+    pub(crate) type UsedBlockHdr = BlockHdr;
 
     #[repr(C)]
     pub(crate) struct UsedBlockPad {

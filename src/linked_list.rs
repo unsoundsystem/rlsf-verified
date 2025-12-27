@@ -98,23 +98,32 @@ verus! {
             }
         }
 
+        #[verifier::external_body] // debug
+        pub(crate) fn unlink_free_block(&mut self,
+            node: *mut BlockHdr,
+            size: usize,
+            Tracked(perm): Tracked<BlockPerm>)
+        {
+            unimplemented!()
+        }
+
         pub(crate) fn link_free_block(&mut self,
             idx: BlockIndex<FLLEN, SLLEN>,
             node: *mut BlockHdr,
             Tracked(perm): Tracked<BlockPerm>)
-                           requires
-                           idx.wf(),
-                           old(self).all_blocks.wf(),
-                           old(self).all_freelist_wf(),
-                           node == perm.points_to.ptr(),
-                           !old(self).all_blocks.contains(node),
-                           perm.wf(),
-                           perm.points_to.value().is_free(),
-                           perm.free_link_perm is Some,
-                           ensures
-                           self.all_blocks.wf(),
-                           self.all_freelist_wf(),
-                           self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx])
+       requires
+            idx.wf(),
+            old(self).all_blocks.wf(),
+            old(self).all_freelist_wf(),
+            node == perm.points_to.ptr(),
+            !old(self).all_blocks.contains(node),
+            perm.wf(),
+            perm.points_to.value().is_free(),
+            perm.free_link_perm is Some,
+            ensures
+            self.all_blocks.wf(),
+            self.all_freelist_wf(),
+            self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx])
         {
             let tracked BlockPerm {
                 points_to: node_pt,

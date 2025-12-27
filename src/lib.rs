@@ -16,6 +16,7 @@ mod bitmap;
 mod block;
 mod mapping;
 pub mod parameters;
+pub mod unverified_api;
 
 use vstd::prelude::*;
 
@@ -51,6 +52,7 @@ use core::hint::unreachable_unchecked;
 use crate::block::*;
 use crate::parameters::*;
 use crate::all_blocks::*;
+use crate::unverified_api::*;
 
 #[cfg(target_pointer_width = "64")]
 global size_of usize == 8;
@@ -199,7 +201,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         old(self).wf()
     ensures
         self.wf(),
-        self.root_provenances@ is Some
+        //self.root_provenances@ is Some
 
         // Newly added free list nodes have their addresses in the given range (start..start+size)
         // Tlsf is well-formed
@@ -211,19 +213,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 
         // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
-        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */ {
+        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */
+                decreases size_remains {
             let chunk_size = size_remains.min(Self::max_pool_size());
 
             assert(chunk_size % GRANULARITY == 0);
 
-            let tracked mut new_header;
-            let tracked mut new_header_frelink;
+            let tracked mut new_header: PointsTo<BlockHdr>;
+            let tracked mut new_header_frelink: PointsTo<FreeLink>;
             proof {
-                let (h1, m) =
+                let tracked (h1, m) =
                     mem_remains.split(
                         set_int_range(cursor as int, cursor as int
                             + size_of::<BlockHdr>() as int));
-                let (h2, m) =
+                let tracked (h2, m) =
                     m.split(
                         set_int_range(cursor as int + size_of::<BlockHdr>(),
                             cursor as int + size_of::<BlockHdr>() + size_of::<FreeLink>()));
@@ -234,7 +237,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // The new free block
             // Safety: `cursor` is not zero.
-            let mut block = cursor as *mut BlockHdr;
+            let prov = expose_provenance(start);
+            let mut block = with_exposed_provenance(cursor, prov);
 
             // Initialize the new free block
             // NOTE: header size calculated as GRANULARITY
@@ -255,38 +259,41 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     prev_free: None,
                 });
 
+            let tracked mut new_block_perm = BlockPerm {
+                points_to: new_header,
+                free_link_perm: Some(new_header_frelink),
+                mem: PointsToRaw::empty(Provenance::null())
+            };
+            let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
+
             // Link to the list
-            self.link_free_block(idx, block, Tracked(&mut new_header));
+            self.link_free_block(idx, block, Tracked(new_block_perm));
 
             // Update bitmaps
             self.set_bit_for_index(idx);
             //self.set_fl_bitmap(fl as u32);
             //self.sl_bitmap[fl].set_bit(sl as u32);
 
-            let tracked mut new_block_perm = BlockPerm {
-                points_to: new_header,
-                free_link_perm: Some(new_header_frelink),
-                mem: PointsToRaw::empty(Provenance::null())
-            };
-
             // Cap the end with a sentinel block (a permanently-used block)
-            let mut sentinel_block = BlockHdr::next_phys_block(
-                block,
-                Tracked(new_block_perm));
-
             let tracked (sentinel_perm, m) = mem_remains.split(
                 set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
             proof {
                 mem_remains = m;
             }
 
+            let tracked mut sentinel_perm =
+                sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize);
             ptr_mut_write(sentinel_block,
-                    Tracked(&mut sentinel_perm.into_typed(
-                            (cursor + (chunk_size - GRANULARITY)) as usize)),
-                    BlockHdr {
-                        size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
-                        prev_phys_block: Some(block.cast()),
-                    });
+                Tracked(&mut sentinel_perm),
+                BlockHdr {
+                    size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
+                    prev_phys_block: Some(block),
+                });
+
+            proof {
+                let i = choose|i: int| self.all_blocks.ptrs@[i] == block;
+                assert(self.all_blocks.phys_next_of(i) matches Some(sentinel_block));
+            }
 
             // `cursor` can reach `usize::MAX + 1`, but in such a case, this
             // iteration must be the last one
@@ -417,11 +424,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //let first_free = self.first_free[fl][sl].unwrap();
             let block = self.first_free[fl][sl].unwrap();
 
-            let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(old_head_perm));
-            let tracked next_phys_block_perm: PointsTo<BlockHdr> = {
+            let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(&old_head_perm));
+            let tracked next_phys_block_perm = {
                 let i = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
-                let perm = self.all_blocks.perms.borrow_mut().tracked_remove(self.all_blocks.phys_next_of(i).unwrap());
-                perm.points_to
+                self.all_blocks.perms.borrow_mut()
+                    .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
             };
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
             let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
@@ -471,7 +478,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
             //assert(new_size <= search_size);
 
-            //let tracked mut 
+            //let tracked mut
 
             // Permission object for `ptr`
              let tracked mut new_block_perm = old_head_perm;
@@ -507,9 +514,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // free block
                 // Invariant: No two adjacent free blocks
                 //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
-                ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_perm),
+                ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_perm.points_to),
                     BlockHdr {
-                        size: ptr_ref(next_phys_block, Tracked(&next_phys_block_perm)).size,
+                        size: ptr_ref(next_phys_block, Tracked(&next_phys_block_perm.points_to)).size,
                         prev_phys_block: Some(new_free_block)
                     });
 
@@ -567,75 +574,112 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     #[inline]
     //#[verifier::external_body] // debug
-    unsafe fn deallocate_block(&mut self, mut block: *mut UsedBlockHdr,
-        Tracked(ubh_perm): Tracked<PointsTo<UsedBlockHdr>>) {
-        let mut size = ptr_ref(block, Tracked(&ubh_perm)).common.size & !SIZE_USED;
-        //assert((ptr_ref(block, Tracked(&ubh_perm)).common.size & SIZE_USED) != 0);
+    unsafe fn deallocate_block(&mut self, mut block: *mut BlockHdr,
+        Tracked(block_perm): Tracked<BlockPerm>) {
+        let tracked mut block_perm = block_perm;
+        let mut size = ptr_ref(block, Tracked(&block_perm.points_to)).size & !SIZE_USED;
+        //debug_assert!((block.as_ref().size & SIZE_USED) != 0);
 
-        //// This variable tracks whose `prev_phys_block` we should update.
-        //let mut new_next_phys_block;
+        // This variable tracks whose `prev_phys_block` we should update.
+        let mut new_next_phys_block;
+        let tracked mut new_next_phys_block_perm: BlockPerm;
 
-        //// Merge the created hole with the next block if the next block is a
-        //// free block
-        //// Safety: `block.common` should be fully up-to-date and valid
-        //let next_phys_block = block.as_ref().next_phys_block();
-        //let next_phys_block_size_and_flags = next_phys_block.as_ref().size;
-        //if (next_phys_block_size_and_flags & SIZE_USED) == 0 {
-            //let next_phys_block_size = next_phys_block_size_and_flags;
+        // Merge the created hole with the next block if the next block is a
+        // free block
+        // Safety: `block.common` should be fully up-to-date and valid
+        let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(&block_perm));
+        let tracked next_phys_block_perm: BlockPerm = {
+            let i = choose|i: int| self.all_blocks.ptrs@[i] == block;
+            self.all_blocks.perms.borrow_mut()
+                .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
+        };
+        let next_phys_block_size_and_flags =
+            ptr_ref(next_phys_block,
+                    Tracked(&next_phys_block_perm.points_to)).size;
+        if (next_phys_block_size_and_flags & SIZE_USED) == 0 {
+            let next_phys_block_size = next_phys_block_size_and_flags;
             //debug_assert_eq!(
                 //next_phys_block_size_and_flags & SIZE_SIZE_MASK,
                 //next_phys_block_size
             //);
 
-            //// It's coalescable. Add its size to `size`. This will transfer
-            //// any `SIZE_LAST_IN_POOL` flag `next_phys_block` may have at
-            //// the same time.
-            //size += next_phys_block_size;
+            // It's coalescable. Add its size to `size`.
+            size += next_phys_block_size;
 
-            //// Safety: `next_phys_block` is a free block and therefore is not a
-            //// sentinel block
-            //new_next_phys_block = next_phys_block.as_ref().next_phys_block();
+            // Safety: `next_phys_block` is a free block and therefore is not a
+            // sentinel block
+            new_next_phys_block = BlockHdr::next_phys_block(next_phys_block, Tracked(&next_phys_block_perm));
+            proof {
+                new_next_phys_block_perm = {
+                    let ghost i: int = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
+                    self.all_blocks.perms.borrow_mut()
+                        .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
+                };
+            }
 
-            //// Unlink `next_phys_block`.
-            //self.unlink_free_block(next_phys_block.cast(), next_phys_block_size);
-        //} else {
-            //new_next_phys_block = next_phys_block;
-        //}
+            // Unlink `next_phys_block`.
+            self.unlink_free_block(next_phys_block, next_phys_block_size, Tracked(next_phys_block_perm));
+        } else {
+            new_next_phys_block = next_phys_block;
+            proof {
+                new_next_phys_block_perm = next_phys_block_perm;
+            }
+        }
 
-        //// Merge with the previous block if it's a free block.
-        //if let Some(prev_phys_block) = block.as_ref().prev_phys_block {
-            //let prev_phys_block_size_and_flags = prev_phys_block.as_ref().size;
+        // Merge with the previous block if it's a free block.
+        if let Some(prev_phys_block) = ptr_ref(block, Tracked(&block_perm.points_to)).prev_phys_block {
+            let tracked prev_phys_block_perm = {
+                let i = choose|i: int| self.all_blocks.ptrs@[i] == prev_phys_block;
+                self.all_blocks.perms.borrow_mut()
+                    .tracked_remove(self.all_blocks.phys_prev_of(i).unwrap())
+            };
+            let prev_phys_block_size_and_flags = ptr_ref(prev_phys_block, Tracked(&prev_phys_block_perm.points_to)).size;
 
-            //if (prev_phys_block_size_and_flags & SIZE_USED) == 0 {
-                //let prev_phys_block_size = prev_phys_block_size_and_flags;
+            if (prev_phys_block_size_and_flags & SIZE_USED) == 0 {
+                let prev_phys_block_size = prev_phys_block_size_and_flags;
                 //debug_assert_eq!(
                     //prev_phys_block_size_and_flags & SIZE_SIZE_MASK,
                     //prev_phys_block_size
                 //);
 
-                //// It's coalescable. Add its size to `size`.
-                //size += prev_phys_block_size;
+                // It's coalescable. Add its size to `size`.
+                size += prev_phys_block_size;
 
-                //// Unlink `prev_phys_block`.
-                //self.unlink_free_block(prev_phys_block.cast(), prev_phys_block_size);
+                // Unlink `prev_phys_block`.
+                self.unlink_free_block(prev_phys_block, prev_phys_block_size, Tracked(prev_phys_block_perm));
 
-                //// Move `block` to where `prev_phys_block` is located. By doing
-                //// this, `block` will implicitly inherit `prev_phys_block.
-                //// as_ref().prev_phys_block`.
-                //block = prev_phys_block;
-            //}
-        //}
+                // Move `block` to where `prev_phys_block` is located. By doing
+                // this, `block` will implicitly inherit `prev_phys_block.
+                // as_ref().prev_phys_block`.
+                block = prev_phys_block;
+            }
+        }
 
-        //// Write the new free block's size and flags.
+        // Write the new free block's size and flags.
         //debug_assert!((size & SIZE_USED) == 0);
-        //block.as_mut().size = size;
+        let prev_phys_block = ptr_ref(block, Tracked(&block_perm.points_to)).prev_phys_block;
+        ptr_mut_write(block, Tracked(&mut block_perm.points_to), BlockHdr {
+            size,
+            prev_phys_block,
+        });
 
-        //// Link this free block to the corresponding free list
-        //let block = block.cast::<FreeBlockHdr>();
-        //self.link_free_block(block, size);
+        // Link this free block to the corresponding free list
+        let new_block_idx = Self::map_floor(size).unwrap();
+        self.link_free_block(new_block_idx, block, Tracked(block_perm));
 
-        //// Link `new_next_phys_block.prev_phys_block` to `block`
-        //debug_assert_eq!(new_next_phys_block, block.as_ref().common.next_phys_block());
+        // Link `new_next_phys_block.prev_phys_block` to `block`
+        //debug_assert_eq!(
+            //new_next_phys_block,
+            //BlockHdr::next_phys_block(nn_field!(block, common))
+        //);
+        let new_next_phys_block_size = ptr_ref(new_next_phys_block,
+                          Tracked(&new_next_phys_block_perm.points_to)).size;
+        ptr_mut_write(new_next_phys_block,
+            Tracked(&mut new_next_phys_block_perm.points_to),
+            BlockHdr {
+                size: new_next_phys_block_size,
+                prev_phys_block: Some(block)
+        });
         //new_next_phys_block.as_mut().prev_phys_block = Some(block.cast());
     }
 
@@ -724,56 +768,56 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    /// Get the next block, assuming it exists.
-    ///
-    /// # Safety
-    ///
-    /// `self` must have a next block (it must not be the sentinel block in a
-    /// pool).
-    ///
-    /// e.g. splitting a large block into two (continuous) small blocks
-    #[inline(always)]
-    #[verifier::external_body] // debug
-    unsafe fn next_phys_block(&mut self, bhdr: *mut BlockHdr) -> (r: (*mut BlockHdr, BlockPerm))
-        requires
-            old(self).all_blocks.wf(),
-            old(self).all_blocks.contains(bhdr),
-            !old(self).all_blocks.is_sentinel_pointer(bhdr),
-        ensures r.1.wf(), //r.0 == r.1.bhdr_ptr()
-
-    {
-        unimplemented!()
-        //let ptr = ((bhdr as *mut u8).add((ptr_ref(block, Tracked(&perm_block_header)).size) & SIZE_SIZE_MASK)).cast::<BlockHdr>();
-        //let tracked mut perm: BlockPerm;
-
-
-        //proof {
-            //let i = choose|i: int| bhdr == self.all_blocks@[i].to_ptr();
-            //let blk = self.all_blocks@[i];
-            //let next_block = self.phys_next_of(i).unwrap();
-            ////affirm(!self.is_sentinel(blk));
-            //perm = match next_block {
-                //Block::Used(ptr) => {
-                    //let perm = self.used_info.perms@.tracked_remove(ptr);
-                    //BlockPerm::Used { block: next_block, perm: Tracked(perm) }
-                //}
-                //Block::Free(ptr, i, j) => {
-                    //let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
-                    //BlockPerm::Free { block: next_block, perm: Tracked(perm) }
-                //}
-            //}
-        //}
-
-
-        ////let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
-        ////let next_phys_block_addr = (fbh as *mut u8) as usize + size;
-        ////let pv = expose_provenance(fbh);
-        ////let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, pv);
-        ////let tracked uhdr_perm = None.tracked_unwrap();
-
-
-        //(ptr, perm)
-    }
+    // Get the next block, assuming it exists.
+    //
+    // # Safety
+    //
+    // `self` must have a next block (it must not be the sentinel block in a
+    // pool).
+    //
+    // e.g. splitting a large block into two (continuous) small blocks
+//    #[inline(always)]
+//    #[verifier::external_body] // debug
+//    unsafe fn next_phys_block(&mut self, bhdr: *mut BlockHdr) -> (r: (*mut BlockHdr, BlockPerm))
+//        requires
+//            old(self).all_blocks.wf(),
+//            old(self).all_blocks.contains(bhdr),
+//            !old(self).all_blocks.is_sentinel_pointer(bhdr),
+//        ensures r.1.wf(), //r.0 == r.1.bhdr_ptr()
+//
+//    {
+//        unimplemented!()
+//        //let ptr = ((bhdr as *mut u8).add((ptr_ref(block, Tracked(&perm_block_header)).size) & SIZE_SIZE_MASK)).cast::<BlockHdr>();
+//        //let tracked mut perm: BlockPerm;
+//
+//
+//        //proof {
+//            //let i = choose|i: int| bhdr == self.all_blocks@[i].to_ptr();
+//            //let blk = self.all_blocks@[i];
+//            //let next_block = self.phys_next_of(i).unwrap();
+//            ////affirm(!self.is_sentinel(blk));
+//            //perm = match next_block {
+//                //Block::Used(ptr) => {
+//                    //let perm = self.used_info.perms@.tracked_remove(ptr);
+//                    //BlockPerm::Used { block: next_block, perm: Tracked(perm) }
+//                //}
+//                //Block::Free(ptr, i, j) => {
+//                    //let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
+//                    //BlockPerm::Free { block: next_block, perm: Tracked(perm) }
+//                //}
+//            //}
+//        //}
+//
+//
+//        ////let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
+//        ////let next_phys_block_addr = (fbh as *mut u8) as usize + size;
+//        ////let pv = expose_provenance(fbh);
+//        ////let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, pv);
+//        ////let tracked uhdr_perm = None.tracked_unwrap();
+//
+//
+//        //(ptr, perm)
+//    }
 }
 
 //impl !Copy for DeallocToken {}
@@ -831,7 +875,7 @@ macro_rules! nth_bit {
     }
 }
 
-// FIXME: following MUST be commented out while `cargo build`
+//// FIXME: following MUST be commented out while `cargo build`
 pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
     ensures r == usize_leading_zeros(x)
     opens_invariants none

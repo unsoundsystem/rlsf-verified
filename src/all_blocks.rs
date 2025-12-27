@@ -105,7 +105,7 @@ verus! {
                 }
         }
 
-        spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
+        pub(crate) closed spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
             if i == 0 {
                 None
             } else {
