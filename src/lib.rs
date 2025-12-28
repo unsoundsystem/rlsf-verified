@@ -96,6 +96,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     pub closed spec fn wf(self) -> bool {
         &&& self.all_blocks.wf()
         &&& self.all_freelist_wf()
+        &&& self.size_class_condition()
         &&& Self::parameter_validity()
 
         // FIXME: restate it
@@ -768,56 +769,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    // Get the next block, assuming it exists.
-    //
-    // # Safety
-    //
-    // `self` must have a next block (it must not be the sentinel block in a
-    // pool).
-    //
-    // e.g. splitting a large block into two (continuous) small blocks
-//    #[inline(always)]
-//    #[verifier::external_body] // debug
-//    unsafe fn next_phys_block(&mut self, bhdr: *mut BlockHdr) -> (r: (*mut BlockHdr, BlockPerm))
-//        requires
-//            old(self).all_blocks.wf(),
-//            old(self).all_blocks.contains(bhdr),
-//            !old(self).all_blocks.is_sentinel_pointer(bhdr),
-//        ensures r.1.wf(), //r.0 == r.1.bhdr_ptr()
-//
-//    {
-//        unimplemented!()
-//        //let ptr = ((bhdr as *mut u8).add((ptr_ref(block, Tracked(&perm_block_header)).size) & SIZE_SIZE_MASK)).cast::<BlockHdr>();
-//        //let tracked mut perm: BlockPerm;
-//
-//
-//        //proof {
-//            //let i = choose|i: int| bhdr == self.all_blocks@[i].to_ptr();
-//            //let blk = self.all_blocks@[i];
-//            //let next_block = self.phys_next_of(i).unwrap();
-//            ////affirm(!self.is_sentinel(blk));
-//            //perm = match next_block {
-//                //Block::Used(ptr) => {
-//                    //let perm = self.used_info.perms@.tracked_remove(ptr);
-//                    //BlockPerm::Used { block: next_block, perm: Tracked(perm) }
-//                //}
-//                //Block::Free(ptr, i, j) => {
-//                    //let perm = self.first_free[i][j].perms@.tracked_remove(ptr);
-//                    //BlockPerm::Free { block: next_block, perm: Tracked(perm) }
-//                //}
-//            //}
-//        //}
-//
-//
-//        ////let size = ptr_ref(fbh, Tracked(pt)).common.size & SIZE_SIZE_MASK;
-//        ////let next_phys_block_addr = (fbh as *mut u8) as usize + size;
-//        ////let pv = expose_provenance(fbh);
-//        ////let ptr: *mut UsedBlockHdr = with_exposed_provenance(next_phys_block_addr, pv);
-//        ////let tracked uhdr_perm = None.tracked_unwrap();
-//
-//
-//        //(ptr, perm)
-//    }
+    spec fn size_class_condition(self) -> bool {
+        forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
+            self.shadow_freelist@.contains_key(idx)
+                && 0 <= i < self.shadow_freelist@[idx].len() ==>
+                    idx.block_size_range().contains(
+                        self.all_blocks.perms@[
+                            self.shadow_freelist@[idx][i]
+                        ].points_to.value().size as int)
+    }
 }
 
 //impl !Copy for DeallocToken {}

@@ -2,10 +2,8 @@ use vstd::prelude::*;
 
 verus! {
 
-
-use crate::{
-    Tlsf, GRANULARITY
-};
+use crate::Tlsf;
+use crate::parameters::*;
 use vstd::calc_macro::calc;
 use vstd::{seq::*, seq_lib::*, bytes::*};
 #[cfg(verus_keep_ghost)]
@@ -53,7 +51,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // - fl == 0
         //   - log2(size) == GRANULARITY_LOG2 i.e. size == GRANULARITY
         // - SLI > GRANULARITY_LOG2 i.e. SLLEN > GRANULARITY
-        // 
+        //
         // FIXME: guessing the negative case is for treating this specific case
         // FIXME(if i wrong):  the negative case occurs only when
         //                     requested size is GRANULARITY (i.e. fl=0)
@@ -173,7 +171,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(Self::granularity_log2() == Self::granularity_log2_spec());
 
             //assert(sl_shift_amount >= 0 <==> fl + Self::granularity_log2_spec() >= Self::sli_spec());
-            assert(Self::map_floor_int(size) == idx) by {
+            assert(Self::map_floor_spec(size) == idx) by {
                 assert(fl + Self::granularity_log2_spec() >= Self::sli_spec()
                     ==> pow2((fl + Self::granularity_log2_spec()) as nat) >= SLLEN) by {
                     if fl + Self::granularity_log2_spec() >= Self::sli_spec() {
@@ -249,7 +247,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         assert(size >> sl_shift_amount
                             == (size as nat /
                                 (pow2((fl + Self::granularity_log2_spec()
-                                       - Self::sli_spec()) as nat)))) 
+                                       - Self::sli_spec()) as nat))))
                             by {
                                 assert(0 <= sl_shift_amount < 64);
                                 assert(sl_shift_amount == fl + Self::granularity_log2_spec()
@@ -420,8 +418,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     // while sli < fl + g, g=GRANULARITY_LOG2
                     lemma_div_before_mult_pow2(fl + Self::granularity_log2_spec(), Self::sli_spec());
                 };
-                assert(Self::map_floor_int(size) matches BlockIndex(fl, sl));
-                Self::lemma_map_floor_int(size);
+                assert(Self::map_floor_spec(size) matches BlockIndex(fl, sl));
+                //Self::lemma_map_floor_spec(size);
+                assert(sl == ((size as int) / slb) % SLLEN as int);
+                assert(fl == log(2, size as int / GRANULARITY as int));
 
                 assert(slb > 0) by {
                     assert(pow2(Self::sli_spec() as nat)
@@ -519,70 +519,134 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
        Some(idx)
     }
 
-    spec fn map_floor_int(size: usize) -> BlockIndex<FLLEN, SLLEN>
+    spec fn map_floor_spec(size: usize) -> BlockIndex<FLLEN, SLLEN>
         recommends
             Self::parameter_validity(),
             size % GRANULARITY == 0,
             size >= GRANULARITY
     {
         let fl = log(2, size as int / GRANULARITY as int);
-        let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
-        if flb >= SLLEN {
-            let slb = flb / SLLEN as int;
+        let flb = pow2((fl + Self::granularity_log2_spec()) as nat);
+        //pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
+        if flb < SLLEN {
+            BlockIndex(0, 0)
+        } else {
+            let slb = flb as int / SLLEN as int;
             let sl = ((size as int) / slb) % SLLEN as int;
             BlockIndex(fl as usize, sl as usize)
-        } else {
-            BlockIndex(0, 0)
         }
     }
 
-    proof fn lemma_map_floor_int_wf(size: usize)
+    proof fn lemma_map_floor_spec_wf(size: usize)
         requires
             Self::parameter_validity(),
-            // FIXME: appropriatly share constant GRANULARITY between block_index
             size % GRANULARITY == 0,
             size >= GRANULARITY,
             BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)
         ensures
-            Self::map_floor_int(size) matches BlockIndex(fl, sl) &&
-                BlockIndex::<FLLEN, SLLEN>(fl as usize, sl as usize).wf()
+            Self::map_floor_spec(size).wf()
     {
-        admit()
+        assert(0 <= log(2, size as int / GRANULARITY as int) < FLLEN) by {
+            assert(size < (pow2(FLLEN as nat) * GRANULARITY));
+            assert(size / GRANULARITY < pow2(FLLEN as nat));
+            log2_is_strictly_ordered_if_rhs_is_pow2(
+                size as int / GRANULARITY as int,
+                pow2(FLLEN as nat) as int);
+            assert(log(2, size as int / GRANULARITY as int)
+                < log(2, pow2(FLLEN as nat) as int));
+            assert(log(2, pow2(FLLEN as nat) as int) == FLLEN) by {
+                vstd::arithmetic::power2::lemma_pow2(FLLEN as nat);
+                vstd::arithmetic::logarithm::lemma_log_pow(2, FLLEN as nat);
+            };
+
+            assert(log(2, size as int / GRANULARITY as int) < FLLEN as nat);
+
+            assert(0 <= log(2, size as int / GRANULARITY as int)) by {
+                vstd::arithmetic::logarithm::lemma_log_nonnegative(2, size as int / GRANULARITY as int)
+            };
+        };
     }
 
-    proof fn lemma_map_floor_int(size: usize)
+    proof fn lemma_map_floor_spec(size: usize)
         requires
             Self::parameter_validity(),
             size % GRANULARITY == 0,
             size >= GRANULARITY,
-            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int)
+            BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
+            Self::map_floor_spec(size).0 + Self::granularity_log2_spec()
+                >= Self::sli_spec()
         ensures ({
-            let BlockIndex(fl, sl) = Self::map_floor_int(size);
-            if Self::map_floor_int(size).fl_zero_cond() {
-                fl == 0 && sl == 0
-            } else { 
-                let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
-                let slb = flb / SLLEN as int;
-                &&& fl == log(2, size as int / GRANULARITY as int) as usize
-                &&& sl == (((size as int) / slb) % SLLEN as int) as usize
-            }
+            let BlockIndex(fl, sl) = Self::map_floor_spec(size);
+            let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+            let slb = flb / SLLEN as int;
+
+            &&& fl == log(2, size as int / GRANULARITY as int) as usize
+            &&& sl == (((size as int) / slb) % SLLEN as int) as usize
         })
     {
-        Self::lemma_map_floor_int_wf(size);
-        let idx = Self::map_floor_int(size);
+        Self::lemma_map_floor_spec_wf(size);
+        let idx = Self::map_floor_spec(size);
         let BlockIndex(fl, sl) = idx;
 
+        assert(0 <= fl < FLLEN);
+        assert(0 <= sl < SLLEN);
         let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
         let slb = flb / SLLEN as int;
-        assume(flb >= SLLEN <==> !idx.fl_zero_cond());
-        assume(0 <= log(2, size as int / GRANULARITY as int) < FLLEN);
-        if idx.fl_zero_cond() {
-            idx.fl_zero_iff();
-            //assert(size == GRANULARITY);
-        } else {
-            // FIXME: SMT transcript looks identical but cannot prove this
-            assume(fl == log(2, size as int / GRANULARITY as int) as usize);
-        }
+        assert(0 <= log(2, size as int / GRANULARITY as int) < usize::BITS) by {
+            assert(size < (pow2(FLLEN as nat) * GRANULARITY));
+            assert(size / GRANULARITY < pow2(FLLEN as nat));
+            log2_is_strictly_ordered_if_rhs_is_pow2(
+                size as int / GRANULARITY as int,
+                pow2(FLLEN as nat) as int);
+            assert(log(2, size as int / GRANULARITY as int)
+                < log(2, pow2(FLLEN as nat) as int));
+            assert(log(2, pow2(FLLEN as nat) as int) == FLLEN) by {
+                vstd::arithmetic::power2::lemma_pow2(FLLEN as nat);
+                vstd::arithmetic::logarithm::lemma_log_pow(2, FLLEN as nat);
+            };
+
+            assert(log(2, size as int / GRANULARITY as int) < FLLEN as nat);
+
+            assert(0 <= log(2, size as int / GRANULARITY as int)) by {
+                vstd::arithmetic::logarithm::lemma_log_nonnegative(2,
+                    size as int / GRANULARITY as int)
+            };
+        };
+
+        // pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN
+        assert(flb == pow2((fl + Self::granularity_log2_spec()) as nat));
+        //assert(fl == log(2, size as int / GRANULARITY as int) as usize);
+        assert(SLLEN <= flb) by {
+
+            assert(Self::sli_spec() <= fl + Self::granularity_log2_spec());
+            assume(0 <= fl + Self::granularity_log2_spec());
+            assume(0 <= Self::sli_spec());
+
+            vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
+            vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);
+            assert(pow(2, Self::sli_spec() as nat)
+                <= pow(2, (fl + Self::granularity_log2_spec()) as nat)) by {
+                vstd::arithmetic::power::lemma_pow_increases(2, Self::sli_spec() as nat,
+                    (fl + Self::granularity_log2_spec()) as nat);
+            };
+
+            Self::sli_pow2_is_sllen();
+        };
+
+        assert(!(flb < SLLEN));
+        //vstd::arithmetic::logarithm::lemma_log_nonnegative(2,
+            //size as int / GRANULARITY as int);
+        let slb = flb as int / SLLEN as int;
+        let sl = ((size as int) / slb) % SLLEN as int;
+        assert(0 <= log(2, size as int / GRANULARITY as int) < usize::BITS);
+        //assert(pow2((self.0 + Self::granularity_log2_spec()) as nat) < SLLEN);
+        assert(Self::sli_spec() <= fl + Self::granularity_log2_spec());
+        // SLI - log2(G) <= fl
+        // log2(SLLEN / G) <= fl
+        assert(sl == ((size as int) / slb) % SLLEN as int);
+        //assert(fl != 0) by {
+        //};
+
     }
 
 
@@ -594,7 +658,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)
         ensures ({
-            let BlockIndex(fl, sl) = Self::map_floor_int(size);
+            let BlockIndex(fl, sl) = Self::map_floor_spec(size);
             let idx = BlockIndex::<FLLEN, SLLEN>(fl as usize, sl as usize);
 
             &&& idx.wf()
@@ -606,7 +670,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     proof fn lemma_map_floor_int_at_granularity() by (nonlinear_arith)
         requires Self::parameter_validity(),
-        ensures Self::map_floor_int(GRANULARITY) matches BlockIndex(0, 0)
+        ensures Self::map_floor_spec(GRANULARITY) matches BlockIndex(0, 0)
     {
         lemma_log2_values();
         lemma_pow2_values();
