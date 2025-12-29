@@ -419,7 +419,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     lemma_div_before_mult_pow2(fl + Self::granularity_log2_spec(), Self::sli_spec());
                 };
                 assert(Self::map_floor_spec(size) matches BlockIndex(fl, sl));
-                //Self::lemma_map_floor_spec(size);
+                Self::lemma_map_floor_spec(size);
                 assert(sl == ((size as int) / slb) % SLLEN as int);
                 assert(fl == log(2, size as int / GRANULARITY as int));
 
@@ -574,7 +574,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int),
             Self::map_floor_spec(size).0 + Self::granularity_log2_spec()
-                >= Self::sli_spec()
+                >= Self::sli_spec(),
+            Self::map_floor_spec(size).0 != 0
         ensures ({
             let BlockIndex(fl, sl) = Self::map_floor_spec(size);
             let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
