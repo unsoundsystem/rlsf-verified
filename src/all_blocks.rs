@@ -54,19 +54,19 @@ verus! {
                 // prev_phys_block invariant
                 &&& {
                     ||| self.value_at(ptr).prev_phys_block is None && self.phys_prev_of(i) is None
-                        ||| self.value_at(ptr).prev_phys_block matches Some(prev_ptr) &&
+                    ||| self.value_at(ptr).prev_phys_block matches Some(prev_ptr) &&
                         self.phys_prev_of(i) == Some(prev_ptr)
                 }
             // if sentinel flag is present then ...
             &&& if self.value_at(ptr).is_sentinel() {
                 // it's last element in ptrs
                 &&& i == self.ptrs@.len() - 1
-                    // sentinel block has size of 0
-                    &&& self.value_at(ptr).size == 0
+                // sentinel block has size of 0
+                &&& self.value_at(ptr).size == 0
             } else {
                 // there no zero-sized block except sentinel block
                 &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(self.value_at(ptr).size as int)
-                    &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
+                &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
             }
             // if used flag is not present then it connected to freelist
             &&& if self.value_at(ptr).is_free() {
@@ -123,7 +123,7 @@ verus! {
         pub(crate) closed spec fn wf(self) -> bool {
             // Each block at ptrs[i] is well-formed.
             &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
-                &&& ghost_pointer_ordered(self.ptrs@)
+            &&& ghost_pointer_ordered(self.ptrs@)
         }
 
 

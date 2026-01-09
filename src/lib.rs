@@ -268,7 +268,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
 
             // Link to the list
-            self.link_free_block(idx, block, Tracked(new_block_perm));
+            {
+                let new_block_freelink_perm = new_block_perm.free_link_perm.unwrap();
+                self.link_free_block(idx, block, Tracked(&mut new_block_perm));
+            }
 
             // Update bitmaps
             self.set_bit_for_index(idx);
@@ -438,7 +441,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
             };
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
-            let size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
+            let block_size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
 
             //debug_assert!(size >= search_size);
@@ -500,17 +503,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // Permission object for `ptr`
             let tracked mut new_block_perm = old_head_perm;
-            if new_size == size {
+            if new_size == block_size {
                 // The allocation completely fills this free block.
                 // Updating `next_phys_block.prev_phys_block` is unnecessary in this
                 // case because it's still supposed to point to `block`.
             } else {
                 // The allocation partially fills this free block. Create a new
-                // free block header at `block + new_size..block + size`
+                // free block header at `block + new_size..block + block_size`
                 // of length (`new_free_block_size`).
                 let new_free_block: *mut BlockHdr =
                     with_exposed_provenance(block as usize + new_size, expose_provenance(ptr));
-                let new_free_block_size = size - new_size;
+                let new_free_block_size = block_size - new_size;
 
                 let tracked (m1, m2) = new_block_perm.mem.split(set_int_range(block as int, (block as int) + new_size as int));
                 proof {
