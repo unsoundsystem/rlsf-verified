@@ -319,38 +319,51 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &self,
         min_size: usize,
     ) -> (r: Option<BlockIndex<FLLEN,SLLEN>>)
-        requires self.wf()
+        requires self.wf(),
+            min_size >= GRANULARITY,
+            min_size % GRANULARITY == 0,
         ensures
             r matches Some(idx) ==> idx.wf() &&
-                // FIXME:
-                // !self.first_free[idx.0 as int][idx.1 as int].is_empty() &&
-                idx.block_size_range().start() <= min_size as int
+                 min_size as int <= idx.block_size_range().start()
         // None ==> invalid size requested or there no free entry
     {
-        let BlockIndex(mut fl, mut sl) = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
+        let idx = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
+        let BlockIndex(mut fl, mut sl) = idx;
+
+        assert(min_size <= idx.block_size_range().start());
 
         // Search in range `(fl, sl..SLLEN)`
         sl = bit_scan_forward(self.sl_bitmap[fl], sl as u32) as usize;
+        assume(idx.1 < sl);
         if sl < SLLEN {
             //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
+            let new_idx = BlockIndex::<FLLEN, SLLEN>(fl, sl);
+            assume(idx.block_index_lt(new_idx));
+            assume(idx.block_size_range().start() < new_idx.block_size_range().start());
 
+            assert(min_size <= idx.block_size_range().start());
             return Some(BlockIndex(fl, sl));
         }
 
         // Search in range `(fl + 1.., ..)`
         fl = bit_scan_forward(self.fl_bitmap, fl as u32 + 1) as usize;
+        assume(idx.0 < fl);
         if fl < FLLEN {
             //debug_assert!(self.fl_bitmap.get_bit(fl as u32));
 
             sl = self.sl_bitmap[fl].trailing_zeros() as usize;
-            assert(sl < SLLEN);
+            assume(sl < SLLEN);
             //if sl >= SLLEN {
                 //debug_assert!(false, "bitmap contradiction");
                 //unreachable!()
                 //unsafe { unreachable_unchecked() };
             //}
 
+            let new_idx = BlockIndex::<FLLEN, SLLEN>(fl, sl);
+            assume(idx.block_index_lt(new_idx));
+            assume(idx.block_size_range().start() < new_idx.block_size_range().start());
             //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
+            assert(min_size <= idx.block_size_range().start());
             Some(BlockIndex(fl, sl))
         } else {
             None
@@ -379,7 +392,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
              * */
             old(self).wf()
         ensures
-            // TODO: state that if there suitable block is available, the allocation succeed
             r matches Some((ptr, points_to, tok)) ==> ({
                 /* NOTE: Allocation correctness
                  * - resulting pointer
@@ -399,7 +411,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 &&& ptr.addr() % align == 0
                 &&& self.is_root_provenance(ptr)
             }),
-            r matches None ==> old(self) == self,
+            // TODO: state that if allocation failes, there is no bitmap present for it
+            r matches None ==> *old(self) == *self,
 
             self.wf()
     {

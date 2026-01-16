@@ -136,8 +136,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     ///      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
     pub closed spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
-        forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==>
+        &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==>
             (self.sl_bitmap[idx.0 as int] == 0 <==> !(nth_bit!(self.fl_bitmap, idx.0)))
+        &&& forall|f: usize| f >= FLLEN ==> !(nth_bit!(self.fl_bitmap, f))
+        &&& forall|f: usize, s: usize| s >= SLLEN ==> !(nth_bit!(self.sl_bitmap[f as int], s))
     }
 
     /// Bitmap kept sync with segregated free lists.

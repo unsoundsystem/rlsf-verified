@@ -713,8 +713,8 @@ proof fn example5() {
 //    assert(usize_rotate_right(usize_rotate_right(0xdeadbeef, -1234), 1234) == 0xdeadbeef) by (compute);
 //    assert(0xfffffff0u32 as i32 == -16int) by (bit_vector);
 //    assert(usize_rotate_right(0xbeef00000000dead, 0xfffffff0u32 as i32) == 0xdeadbeef);
-//    // NOTE: 
-//    // - it seems `0xXXXu32 as i32` can be solved by bit_vector only 
+//    // NOTE:
+//    // - it seems `0xXXXu32 as i32` can be solved by bit_vector only
 //    //   (by (compute) doesn't terminate)
 //    // - lemma around `usize_rotate_right` requires separate `assert` for `0xXXu32 as i32`
 }
@@ -745,7 +745,7 @@ pub open spec fn is_power_of_two_rec(n: int) -> bool
          true
      } else {
          n % 2 == 0 && is_power_of_two_rec(n / 2)
-     } 
+     }
 }
 
 
@@ -755,17 +755,21 @@ proof fn lemma_usize_low_bits_mask_is_mod(x: usize, n: nat) {
 }
 
 #[inline(always)]
-pub fn bit_scan_forward(b: usize, start: u32) -> u32 {
+pub fn bit_scan_forward(b: usize, start: u32) -> (r: u32)
+    ensures
+        r <= usize::BITS,
+        start < usize::BITS ==> start <= r,
+{
     if start >= usize::BITS {
         usize::BITS
     } else {
-        usize_hight_mask(b, start).trailing_zeros()
+        usize_high_mask(b, start).trailing_zeros()
     }
 }
 
 // mask with start..usize::BITS bits set
 #[inline(always)]
-pub fn usize_hight_mask(b: usize, start: u32) -> usize {
+pub fn usize_high_mask(b: usize, start: u32) -> usize {
     b & !(usize::MAX >> start)
 }
 
@@ -933,7 +937,7 @@ proof fn lemma_low_mask_pow2_pred_u64(m: u64, n: nat)
 #[cfg(target_pointer_width = "64")]
 pub proof fn bit_mask_is_mod_for_pow2(x: usize, m: usize)
     requires m > 0, is_power_of_two(m as int)
-    ensures x & (m - 1) as usize == x % m 
+    ensures x & (m - 1) as usize == x % m
     decreases x, m
 {
     bit_mask_is_mod_for_pow2_u64(x as u64, m as u64);
@@ -1264,7 +1268,7 @@ pub proof fn lemma_div_before_mult_pow2(p: int, q: int)
     assert(pow2(p) == pow2((p - q) as nat) * pow2(q)) by {
         vstd::arithmetic::power2::lemma_pow2_adds((p - q) as nat, q);
     };
-    
+
     vstd::arithmetic::power2::lemma_pow2_pos(p);
     vstd::arithmetic::power2::lemma_pow2_pos(q);
     vstd::arithmetic::power2::lemma_pow2_pos((p - q) as nat);
@@ -1475,7 +1479,7 @@ pub proof fn lemma_log2_values()
 }
 
 //
-//  Wrapping lemmas for utilizing lemmas under `arithmetic::power::*` 
+//  Wrapping lemmas for utilizing lemmas under `arithmetic::power::*`
 //
 
 pub proof fn lemma_pow2_increases(e1: nat, e2: nat)
