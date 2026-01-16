@@ -851,9 +851,11 @@ pub tracked struct DeallocToken;
 
 
 #[inline]
-pub unsafe fn round_up(ptr: *mut u8, align: usize) -> *mut u8
+pub unsafe fn round_up(ptr: *mut u8, align: usize) -> (r: *mut u8)
     requires is_power_of_two(align as int)
     ensures
+        (ptr as usize) <= (r as usize),
+        ptr as usize % align == 0
 {
     let prov = expose_provenance(ptr);
     with_exposed_provenance(

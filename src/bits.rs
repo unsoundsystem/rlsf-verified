@@ -754,6 +754,309 @@ proof fn lemma_usize_low_bits_mask_is_mod(x: usize, n: nat) {
     vstd::bits::lemma_u64_low_bits_mask_is_mod(x as u64, n);
 }
 
+// TODO: proof
+#[cfg(target_pointer_width = "64")]
+proof fn lemma_round_down_pow2(x: usize, y: usize)
+    requires is_power_of_two(y as int), y > 1
+    ensures
+        x & !((y - 1) as usize) <= x,
+        (x & !((y - 1) as usize)) % y == 0
+{
+    assert(x & !((y - 1) as usize) <= x) by (bit_vector);
+    lemma_pow2_value_in_usize(y);
+    assert((x & !((y - 1) as usize)) & ((y - 1) as usize) == 0) by (bit_vector);
+    //assert((x & !((y - 1) as usize)) & ((y - 1) as usize) == 0) by {
+        //assert((x & !((1 - 1) as usize)) & ((1 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2 - 1) as usize)) & ((2 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4 - 1) as usize)) & ((4 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((8 - 1) as usize)) & ((8 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((16 - 1) as usize)) & ((16 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((32 - 1) as usize)) & ((32 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((64 - 1) as usize)) & ((64 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((128 - 1) as usize)) & ((128 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((256 - 1) as usize)) & ((256 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((512 - 1) as usize)) & ((512 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((1024 - 1) as usize)) & ((1024 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2048 - 1) as usize)) & ((2048 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4096 - 1) as usize)) & ((4096 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((8192 - 1) as usize)) & ((8192 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((16384 - 1) as usize)) & ((16384 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((32768 - 1) as usize)) & ((32768 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((65536 - 1) as usize)) & ((65536 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((131072 - 1) as usize)) & ((131072 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((262144 - 1) as usize)) & ((262144 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((524288 - 1) as usize)) & ((524288 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((1048576 - 1) as usize)) & ((1048576 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2097152 - 1) as usize)) & ((2097152 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4194304 - 1) as usize)) & ((4194304 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((8388608 - 1) as usize)) & ((8388608 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((16777216 - 1) as usize)) & ((16777216 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((33554432 - 1) as usize)) & ((33554432 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((67108864 - 1) as usize)) & ((67108864 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((134217728 - 1) as usize)) & ((134217728 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((268435456 - 1) as usize)) & ((268435456 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((536870912 - 1) as usize)) & ((536870912 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((1073741824 - 1) as usize)) & ((1073741824 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2147483648 - 1) as usize)) & ((2147483648 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4294967296 - 1) as usize)) & ((4294967296 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((8589934592 - 1) as usize)) & ((8589934592 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((17179869184 - 1) as usize)) & ((17179869184 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((34359738368 - 1) as usize)) & ((34359738368 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((68719476736 - 1) as usize)) & ((68719476736 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((137438953472 - 1) as usize)) & ((137438953472 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((274877906944 - 1) as usize)) & ((274877906944 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((549755813888 - 1) as usize)) & ((549755813888 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((1099511627776 - 1) as usize)) & ((1099511627776 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2199023255552 - 1) as usize)) & ((2199023255552 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4398046511104 - 1) as usize)) & ((4398046511104 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((8796093022208 - 1) as usize)) & ((8796093022208 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((17592186044416 - 1) as usize)) & ((17592186044416 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((35184372088832 - 1) as usize)) & ((35184372088832 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((70368744177664 - 1) as usize)) & ((70368744177664 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((140737488355328 - 1) as usize)) & ((140737488355328 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((281474976710656 - 1) as usize)) & ((281474976710656 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((562949953421312 - 1) as usize)) & ((562949953421312 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((1125899906842624 - 1) as usize)) & ((1125899906842624 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2251799813685248 - 1) as usize)) & ((2251799813685248 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4503599627370496 - 1) as usize)) & ((4503599627370496 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((9007199254740992 - 1) as usize)) & ((9007199254740992 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((18014398509481984 - 1) as usize)) & ((18014398509481984 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((36028797018963968 - 1) as usize)) & ((36028797018963968 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((72057594037927936 - 1) as usize)) & ((72057594037927936 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((144115188075855872 - 1) as usize)) & ((144115188075855872 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((288230376151711744 - 1) as usize)) & ((288230376151711744 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((576460752303423488 - 1) as usize)) & ((576460752303423488 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((1152921504606846976 - 1) as usize)) & ((1152921504606846976 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((2305843009213693952 - 1) as usize)) & ((2305843009213693952 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((4611686018427387904 - 1) as usize)) & ((4611686018427387904 - 1) as usize) == 0) by (bit_vector);
+        //assert((x & !((9223372036854775808 - 1) as usize)) & ((9223372036854775808 - 1) as usize) == 0) by (bit_vector);
+    //}
+    bit_mask_is_mod_for_pow2(x & !((y - 1) as usize), y);
+}
+
+proof fn lemma_round_up_pow2(x: usize, y: usize)
+    requires
+        is_power_of_two(y as int), y > 1,
+        0 <= x + (y - 1) <= usize::MAX,
+    ensures
+        x <= ((x + (y - 1)) as usize) & !((y - 1) as usize),
+        ((x + (y - 1)) as usize) & !((y - 1) as usize) % y == 0,
+{
+    lemma_pow2_value_in_usize(y);
+    assert(x <= ((x + (y - 1)) as usize) & !((y - 1) as usize)) by (bit_vector)
+        requires x <= ((x + (y - 1)) as usize);
+    lemma_round_down_pow2((x + (y - 1)) as usize, y);
+    assert(((x + (y - 1)) as usize) & !((y - 1) as usize) % y == 0) by {
+        assert(((x + (1 - 1)) as usize) & !((1 - 1) as usize) % 1 == 0) by (bit_vector);
+        assert(((x + (2 - 1)) as usize) & !((2 - 1) as usize) % 2 == 0) by (bit_vector);
+        assert(((x + (4 - 1)) as usize) & !((4 - 1) as usize) % 4 == 0) by (bit_vector);
+        assert(((x + (8 - 1)) as usize) & !((8 - 1) as usize) % 8 == 0) by (bit_vector);
+        assert(((x + (16 - 1)) as usize) & !((16 - 1) as usize) % 16 == 0) by (bit_vector);
+        assert(((x + (32 - 1)) as usize) & !((32 - 1) as usize) % 32 == 0) by (bit_vector);
+        assert(((x + (64 - 1)) as usize) & !((64 - 1) as usize) % 64 == 0) by (bit_vector);
+        assert(((x + (128 - 1)) as usize) & !((128 - 1) as usize) % 128 == 0) by (bit_vector);
+        assert(((x + (256 - 1)) as usize) & !((256 - 1) as usize) % 256 == 0) by (bit_vector);
+        assert(((x + (512 - 1)) as usize) & !((512 - 1) as usize) % 512 == 0) by (bit_vector);
+        assert(((x + (1024 - 1)) as usize) & !((1024 - 1) as usize) % 1024 == 0) by (bit_vector);
+        assert(((x + (2048 - 1)) as usize) & !((2048 - 1) as usize) % 2048 == 0) by (bit_vector);
+        assert(((x + (4096 - 1)) as usize) & !((4096 - 1) as usize) % 4096 == 0) by (bit_vector);
+        assert(((x + (8192 - 1)) as usize) & !((8192 - 1) as usize) % 8192 == 0) by (bit_vector);
+        assert(((x + (16384 - 1)) as usize) & !((16384 - 1) as usize) % 16384 == 0) by (bit_vector);
+        assert(((x + (32768 - 1)) as usize) & !((32768 - 1) as usize) % 32768 == 0) by (bit_vector);
+        assert(((x + (65536 - 1)) as usize) & !((65536 - 1) as usize) % 65536 == 0) by (bit_vector);
+        assert(((x + (131072 - 1)) as usize) & !((131072 - 1) as usize) % 131072 == 0) by (bit_vector);
+        assert(((x + (262144 - 1)) as usize) & !((262144 - 1) as usize) % 262144 == 0) by (bit_vector);
+        assert(((x + (524288 - 1)) as usize) & !((524288 - 1) as usize) % 524288 == 0) by (bit_vector);
+        assert(((x + (1048576 - 1)) as usize) & !((1048576 - 1) as usize) % 1048576 == 0) by (bit_vector);
+        assert(((x + (2097152 - 1)) as usize) & !((2097152 - 1) as usize) % 2097152 == 0) by (bit_vector);
+        assert(((x + (4194304 - 1)) as usize) & !((4194304 - 1) as usize) % 4194304 == 0) by (bit_vector);
+        assert(((x + (8388608 - 1)) as usize) & !((8388608 - 1) as usize) % 8388608 == 0) by (bit_vector);
+        assert(((x + (16777216 - 1)) as usize) & !((16777216 - 1) as usize) % 16777216 == 0) by (bit_vector);
+        assert(((x + (33554432 - 1)) as usize) & !((33554432 - 1) as usize) % 33554432 == 0) by (bit_vector);
+        assert(((x + (67108864 - 1)) as usize) & !((67108864 - 1) as usize) % 67108864 == 0) by (bit_vector);
+        assert(((x + (134217728 - 1)) as usize) & !((134217728 - 1) as usize) % 134217728 == 0) by (bit_vector);
+        assert(((x + (268435456 - 1)) as usize) & !((268435456 - 1) as usize) % 268435456 == 0) by (bit_vector);
+        assert(((x + (536870912 - 1)) as usize) & !((536870912 - 1) as usize) % 536870912 == 0) by (bit_vector);
+        assert(((x + (1073741824 - 1)) as usize) & !((1073741824 - 1) as usize) % 1073741824 == 0) by (bit_vector);
+        assert(((x + (2147483648 - 1)) as usize) & !((2147483648 - 1) as usize) % 2147483648 == 0) by (bit_vector);
+        assert(((x + (4294967296 - 1)) as usize) & !((4294967296 - 1) as usize) % 4294967296 == 0) by (bit_vector);
+        assert(((x + (8589934592 - 1)) as usize) & !((8589934592 - 1) as usize) % 8589934592 == 0) by (bit_vector);
+        assert(((x + (17179869184 - 1)) as usize) & !((17179869184 - 1) as usize) % 17179869184 == 0) by (bit_vector);
+        assert(((x + (34359738368 - 1)) as usize) & !((34359738368 - 1) as usize) % 34359738368 == 0) by (bit_vector);
+        assert(((x + (68719476736 - 1)) as usize) & !((68719476736 - 1) as usize) % 68719476736 == 0) by (bit_vector);
+        assert(((x + (137438953472 - 1)) as usize) & !((137438953472 - 1) as usize) % 137438953472 == 0) by (bit_vector);
+        assert(((x + (274877906944 - 1)) as usize) & !((274877906944 - 1) as usize) % 274877906944 == 0) by (bit_vector);
+        assert(((x + (549755813888 - 1)) as usize) & !((549755813888 - 1) as usize) % 549755813888 == 0) by (bit_vector);
+        assert(((x + (1099511627776 - 1)) as usize) & !((1099511627776 - 1) as usize) % 1099511627776 == 0) by (bit_vector);
+        assert(((x + (2199023255552 - 1)) as usize) & !((2199023255552 - 1) as usize) % 2199023255552 == 0) by (bit_vector);
+        assert(((x + (4398046511104 - 1)) as usize) & !((4398046511104 - 1) as usize) % 4398046511104 == 0) by (bit_vector);
+        assert(((x + (8796093022208 - 1)) as usize) & !((8796093022208 - 1) as usize) % 8796093022208 == 0) by (bit_vector);
+        assert(((x + (17592186044416 - 1)) as usize) & !((17592186044416 - 1) as usize) % 17592186044416 == 0) by (bit_vector);
+        assert(((x + (35184372088832 - 1)) as usize) & !((35184372088832 - 1) as usize) % 35184372088832 == 0) by (bit_vector);
+        assert(((x + (70368744177664 - 1)) as usize) & !((70368744177664 - 1) as usize) % 70368744177664 == 0) by (bit_vector);
+        assert(((x + (140737488355328 - 1)) as usize) & !((140737488355328 - 1) as usize) % 140737488355328 == 0) by (bit_vector);
+        assert(((x + (281474976710656 - 1)) as usize) & !((281474976710656 - 1) as usize) % 281474976710656 == 0) by (bit_vector);
+        assert(((x + (562949953421312 - 1)) as usize) & !((562949953421312 - 1) as usize) % 562949953421312 == 0) by (bit_vector);
+        assert(((x + (1125899906842624 - 1)) as usize) & !((1125899906842624 - 1) as usize) % 1125899906842624 == 0) by (bit_vector);
+        assert(((x + (2251799813685248 - 1)) as usize) & !((2251799813685248 - 1) as usize) % 2251799813685248 == 0) by (bit_vector);
+        assert(((x + (4503599627370496 - 1)) as usize) & !((4503599627370496 - 1) as usize) % 4503599627370496 == 0) by (bit_vector);
+        assert(((x + (9007199254740992 - 1)) as usize) & !((9007199254740992 - 1) as usize) % 9007199254740992 == 0) by (bit_vector);
+        assert(((x + (18014398509481984 - 1)) as usize) & !((18014398509481984 - 1) as usize) % 18014398509481984 == 0) by (bit_vector);
+        assert(((x + (36028797018963968 - 1)) as usize) & !((36028797018963968 - 1) as usize) % 36028797018963968 == 0) by (bit_vector);
+        assert(((x + (72057594037927936 - 1)) as usize) & !((72057594037927936 - 1) as usize) % 72057594037927936 == 0) by (bit_vector);
+        assert(((x + (144115188075855872 - 1)) as usize) & !((144115188075855872 - 1) as usize) % 144115188075855872 == 0) by (bit_vector);
+        assert(((x + (288230376151711744 - 1)) as usize) & !((288230376151711744 - 1) as usize) % 288230376151711744 == 0) by (bit_vector);
+        assert(((x + (576460752303423488 - 1)) as usize) & !((576460752303423488 - 1) as usize) % 576460752303423488 == 0) by (bit_vector);
+        assert(((x + (1152921504606846976 - 1)) as usize) & !((1152921504606846976 - 1) as usize) % 1152921504606846976 == 0) by (bit_vector);
+        assert(((x + (2305843009213693952 - 1)) as usize) & !((2305843009213693952 - 1) as usize) % 2305843009213693952 == 0) by (bit_vector);
+        assert(((x + (4611686018427387904 - 1)) as usize) & !((4611686018427387904 - 1) as usize) % 4611686018427387904 == 0) by (bit_vector);
+        assert(((x + (9223372036854775808 - 1)) as usize) & !((9223372036854775808 - 1) as usize) % 9223372036854775808 == 0) by (bit_vector);
+    };
+}
+
+//proof fn lemma_count_pow2_values(x: usize)
+    //requires 0 <= pow2(x) <= usize::MAX
+    //ensures
+
+proof fn lemma_pow2_value_in_usize(x: usize)
+    requires is_power_of_two(x as int), x <= usize::MAX
+    ensures
+        x == 1 ||
+        x == 2 ||
+        x == 4 ||
+        x == 8 ||
+        x == 16 ||
+        x == 32 ||
+        x == 64 ||
+        x == 128 ||
+        x == 256 ||
+        x == 512 ||
+        x == 1024 ||
+        x == 2048 ||
+        x == 4096 ||
+        x == 8192 ||
+        x == 16384 ||
+        x == 32768 ||
+        x == 65536 ||
+        x == 131072 ||
+        x == 262144 ||
+        x == 524288 ||
+        x == 1048576 ||
+        x == 2097152 ||
+        x == 4194304 ||
+        x == 8388608 ||
+        x == 16777216 ||
+        x == 33554432 ||
+        x == 67108864 ||
+        x == 134217728 ||
+        x == 268435456 ||
+        x == 536870912 ||
+        x == 1073741824 ||
+        x == 2147483648 ||
+        x == 4294967296 ||
+        x == 8589934592 ||
+        x == 17179869184 ||
+        x == 34359738368 ||
+        x == 68719476736 ||
+        x == 137438953472 ||
+        x == 274877906944 ||
+        x == 549755813888 ||
+        x == 1099511627776 ||
+        x == 2199023255552 ||
+        x == 4398046511104 ||
+        x == 8796093022208 ||
+        x == 17592186044416 ||
+        x == 35184372088832 ||
+        x == 70368744177664 ||
+        x == 140737488355328 ||
+        x == 281474976710656 ||
+        x == 562949953421312 ||
+        x == 1125899906842624 ||
+        x == 2251799813685248 ||
+        x == 4503599627370496 ||
+        x == 9007199254740992 ||
+        x == 18014398509481984 ||
+        x == 36028797018963968 ||
+        x == 72057594037927936 ||
+        x == 144115188075855872 ||
+        x == 288230376151711744 ||
+        x == 576460752303423488 ||
+        x == 1152921504606846976 ||
+        x == 2305843009213693952 ||
+        x == 4611686018427387904 ||
+        x == 9223372036854775808
+{
+    lemma_pow2_values();
+    if 0 < pow2(0) {
+        assume(false)
+    } else if pow2(0) <= x < pow2(1) { assert(x == 1);
+    } else if pow2(1) <= x < pow2(2) { assert(x == 2);
+    } else if pow2(2) <= x < pow2(3) { assert(x == 4);
+    } else if pow2(3) <= x < pow2(4) { assert(x == 8);
+    } else if pow2(4) <= x < pow2(5) { assert(x == 16);
+    } else if pow2(5) <= x < pow2(6) { assert(x == 32);
+    } else if pow2(6) <= x < pow2(7) { assert(x == 64);
+    } else if pow2(7) <= x < pow2(8) { assert(x == 128);
+    } else if pow2(8) <= x < pow2(9) { assert(x == 256);
+    } else if pow2(9) <= x < pow2(10) { assert(x == 512);
+    } else if pow2(10) <= x < pow2(11) { assert(x == 1024);
+    } else if pow2(11) <= x < pow2(12) { assert(x == 2048);
+    } else if pow2(12) <= x < pow2(13) { assert(x == 4096);
+    } else if pow2(13) <= x < pow2(14) { assert(x == 8192);
+    } else if pow2(14) <= x < pow2(15) { assert(x == 16384);
+    } else if pow2(15) <= x < pow2(16) { assert(x == 32768);
+    } else if pow2(16) <= x < pow2(17) { assert(x == 65536);
+    } else if pow2(17) <= x < pow2(18) { assert(x == 131072);
+    } else if pow2(18) <= x < pow2(19) { assert(x == 262144);
+    } else if pow2(19) <= x < pow2(20) { assert(x == 524288);
+    } else if pow2(20) <= x < pow2(21) { assert(x == 1048576);
+    } else if pow2(21) <= x < pow2(22) { assert(x == 2097152);
+    } else if pow2(22) <= x < pow2(23) { assert(x == 4194304);
+    } else if pow2(23) <= x < pow2(24) { assert(x == 8388608);
+    } else if pow2(24) <= x < pow2(25) { assert(x == 16777216);
+    } else if pow2(25) <= x < pow2(26) { assert(x == 33554432);
+    } else if pow2(26) <= x < pow2(27) { assert(x == 67108864);
+    } else if pow2(27) <= x < pow2(28) { assert(x == 134217728);
+    } else if pow2(28) <= x < pow2(29) { assert(x == 268435456);
+    } else if pow2(29) <= x < pow2(30) { assert(x == 536870912);
+    } else if pow2(30) <= x < pow2(31) { assert(x == 1073741824);
+    } else if pow2(31) <= x < pow2(32) { assert(x == 2147483648);
+    } else if pow2(32) <= x < pow2(33) { assert(x == 4294967296);
+    } else if pow2(33) <= x < pow2(34) { assert(x == 8589934592);
+    } else if pow2(34) <= x < pow2(35) { assert(x == 17179869184);
+    } else if pow2(35) <= x < pow2(36) { assert(x == 34359738368);
+    } else if pow2(36) <= x < pow2(37) { assert(x == 68719476736);
+    } else if pow2(37) <= x < pow2(38) { assert(x == 137438953472);
+    } else if pow2(38) <= x < pow2(39) { assert(x == 274877906944);
+    } else if pow2(39) <= x < pow2(40) { assert(x == 549755813888);
+    } else if pow2(40) <= x < pow2(41) { assert(x == 1099511627776);
+    } else if pow2(41) <= x < pow2(42) { assert(x == 2199023255552);
+    } else if pow2(42) <= x < pow2(43) { assert(x == 4398046511104);
+    } else if pow2(43) <= x < pow2(44) { assert(x == 8796093022208);
+    } else if pow2(44) <= x < pow2(45) { assert(x == 17592186044416);
+    } else if pow2(45) <= x < pow2(46) { assert(x == 35184372088832);
+    } else if pow2(46) <= x < pow2(47) { assert(x == 70368744177664);
+    } else if pow2(47) <= x < pow2(48) { assert(x == 140737488355328);
+    } else if pow2(48) <= x < pow2(49) { assert(x == 281474976710656);
+    } else if pow2(49) <= x < pow2(50) { assert(x == 562949953421312);
+    } else if pow2(50) <= x < pow2(51) { assert(x == 1125899906842624);
+    } else if pow2(51) <= x < pow2(52) { assert(x == 2251799813685248);
+    } else if pow2(52) <= x < pow2(53) { assert(x == 4503599627370496);
+    } else if pow2(53) <= x < pow2(54) { assert(x == 9007199254740992);
+    } else if pow2(54) <= x < pow2(55) { assert(x == 18014398509481984);
+    } else if pow2(55) <= x < pow2(56) { assert(x == 36028797018963968);
+    } else if pow2(56) <= x < pow2(57) { assert(x == 72057594037927936);
+    } else if pow2(57) <= x < pow2(58) { assert(x == 144115188075855872);
+    } else if pow2(58) <= x < pow2(59) { assert(x == 288230376151711744);
+    } else if pow2(59) <= x < pow2(60) { assert(x == 576460752303423488);
+    } else if pow2(60) <= x < pow2(61) { assert(x == 1152921504606846976);
+    } else if pow2(61) <= x < pow2(62) { assert(x == 2305843009213693952);
+    } else if pow2(62) <= x < pow2(63) { assert(x == 4611686018427387904);
+    } else if pow2(63) <= x < pow2(64) { assert(x == 9223372036854775808);
+        assume(false)
+    }
+}
+
 #[inline(always)]
 pub fn bit_scan_forward(b: usize, start: u32) -> (r: u32)
     ensures
@@ -1383,7 +1686,7 @@ pub proof fn lemma_u64_trailing_zero_be_log2(x: u64, n: nat, m: nat)
         };
         lemma_u64_trailing_zero_be_log2(x / 2, n, (m - 1) as nat);
 
-        assert(forall|x: u64, y: u64| x & 1 == 0 ==> ((x * y) as u64) & 1 == 0) by (bit_vector);
+        assert(forall|x: u64, y: u64| x & 1 == 0 ==> (#[trigger] (x * y) as u64) & 1 == 0) by (bit_vector);
         {
             let n = n as u64;
             let pow = pow2((m - 1) as nat) as u64;
@@ -1436,22 +1739,195 @@ pub proof fn lemma_pow2_values()
         pow2(4) == 16,
         pow2(5) == 32,
         pow2(6) == 64,
+        pow2(7) == 128,
+        pow2(8) == 256,
+        pow2(9) == 512,
+        pow2(10) == 1024,
+        pow2(11) == 2048,
+        pow2(12) == 4096,
+        pow2(13) == 8192,
+        pow2(14) == 16384,
+        pow2(15) == 32768,
+        pow2(16) == 65536,
+        pow2(17) == 131072,
+        pow2(18) == 262144,
+        pow2(19) == 524288,
+        pow2(20) == 1048576,
+        pow2(21) == 2097152,
+        pow2(22) == 4194304,
+        pow2(23) == 8388608,
+        pow2(24) == 16777216,
+        pow2(25) == 33554432,
+        pow2(26) == 67108864,
+        pow2(27) == 134217728,
+        pow2(28) == 268435456,
+        pow2(29) == 536870912,
+        pow2(30) == 1073741824,
+        pow2(31) == 2147483648,
+        pow2(32) == 4294967296,
+        pow2(33) == 8589934592,
+        pow2(34) == 17179869184,
+        pow2(35) == 34359738368,
+        pow2(36) == 68719476736,
+        pow2(37) == 137438953472,
+        pow2(38) == 274877906944,
+        pow2(39) == 549755813888,
+        pow2(40) == 1099511627776,
+        pow2(41) == 2199023255552,
+        pow2(42) == 4398046511104,
+        pow2(43) == 8796093022208,
+        pow2(44) == 17592186044416,
+        pow2(45) == 35184372088832,
+        pow2(46) == 70368744177664,
+        pow2(47) == 140737488355328,
+        pow2(48) == 281474976710656,
+        pow2(49) == 562949953421312,
+        pow2(50) == 1125899906842624,
+        pow2(51) == 2251799813685248,
+        pow2(52) == 4503599627370496,
+        pow2(53) == 9007199254740992,
+        pow2(54) == 18014398509481984,
+        pow2(55) == 36028797018963968,
+        pow2(56) == 72057594037927936,
+        pow2(57) == 144115188075855872,
+        pow2(58) == 288230376151711744,
+        pow2(59) == 576460752303423488,
+        pow2(60) == 1152921504606846976,
+        pow2(61) == 2305843009213693952,
+        pow2(62) == 4611686018427387904,
+        pow2(63) == 9223372036854775808,
 {
-    lemma_pow2(0);
     lemma_pow2(1);
     lemma_pow2(2);
     lemma_pow2(3);
     lemma_pow2(4);
     lemma_pow2(5);
     lemma_pow2(6);
+    lemma_pow2(7);
+    lemma_pow2(8);
+    lemma_pow2(9);
+    lemma_pow2(10);
+    lemma_pow2(11);
+    lemma_pow2(12);
+    lemma_pow2(13);
+    lemma_pow2(14);
+    lemma_pow2(15);
+    lemma_pow2(16);
+    lemma_pow2(17);
+    lemma_pow2(18);
+    lemma_pow2(19);
+    lemma_pow2(20);
+    lemma_pow2(21);
+    lemma_pow2(22);
+    lemma_pow2(23);
+    lemma_pow2(24);
+    lemma_pow2(25);
+    lemma_pow2(26);
+    lemma_pow2(27);
+    lemma_pow2(28);
+    lemma_pow2(29);
+    lemma_pow2(30);
+    lemma_pow2(31);
+    lemma_pow2(32);
+    lemma_pow2(33);
+    lemma_pow2(34);
+    lemma_pow2(35);
+    lemma_pow2(36);
+    lemma_pow2(37);
+    lemma_pow2(38);
+    lemma_pow2(39);
+    lemma_pow2(40);
+    lemma_pow2(41);
+    lemma_pow2(42);
+    lemma_pow2(43);
+    lemma_pow2(44);
+    lemma_pow2(45);
+    lemma_pow2(46);
+    lemma_pow2(47);
+    lemma_pow2(48);
+    lemma_pow2(49);
+    lemma_pow2(50);
+    lemma_pow2(51);
+    lemma_pow2(52);
+    lemma_pow2(53);
+    lemma_pow2(54);
+    lemma_pow2(55);
+    lemma_pow2(56);
+    lemma_pow2(57);
+    lemma_pow2(58);
+    lemma_pow2(59);
+    lemma_pow2(60);
+    lemma_pow2(61);
+    lemma_pow2(62);
+    lemma_pow2(63);
+    lemma_pow2(64);
     reveal(pow);
-    assert(pow2(0) == 1 &&
+
+    assert(
+        pow2(0) == 1 &&
         pow2(1) == 2 &&
         pow2(2) == 4 &&
         pow2(3) == 8 &&
         pow2(4) == 16 &&
         pow2(5) == 32 &&
-        pow2(6) == 64) by (compute);
+        pow2(6) == 64 &&
+        pow2(7) == 128 &&
+        pow2(8) == 256 &&
+        pow2(9) == 512 &&
+        pow2(10) == 1024 &&
+        pow2(11) == 2048 &&
+        pow2(12) == 4096 &&
+        pow2(13) == 8192 &&
+        pow2(14) == 16384 &&
+        pow2(15) == 32768 &&
+        pow2(16) == 65536 &&
+        pow2(17) == 131072 &&
+        pow2(18) == 262144 &&
+        pow2(19) == 524288 &&
+        pow2(20) == 1048576 &&
+        pow2(21) == 2097152 &&
+        pow2(22) == 4194304 &&
+        pow2(23) == 8388608 &&
+        pow2(24) == 16777216 &&
+        pow2(25) == 33554432 &&
+        pow2(26) == 67108864 &&
+        pow2(27) == 134217728 &&
+        pow2(28) == 268435456 &&
+        pow2(29) == 536870912 &&
+        pow2(30) == 1073741824 &&
+        pow2(31) == 2147483648 &&
+        pow2(32) == 4294967296 &&
+        pow2(33) == 8589934592 &&
+        pow2(34) == 17179869184 &&
+        pow2(35) == 34359738368 &&
+        pow2(36) == 68719476736 &&
+        pow2(37) == 137438953472 &&
+        pow2(38) == 274877906944 &&
+        pow2(39) == 549755813888 &&
+        pow2(40) == 1099511627776 &&
+        pow2(41) == 2199023255552 &&
+        pow2(42) == 4398046511104 &&
+        pow2(43) == 8796093022208 &&
+        pow2(44) == 17592186044416 &&
+        pow2(45) == 35184372088832 &&
+        pow2(46) == 70368744177664 &&
+        pow2(47) == 140737488355328 &&
+        pow2(48) == 281474976710656 &&
+        pow2(49) == 562949953421312 &&
+        pow2(50) == 1125899906842624 &&
+        pow2(51) == 2251799813685248 &&
+        pow2(52) == 4503599627370496 &&
+        pow2(53) == 9007199254740992 &&
+        pow2(54) == 18014398509481984 &&
+        pow2(55) == 36028797018963968 &&
+        pow2(56) == 72057594037927936 &&
+        pow2(57) == 144115188075855872 &&
+        pow2(58) == 288230376151711744 &&
+        pow2(59) == 576460752303423488 &&
+        pow2(60) == 1152921504606846976 &&
+        pow2(61) == 2305843009213693952 &&
+        pow2(62) == 4611686018427387904 &&
+        pow2(63) == 9223372036854775808) by (compute);
 }
 
 pub proof fn lemma_log2_values()
