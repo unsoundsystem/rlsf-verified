@@ -269,8 +269,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // Link to the list
             {
-                let new_block_freelink_perm = new_block_perm.free_link_perm.unwrap();
-                self.link_free_block(idx, block, Tracked(&mut new_block_perm));
+                let tracked new_block_freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
+                self.link_free_block(idx, block, Tracked(&mut new_block_freelink_perm));
             }
 
             // Update bitmaps
@@ -551,8 +551,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         prev_phys_block: Some(block),
                     });
                 // NOTE: This unwrap panics when invalid size is provided
-                let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
-                self.link_free_block(new_block_idx, new_free_block, Tracked(new_block_perm));
+                {
+                    let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
+                    let tracked freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
+                    self.link_free_block(new_block_idx, new_free_block, Tracked(&mut freelink_perm));
+                }
             }
 
             //// Turn `block` into a used memory block and initialize the used block
@@ -689,7 +692,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
         // Link this free block to the corresponding free list
         let new_block_idx = Self::map_floor(size).unwrap();
-        self.link_free_block(new_block_idx, block, Tracked(block_perm));
+        {
+            let tracked freelink_perm = block_perm.free_link_perm.tracked_unwrap();
+            self.link_free_block(new_block_idx, block, Tracked(&mut freelink_perm));
+        }
 
         // Link `new_next_phys_block.prev_phys_block` to `block`
         //debug_assert_eq!(

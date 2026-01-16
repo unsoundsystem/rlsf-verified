@@ -7,6 +7,9 @@ map_floor
 # following 24 lemmas used in map_floor, 451 LoC
 
 granularity_is_power_of_two
+Self::sli_pow2_is_sllen
+lemma_pow2_values
+lemma_log2_values
 log2_using_leading_zeros_usize
 granularity_basics
 log2_power_ordered
@@ -14,7 +17,6 @@ lemma_log2_distributes
 mask_higher_bits_leq_mask
 lemma_usize_rotr_mask_lower
 log2_is_strictly_ordered_if_rhs_is_pow2
-Self::sli_pow2_is_sllen
 lemma_duplicate_low_mask_usize
 bit_mask_is_mod_for_pow2
 lemma_pow2_div_sub

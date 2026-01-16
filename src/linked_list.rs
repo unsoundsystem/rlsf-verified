@@ -110,19 +110,18 @@ verus! {
         pub(crate) fn link_free_block(&mut self,
             idx: BlockIndex<FLLEN, SLLEN>,
             node: *mut BlockHdr,
-            Tracked(node_fl_pt): Tracked<&mut FreeLink>)
+            Tracked(node_fl_pt): Tracked<&mut PointsTo<FreeLink>>)
         requires
             idx.wf(),
             old(self).all_blocks.wf(),
             old(self).all_freelist_wf(),
             !old(self).all_blocks.contains(node),
-            BlockHdr::get_freelink_ptr_spec(node) == node_fl_pt.ptr()
+            get_freelink_ptr_spec(node) == old(node_fl_pt).ptr()
         ensures
             self.all_blocks.wf(),
             self.all_freelist_wf(),
             self.shadow_freelist@[idx] == seq![node].add(old(self).shadow_freelist@[idx])
         {
-            let tracked node_fl_pt = node_fl_pt.tracked_unwrap();
             if let Some(first_free) = self.first_free[idx.0][idx.1] {
                 assert(self.shadow_freelist@[idx].len() != 0);
                 assert(self.shadow_freelist@[idx].first() == first_free);
@@ -161,7 +160,7 @@ verus! {
 
                 // update new node's link
                 let link = get_freelink_ptr(node);
-                ptr_mut_write(link, Tracked(&mut node_fl_pt), FreeLink {
+                ptr_mut_write(link, Tracked(node_fl_pt), FreeLink {
                     next_free: Some(first_free),
                     prev_free: None
                 });
@@ -303,7 +302,7 @@ verus! {
             } else {
                 assert(self.shadow_freelist@[idx].len() == 0);
                 Self::set_freelist(&mut self.first_free, idx, Some(node));
-                ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
+                ptr_mut_write(get_freelink_ptr(node), Tracked(node_fl_pt), FreeLink {
                     next_free: None,
                     prev_free: None
                 });
