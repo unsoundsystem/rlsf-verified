@@ -756,7 +756,7 @@ proof fn lemma_usize_low_bits_mask_is_mod(x: usize, n: nat) {
 
 // TODO: proof
 #[cfg(target_pointer_width = "64")]
-proof fn lemma_round_down_pow2(x: usize, y: usize)
+pub proof fn lemma_round_down_pow2(x: usize, y: usize)
     requires is_power_of_two(y as int), y > 1
     ensures
         x & !((y - 1) as usize) <= x,
@@ -834,7 +834,7 @@ proof fn lemma_round_down_pow2(x: usize, y: usize)
     bit_mask_is_mod_for_pow2(x & !((y - 1) as usize), y);
 }
 
-proof fn lemma_round_up_pow2(x: usize, y: usize)
+pub proof fn lemma_round_up_pow2(x: usize, y: usize)
     requires
         is_power_of_two(y as int), y > 1,
         0 <= x + (y - 1) <= usize::MAX,

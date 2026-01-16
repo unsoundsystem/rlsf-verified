@@ -413,8 +413,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }),
             // TODO: state that if allocation failes, there is no bitmap present for it
             r matches None ==> *old(self) == *self,
-
-            self.wf()
+            self.wf(),
+            is_power_of_two(align),
     {
         unsafe {
             // The extra bytes consumed by the header and padding.
@@ -427,10 +427,30 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
             let max_overhead =
                 align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
+            proof {
+                // align is at most 2^63
+                assume(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
+            }
 
             // Search for a suitable free block
-            let search_size = size.checked_add(max_overhead)?;
-            let search_size = search_size.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
+            let size_overhead = size.checked_add(max_overhead)?;
+            proof {
+                assume(size_overhead > 0);
+            }
+            let search_size = size_overhead.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
+            proof {
+                assume(0 <= (GRANULARITY - 1) <= usize::MAX);
+                if size_overhead.checked_add((GRANULARITY - 1) as usize).is_some() {
+                    assert(0 <= size_overhead + (GRANULARITY - 1) <= usize::MAX);
+                    admit();
+                    granularity_is_power_of_two();
+                    assume(search_size == size_overhead + (GRANULARITY - 1));
+                    assume(size_overhead.checked_add((GRANULARITY - 1) as usize).unwrap() + (GRANULARITY - 1) <= usize::MAX);
+                    lemma_round_up_pow2(size_overhead.checked_add((GRANULARITY - 1) as usize).unwrap(), GRANULARITY);
+                    assert(search_size % GRANULARITY == 0);
+                } else { admit() }
+            admit() //---------------------------------------------------------------------------------------------------------------
+            }
             let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
             let BlockIndex(fl, sl) = idx;
 
