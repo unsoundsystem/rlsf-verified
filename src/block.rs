@@ -20,7 +20,7 @@ verus! {
         ///  - `bit[GRANULARITY_LOG2..]` ([`SIZE_SIZE_MASK`]) represents the size.
         ///
         pub(crate) size: usize,
-        pub(crate) prev_phys_block: Option<*mut BlockHdr>,
+        pub(crate) prev_phys_block: *mut BlockHdr,
     }
 
     impl BlockHdr {

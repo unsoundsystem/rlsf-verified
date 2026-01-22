@@ -54,9 +54,8 @@ verus! {
                 // --- Glue invariants between physical state & tracked/ghost state
                 // prev_phys_block invariant
                 &&& {
-                    ||| self.value_at(ptr).prev_phys_block is None && self.phys_prev_of(i) is None
-                    ||| self.value_at(ptr).prev_phys_block matches Some(prev_ptr) &&
-                        self.phys_prev_of(i) == Some(prev_ptr)
+                    ||| self.value_at(ptr).prev_phys_block@.addr != 0 && self.phys_prev_of(i) is None
+                    ||| self.value_at(ptr).prev_phys_block == self.phys_prev_of(i).unwrap()
                 }
             // if sentinel flag is present then ...
             &&& if self.value_at(ptr).is_sentinel() {

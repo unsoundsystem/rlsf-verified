@@ -53,10 +53,13 @@ use crate::block::*;
 use crate::parameters::*;
 use crate::all_blocks::*;
 use crate::unverified_api::*;
+use core::ptr::null;
 
 #[cfg(target_pointer_width = "64")]
-global size_of usize == 8;
+global layout usize is size == 8;
 
+#[cfg(target_pointer_width = "64")]
+global layout BlockHdr is size == 16;
 
 #[verifier::reject_recursive_types(FLLEN)]
 #[verifier::reject_recursive_types(SLLEN)]
@@ -252,7 +255,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             ptr_mut_write(block, Tracked(&mut new_header),
                     BlockHdr {
                         size: chunk_size - GRANULARITY,
-                        prev_phys_block: None,
+                        prev_phys_block: null_bhdr(),
                     });
             ptr_mut_write(get_freelink_ptr(block), Tracked(&mut new_header_frelink),
                 FreeLink {
@@ -291,7 +294,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 Tracked(&mut sentinel_perm),
                 BlockHdr {
                     size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
-                    prev_phys_block: Some(block),
+                    prev_phys_block: block,
                 });
 
             proof {
@@ -577,7 +580,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_perm.points_to),
                     BlockHdr {
                         size,
-                        prev_phys_block: Some(new_free_block)
+                        prev_phys_block: new_free_block
                     });
 
 
@@ -585,7 +588,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 ptr_mut_write(new_free_block, Tracked(&mut new_block_perm.points_to),
                     BlockHdr {
                         size: new_free_block_size,
-                        prev_phys_block: Some(block),
+                        prev_phys_block: block,
                     });
                 // NOTE: This unwrap panics when invalid size is provided
                 {
@@ -691,7 +694,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
 
         // Merge with the previous block if it's a free block.
-        if let Some(prev_phys_block) = ptr_ref(block, Tracked(&block_perm.points_to)).prev_phys_block {
+        if ptr_ref(block, Tracked(&block_perm.points_to)).prev_phys_block.addr() != 0 {
+            let prev_phys_block = ptr_ref(block, Tracked(&block_perm.points_to)).prev_phys_block;
             let tracked prev_phys_block_perm = {
                 let i = choose|i: int| self.all_blocks.ptrs@[i] == prev_phys_block;
                 self.all_blocks.perms.borrow_mut()
@@ -745,7 +749,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             Tracked(&mut new_next_phys_block_perm.points_to),
             BlockHdr {
                 size: new_next_phys_block_size,
-                prev_phys_block: Some(block)
+                prev_phys_block: block
         });
         //new_next_phys_block.as_mut().prev_phys_block = Some(block.cast());
     }
@@ -903,6 +907,12 @@ macro_rules! nth_bit {
     }
 }
 
+fn null_bhdr() -> (r: *mut BlockHdr)
+    ensures r@.addr == 0
+{
+    core::ptr::null::<BlockHdr>() as *mut _
+}
+
 //// FIXME: following MUST be commented out while `cargo build`
 pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
     ensures r == usize_leading_zeros(x)
@@ -921,5 +931,6 @@ pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
     ensures r == usize_rotate_right(x, n as i32)
     opens_invariants none
     no_unwind;
+
 
 } // verus!
