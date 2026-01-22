@@ -414,7 +414,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // TODO: state that if allocation failes, there is no bitmap present for it
             r matches None ==> *old(self) == *self,
             self.wf(),
-            is_power_of_two(align),
+            is_power_of_two(align as int),
     {
         unsafe {
             // The extra bytes consumed by the header and padding.
