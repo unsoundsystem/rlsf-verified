@@ -390,7 +390,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             /* TODO: Allocation precondition
              * - already initialized
              * */
-            old(self).wf()
+            old(self).wf(),
+            is_power_of_two(align as int),
         ensures
             r matches Some((ptr, points_to, tok)) ==> ({
                 /* NOTE: Allocation correctness
@@ -414,7 +415,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // TODO: state that if allocation failes, there is no bitmap present for it
             r matches None ==> *old(self) == *self,
             self.wf(),
-            is_power_of_two(align as int),
     {
         unsafe {
             // The extra bytes consumed by the header and padding.
@@ -425,13 +425,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // bytes, so the address immediately following `UsedBlockHdr` is only
             // aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
             // a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
-            let max_overhead =
-                align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
             proof {
+                //assert(forall|x: usize, y: usize| x.saturating_sub(y) <= usize::MAX - y);
                 // align is at most 2^63
-                assume(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
+                assert(GRANULARITY == size_of::<usize>() * 4);
+                assert(size_of::<BlockHdr>() == size_of::<usize>() * 2);
+                //assert(size_of::<UsedBlockHdr>() == size_of::<usize>() * 2);
+                //assert(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
             }
 
+            let max_overhead =
+                align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
             // Search for a suitable free block
             let size_overhead = size.checked_add(max_overhead)?;
             proof {

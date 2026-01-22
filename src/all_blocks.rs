@@ -46,6 +46,7 @@ verus! {
         {
             let ptr = self.ptrs@[i];
             // --- Well-formedness for tracked/ghost states
+            &&& ptr@.addr != 0
             &&& self.perms@.contains_key(ptr)
                 &&& ptr == self.perms@[ptr].points_to.ptr()
                 &&& self.perms@[ptr].wf()
