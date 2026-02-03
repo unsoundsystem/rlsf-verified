@@ -70,7 +70,7 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
-    pub first_free: [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
+    pub first_free: [[*mut BlockHdr; SLLEN]; FLLEN],
     //FIXME: is it valid to have it? clarify which parts of memory is delegated to user.
     pub used_info: UsedInfo,
     pub _phantom: PhantomData<&'pool ()>,
@@ -137,10 +137,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// Due to `error: The verifier does not yet support the following Rust feature: array-fill expresion with non-copy type`
     #[verifier::external_body]
-    const fn initial_free_lists() -> (r: [[Option<*mut BlockHdr>; SLLEN]; FLLEN])
-        //ensures forall|i: int, j: int| r[i][j]@.len() == 0
+    const fn initial_free_lists() -> (r: [[*mut BlockHdr; SLLEN]; FLLEN])
+        ensures forall|i: int, j: int| r[i][j]@.addr == 0
     {
-        [const { [None; SLLEN] }; FLLEN]
+        [const { [null_bhdr(); SLLEN] }; FLLEN]
     }
 
     //#[verifier::external_body] // debug
@@ -185,8 +185,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         println!("== segregated free lists ==");
         for i in 0..FLLEN {
             for j in 0..SLLEN {
-                if let Some(first_free) = self.first_free[i][j] {
-                    println!("({i}, {j}) => size: {}, prev_phys_block: {:?}",
+                if self.first_free[i][j] != null_bhdr() {
+                    let mut ff = get_freelink_ptr(first_free);
+                    println!("({i}, {j}) =>");
+                    //while (unsafe { *ff.next_free })
+                    println!("\tsize: {}, prev_phys_block: {:?}",
                         unsafe { (*first_free).size },
                         unsafe { (*first_free).prev_phys_block });
                 }
@@ -282,8 +285,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     });
             ptr_mut_write(get_freelink_ptr(block), Tracked(&mut new_header_frelink),
                 FreeLink {
-                    next_free: None,
-                    prev_free: None,
+                    next_free: null_bhdr(),
+                    prev_free: null_bhdr(),
                 });
 
             let tracked mut new_block_perm = BlockPerm {
@@ -481,7 +484,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 } else { admit() }
             admit() //---------------------------------------------------------------------------------------------------------------
             }
-            self.print_stat();
+            //self.print_stat();
             let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
             let BlockIndex(fl, sl) = idx;
 
@@ -491,7 +494,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // Get a free block: `block`
             //let first_free = self.first_free[fl][sl].unwrap();
-            let block = self.first_free[fl][sl].unwrap(); // ==> fail i.e. bimap outdated
+            let block = self.first_free[fl][sl]; // ==> null i.e. bimap outdated
+            assert(block@.addr != 0);
             let block_prov = expose_provenance(block);
 
             proof {
@@ -518,8 +522,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 idx,
                 ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
 
-            if let Some(next_free) = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free {
-
+            if ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free != null_bhdr() {
+                let next_free = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free;
                 proof {
                     new_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
                 }
@@ -531,7 +535,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     Tracked(&mut next_free_link_perm),
                     FreeLink {
                         next_free,
-                        prev_free: None,
+                        prev_free: null_bhdr(),
                     },
                     );
             } else {
@@ -929,12 +933,6 @@ macro_rules! nth_bit {
     ($($a:tt)*) => {
         verus_proof_macro_exprs!(nth_bit_macro!($($a)*))
     }
-}
-
-fn null_bhdr() -> (r: *mut BlockHdr)
-    ensures r@.addr == 0
-{
-    core::ptr::null::<BlockHdr>() as *mut _
 }
 
 //// FIXME: following MUST be commented out while `cargo build`

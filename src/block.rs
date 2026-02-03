@@ -46,8 +46,8 @@ verus! {
 
     #[repr(C)]
     pub(crate) struct FreeLink {
-        pub(crate) next_free: Option<*mut BlockHdr>,
-        pub(crate) prev_free: Option<*mut BlockHdr>,
+        pub(crate) next_free: *mut BlockHdr,
+        pub(crate) prev_free: *mut BlockHdr,
     }
 
     pub(crate) struct BlockPerm {
@@ -148,6 +148,12 @@ verus! {
         forall|i: int, j: int|
             0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
                 (ls[i] as usize as int) <= (ls[j] as usize as int)
+    }
+
+    pub(crate) const fn null_bhdr() -> (r: *mut BlockHdr)
+        ensures r@.addr == 0
+    {
+        core::ptr::null::<BlockHdr>() as *mut _
     }
 
 
