@@ -186,12 +186,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         for i in 0..FLLEN {
             for j in 0..SLLEN {
                 if self.first_free[i][j] != null_bhdr() {
-                    let mut ff = get_freelink_ptr(first_free);
+                    let mut first_free = self.first_free[i][j];
                     println!("({i}, {j}) =>");
-                    //while (unsafe { *ff.next_free })
-                    println!("\tsize: {}, prev_phys_block: {:?}",
-                        unsafe { (*first_free).size },
-                        unsafe { (*first_free).prev_phys_block });
+                    while first_free != null_bhdr() {
+                        let mut link = get_freelink_ptr(first_free);
+                        println!("\tsize: {}, prev_phys_block: {:?}, next: {:?}, prev: {:?}",
+                            unsafe { (*first_free).size },
+                            unsafe { (*first_free).prev_phys_block },
+                            unsafe { (*link).next_free },
+                            unsafe { (*link).prev_free },
+                        );
+                        first_free = unsafe { (*link).next_free };
+                    }
                 }
             }
         }
@@ -463,6 +469,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 //assert(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
             }
 
+            self.print_stat();
             let max_overhead =
                 align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
             // Search for a suitable free block
@@ -502,12 +509,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
             }
 
+            // NOTE: it is safe to assume that there is a block next to this `block`
+            //      there is always sentinel block
             let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(&old_head_perm));
-            let tracked next_phys_block_perm = {
-                let i = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
-                self.all_blocks.perms.borrow_mut()
-                    .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
-            };
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
             let block_size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
@@ -599,6 +603,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     };
                 }
 
+                // equals to divided permission above
+                let tracked next_phys_block_perm = {
+                    let i = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
+                    self.all_blocks.perms.borrow_mut()
+                        .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
+                };
 
                 // Update `next_phys_block.prev_phys_block` to point to this new
                 // free block
@@ -646,6 +656,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 }
             }
 
+            //self.print_stat();
             Some((ptr, Tracked(new_block_perm.mem), Tracked(DeallocToken)))
         }
     }

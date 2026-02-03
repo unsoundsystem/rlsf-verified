@@ -15,9 +15,11 @@ fn main() {
         let size = 65536;
         tlsf.insert_free_block_ptr_aligned_test(start as *mut u8, size);
         tlsf.print_stat();
-        let (m, _, _) = tlsf.allocate(32, GRANULARITY).unwrap();
-        *m.as_mut().unwrap() = 0;
-        let (m, _, _) = tlsf.allocate(32, GRANULARITY).unwrap();
-        *m.as_mut().unwrap() = 0;
+        let mut i = 0;
+        while let Some((m, _, _)) = tlsf.allocate((i + 1) * 32, GRANULARITY) {
+            *m.as_mut().unwrap() = 0;
+            i += 1;
+        }
+        println!("num allocated: {}", i);
     }
 }

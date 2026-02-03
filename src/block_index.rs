@@ -24,7 +24,7 @@ verus! {
 #[cfg(target_pointer_width = "64")]
 pub const GRANULARITY: usize = 8 * 4;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct BlockIndex<const FLLEN: usize, const SLLEN: usize>(pub usize, pub usize);
 
 impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {

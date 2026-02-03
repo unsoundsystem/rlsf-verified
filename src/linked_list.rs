@@ -311,6 +311,8 @@ verus! {
                     admit()
                 }
             }
+
+            self.set_bit_for_index(idx);
         }
 
         #[verifier::external_body]
