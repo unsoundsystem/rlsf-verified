@@ -1059,6 +1059,7 @@ proof fn lemma_pow2_value_in_usize(x: usize)
 
 #[inline(always)]
 pub fn bit_scan_forward(b: usize, start: u32) -> (r: u32)
+    requires 0 <= start < usize::BITS
     ensures
         r <= usize::BITS,
         start < usize::BITS ==> start <= r,
@@ -1073,7 +1074,7 @@ pub fn bit_scan_forward(b: usize, start: u32) -> (r: u32)
 // mask with start..usize::BITS bits set
 #[inline(always)]
 pub fn usize_high_mask(b: usize, start: u32) -> usize {
-    b & !(usize::MAX >> start)
+    b & (usize::MAX << start)
 }
 
 pub proof fn usize_leading_trailing_zeros(x: usize)

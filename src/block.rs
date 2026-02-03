@@ -8,6 +8,7 @@ use vstd::relations::injective;
 
 verus! {
     #[repr(C)]
+    #[derive(Debug)]
     pub(crate) struct BlockHdr {
         /// The size of the whole memory block, including the header.
         ///

@@ -18,6 +18,9 @@ mod mapping;
 pub mod parameters;
 pub mod unverified_api;
 
+#[cfg(feature = "std")]
+extern crate std;
+
 use vstd::prelude::*;
 
 verus! {
@@ -170,6 +173,26 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     {
         let shift = Self::granularity_log2() + FLLEN as u32;
         1 << shift
+    }
+
+    #[cfg(feature = "std")]
+    #[verifier::external_body]
+    pub fn print_stat(&self) {
+        use std::println;
+        println!("----- stats start -----");
+        println!("fl_bitmap: {:b}", self.fl_bitmap);
+        println!("sl_bitmap: {:x?}", self.sl_bitmap);
+        println!("== segregated free lists ==");
+        for i in 0..FLLEN {
+            for j in 0..SLLEN {
+                if let Some(first_free) = self.first_free[i][j] {
+                    println!("({i}, {j}) => size: {}, prev_phys_block: {:?}",
+                        unsafe { (*first_free).size },
+                        unsafe { (*first_free).prev_phys_block });
+                }
+            }
+        }
+        println!("-----  stats end  -----");
     }
 
     #[verifier::external_body]
@@ -458,6 +481,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 } else { admit() }
             admit() //---------------------------------------------------------------------------------------------------------------
             }
+            self.print_stat();
             let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
             let BlockIndex(fl, sl) = idx;
 
