@@ -322,6 +322,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             let tracked mut sentinel_perm =
                 sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize);
+            #[cfg(feature = "std")]
+            {
+                use std::println;
+                println!("staying alive!!!");
+            }
             ptr_mut_write(sentinel_block,
                 Tracked(&mut sentinel_perm),
                 BlockHdr {
@@ -469,7 +474,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 //assert(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
             }
 
-            self.print_stat();
+            //self.print_stat();
             let max_overhead =
                 align.saturating_sub(GRANULARITY / 2) + mem::size_of::<UsedBlockHdr>();
             // Search for a suitable free block
@@ -947,23 +952,23 @@ macro_rules! nth_bit {
 }
 
 //// FIXME: following MUST be commented out while `cargo build`
-pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
-    ensures r == usize_leading_zeros(x)
-    opens_invariants none
-    no_unwind;
-
-pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
-    ensures r == usize_trailing_zeros(x)
-    opens_invariants none
-    no_unwind;
-
-pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
-    // This primitive cast just work as usual exec code
-    // NOTE: is it ok? primitive cast really just reinterpet bytes?
-    //      ref. `unsigned_to_signed`
-    ensures r == usize_rotate_right(x, n as i32)
-    opens_invariants none
-    no_unwind;
-
+//pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
+//    ensures r == usize_leading_zeros(x)
+//    opens_invariants none
+//    no_unwind;
+//
+//pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
+//    ensures r == usize_trailing_zeros(x)
+//    opens_invariants none
+//    no_unwind;
+//
+//pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
+//    // This primitive cast just work as usual exec code
+//    // NOTE: is it ok? primitive cast really just reinterpet bytes?
+//    //      ref. `unsigned_to_signed`
+//    ensures r == usize_rotate_right(x, n as i32)
+//    opens_invariants none
+//    no_unwind;
+//
 
 } // verus!

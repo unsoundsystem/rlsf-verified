@@ -9,3 +9,11 @@ vstd = { git = "https://github.com/verus-lang/verus.git" }
 [features]
 default = []
 std = []
+
+[dev-dependencies]
+criterion = "0.8.1"
+rlsf = "0.2.1"
+
+[[bench]]
+name = "alloc_bench"
+harness = false

@@ -10,16 +10,6 @@ verus! {
     #[repr(C)]
     #[derive(Debug)]
     pub(crate) struct BlockHdr {
-        /// The size of the whole memory block, including the header.
-        ///
-        ///  - `bit[0]` ([`SIZE_USED`]) indicates whether the block is a used memory
-        ///    block or not.
-        ///
-        ///  - `bit[1]` ([`SIZE_LAST_IN_POOL`]) indicates whether the block is the
-        ///    last one of the pool or not.
-        ///
-        ///  - `bit[GRANULARITY_LOG2..]` ([`SIZE_SIZE_MASK`]) represents the size.
-        ///
         pub(crate) size: usize,
         pub(crate) prev_phys_block: *mut BlockHdr,
     }
