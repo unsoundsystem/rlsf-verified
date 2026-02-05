@@ -480,21 +480,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Search for a suitable free block
             let size_overhead = size.checked_add(max_overhead)?;
             proof {
-                assume(size_overhead > 0);
+                assert(size_overhead > 0);
             }
             let search_size = size_overhead.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
             proof {
-                assume(0 <= (GRANULARITY - 1) <= usize::MAX);
                 if size_overhead.checked_add((GRANULARITY - 1) as usize).is_some() {
                     assert(0 <= size_overhead + (GRANULARITY - 1) <= usize::MAX);
-                    admit();
                     granularity_is_power_of_two();
-                    assume(search_size == size_overhead + (GRANULARITY - 1));
-                    assume(size_overhead.checked_add((GRANULARITY - 1) as usize).unwrap() + (GRANULARITY - 1) <= usize::MAX);
-                    lemma_round_up_pow2(size_overhead.checked_add((GRANULARITY - 1) as usize).unwrap(), GRANULARITY);
+                    lemma_round_up_pow2(size_overhead, GRANULARITY);
+                    assert((((size_overhead + (GRANULARITY - 1)) as usize) & !((GRANULARITY - 1) as usize)) % GRANULARITY == 0);
                     assert(search_size % GRANULARITY == 0);
-                } else { admit() }
-            admit() //---------------------------------------------------------------------------------------------------------------
+                    assert(search_size >= GRANULARITY);
+                }
             }
             //self.print_stat();
             let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
@@ -508,6 +505,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //let first_free = self.first_free[fl][sl].unwrap();
             let block = self.first_free[fl][sl]; // ==> null i.e. bimap outdated
             assert(block@.addr != 0);
+            //admit() //---------------------------------------------------------------------------------------------------------------
             let block_prov = expose_provenance(block);
 
             proof {
@@ -952,23 +950,23 @@ macro_rules! nth_bit {
 }
 
 //// FIXME: following MUST be commented out while `cargo build`
-//pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
-//    ensures r == usize_leading_zeros(x)
-//    opens_invariants none
-//    no_unwind;
-//
-//pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
-//    ensures r == usize_trailing_zeros(x)
-//    opens_invariants none
-//    no_unwind;
-//
-//pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
-//    // This primitive cast just work as usual exec code
-//    // NOTE: is it ok? primitive cast really just reinterpet bytes?
-//    //      ref. `unsigned_to_signed`
-//    ensures r == usize_rotate_right(x, n as i32)
-//    opens_invariants none
-//    no_unwind;
-//
+pub assume_specification [usize::leading_zeros] (x: usize) -> (r: u32)
+    ensures r == usize_leading_zeros(x)
+    opens_invariants none
+    no_unwind;
+
+pub assume_specification [usize::trailing_zeros] (x: usize) -> (r: u32)
+    ensures r == usize_trailing_zeros(x)
+    opens_invariants none
+    no_unwind;
+
+pub assume_specification [usize::rotate_right] (x: usize, n: u32) -> (r: usize)
+    // This primitive cast just work as usual exec code
+    // NOTE: is it ok? primitive cast really just reinterpet bytes?
+    //      ref. `unsigned_to_signed`
+    ensures r == usize_rotate_right(x, n as i32)
+    opens_invariants none
+    no_unwind;
+
 
 } // verus!

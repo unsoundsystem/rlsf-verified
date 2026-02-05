@@ -840,7 +840,7 @@ pub proof fn lemma_round_up_pow2(x: usize, y: usize)
         0 <= x + (y - 1) <= usize::MAX,
     ensures
         x <= ((x + (y - 1)) as usize) & !((y - 1) as usize),
-        ((x + (y - 1)) as usize) & !((y - 1) as usize) % y == 0,
+        (((x + (y - 1)) as usize) & !((y - 1) as usize)) % y == 0,
 {
     lemma_pow2_value_in_usize(y);
     assert(x <= ((x + (y - 1)) as usize) & !((y - 1) as usize)) by (bit_vector)
