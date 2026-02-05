@@ -21,9 +21,14 @@ verus! {
         }
 
         pub(crate) closed spec fn wf_shadow(self) -> bool {
+            // all wf index has corresponding freelist.
             &&& shadow_freelist_has_all_wf_index(self.shadow_freelist@)
-            &&& // there is an identity injection to all_blocks
-                exists|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi)
+            // pointers in freelist is not null
+            &&& forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
+                    idx.wf() && 0 <= i < self.shadow_freelist@.len()
+                        ==> self.shadow_freelist@[idx][i]@.addr != 0
+            // there is an identity injection to all_blocks
+            &&& exists|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi)
         }
 
         spec fn is_ii(self, pi: Pi<FLLEN, SLLEN>) -> bool {
@@ -43,10 +48,20 @@ verus! {
                 ==> self.shadow_freelist@[i][k] != self.shadow_freelist@[j][l]
         }
 
+        pub(crate) proof fn wf_index_in_freelist(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires idx.wf(), self.all_freelist_wf()
+            ensures
+                self.freelist_wf(idx),
+                self.free_list_pred(
+                    self.shadow_freelist@[idx],
+                    self.first_free[idx.0 as int][idx.1 as int]),
+        {
+        }
+
         /// Predicate means
         /// (1) doubly-linked list consists of all nodes in `freelist` with respect for order and
         /// (2) if the list has an element, first one is the `first`
-        spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
+        pub(crate) closed spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
             recommends self.all_blocks.wf()
         {
             &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
@@ -349,6 +364,7 @@ verus! {
                 self.shadow_freelist@[idx].len() > 0
             ensures
                 self.first_free[idx.0 as int][idx.1 as int]@.addr != 0,
+                self.shadow_freelist@[idx].first() == self.first_free[idx.0 as int][idx.1 as int],
                 self.all_blocks.contains(self.first_free[idx.0 as int][idx.1 as int])
         {
             let first = self.shadow_freelist@[idx].first();

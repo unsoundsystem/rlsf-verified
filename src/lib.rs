@@ -362,9 +362,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires self.wf(),
             min_size >= GRANULARITY,
             min_size % GRANULARITY == 0,
+            self.bitmap_wf(),
+            self.bitmap_sync(),
         ensures
+            self.bitmap_wf(),
+            self.bitmap_sync(),
             r matches Some(idx) ==> idx.wf() &&
-                 min_size as int <= idx.block_size_range().start()
+            {
+                &&& min_size as int <= idx.block_size_range().start()
+                &&& self.shadow_freelist@[idx].len() > 0
+            }
         // None ==> invalid size requested or there no free entry
     {
         let idx = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
@@ -504,13 +511,19 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Get a free block: `block`
             //let first_free = self.first_free[fl][sl].unwrap();
             let block = self.first_free[fl][sl]; // ==> null i.e. bimap outdated
+            proof {
+                self.wf_index_in_freelist(idx);
+                self.freelist_nonempty(idx);
+                self.all_blocks.lemma_contains(block);
+            }
+
             assert(block@.addr != 0);
-            //admit() //---------------------------------------------------------------------------------------------------------------
             let block_prov = expose_provenance(block);
 
             proof {
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
             }
+            proof {admit();} //---------------------------------------------------------------------------------------------------------------
 
             // NOTE: it is safe to assume that there is a block next to this `block`
             //      there is always sentinel block

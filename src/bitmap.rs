@@ -142,13 +142,19 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& forall|f: usize, s: usize| s >= SLLEN ==> !(nth_bit!(self.sl_bitmap[f as int], s))
     }
 
-    /// Bitmap kept sync with segregated free lists.
-    pub closed spec fn bitmap_sync(self) -> bool {
-        false
-        // FIXME: restate using new permission store
-        //forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
-            //(nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
-                //<==> !self.first_free[idx.0 as int][idx.1 as int].is_empty())
+    /// Bitmap kept sync with shadow segregated free lists.
+    /// NOTE: this def only depends on sl_bitmap
+    pub(crate) closed spec fn bitmap_sync(self) -> bool
+        recommends
+            self.all_blocks.wf(),
+            self.all_freelist_wf(),
+            self.bitmap_wf()
+    {
+        forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
+        {
+            nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
+                <==> self.shadow_freelist@[idx].len() > 0
+        }
     }
 }
 }

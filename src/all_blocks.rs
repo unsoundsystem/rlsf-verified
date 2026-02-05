@@ -292,6 +292,7 @@ verus! {
     pub(crate) closed spec fn shadow_freelist_has_all_wf_index<const FLLEN: usize, const SLLEN: usize>(sfl: ShadowFreelist<FLLEN, SLLEN>) -> bool {
         forall|idx: BlockIndex<FLLEN, SLLEN>|
             sfl.contains_key(idx) <==> idx.wf()
+
     }
 
 }
