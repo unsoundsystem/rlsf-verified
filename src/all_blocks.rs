@@ -41,22 +41,22 @@ verus! {
         ///              * 0 < i <= self.ptrs.len():
         ///                  pr.value().prev_phys_block is Some(p') ==> p' == self.ptr[i-1]
         ///              * i == 0: pr.value().prev_phys_block is None
-        pub(crate) closed spec fn wf_node(self, i: int) -> bool
+        pub(crate) open spec fn wf_node(self, i: int) -> bool
             recommends 0 <= i < self.ptrs@.len()
         {
             let ptr = self.ptrs@[i];
             // --- Well-formedness for tracked/ghost states
             &&& ptr@.addr != 0
             &&& self.perms@.contains_key(ptr)
-                &&& ptr == self.perms@[ptr].points_to.ptr()
-                &&& self.perms@[ptr].wf()
+            &&& ptr == self.perms@[ptr].points_to.ptr()
+            &&& self.perms@[ptr].wf()
 
-                // --- Glue invariants between physical state & tracked/ghost state
-                // prev_phys_block invariant
-                &&& {
-                    ||| self.value_at(ptr).prev_phys_block@.addr != 0 && self.phys_prev_of(i) is None
-                    ||| self.value_at(ptr).prev_phys_block == self.phys_prev_of(i).unwrap()
-                }
+            // --- Glue invariants between physical state & tracked/ghost state
+            // prev_phys_block invariant
+            &&& {
+                ||| self.value_at(ptr).prev_phys_block@.addr != 0 && self.phys_prev_of(i) is None
+                ||| self.value_at(ptr).prev_phys_block == self.phys_prev_of(i).unwrap()
+            }
             // if sentinel flag is present then ...
             &&& if self.value_at(ptr).is_sentinel() {
                 // it's last element in ptrs
@@ -120,7 +120,7 @@ verus! {
         }
 
         /// Well-formedness for the global list structure.
-        pub(crate) closed spec fn wf(self) -> bool {
+        pub(crate) open spec fn wf(self) -> bool {
             // Each block at ptrs[i] is well-formed.
             &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
             &&& ghost_pointer_ordered(self.ptrs@)

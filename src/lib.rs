@@ -521,15 +521,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let block_prov = expose_provenance(block);
 
             proof {
+                assert(self.all_blocks.wf());
+                assume(self.all_blocks.ptrs@.len() > 0);
+                assert(self.all_blocks.wf_node(0));
+                assert(old(self).all_blocks.wf_node(0));
+                assume(old(self).all_blocks.perms@[block].wf());
+                assert(block == old(self).all_blocks.perms@[block].points_to.ptr());
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
+                assert(old_head_perm.wf());
             }
-            proof {admit();} //---------------------------------------------------------------------------------------------------------------
 
             // NOTE: it is safe to assume that there is a block next to this `block`
             //      there is always sentinel block
             let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(&old_head_perm));
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
             let block_size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
+            proof {admit();} //---------------------------------------------------------------------------------------------------------------
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
 
             //debug_assert!(size >= search_size);
