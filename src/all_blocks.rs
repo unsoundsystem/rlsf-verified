@@ -164,9 +164,42 @@ verus! {
     }
 
     #[cfg(verus_keep_ghost)]
-    pub(crate) type Pi<const FLLEN: usize, const SLLEN: usize> = spec_fn((BlockIndex<FLLEN, SLLEN>, int)) -> int;
-    pub(crate) type ShadowFreelist<const FLLEN: usize, const SLLEN: usize>
-        = Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>;
+    pub(crate) type Pi<const FLLEN: usize, const SLLEN: usize> = Map<(BlockIndex<FLLEN, SLLEN>, int), int>;
+
+    #[verifier::reject_recursive_types(FLLEN)]
+    #[verifier::reject_recursive_types(SLLEN)]
+    pub(crate) struct ShadowFreelist<const FLLEN: usize, const SLLEN: usize> {
+        pub(crate) m: Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>,
+        pub(crate) pi: Pi<FLLEN, SLLEN>
+    }
+
+    impl<const FLLEN: usize, const SLLEN: usize> ShadowFreelist<FLLEN, SLLEN> {
+        pub(crate) open spec fn ii_push_for_index(self, all_blocks: AllBlocks<FLLEN, SLLEN>, new_node: BlockIndex<FLLEN, SLLEN>, i: int) -> Self
+            recommends
+                is_identity_injection(self, all_blocks.ptrs@),
+                0 <= i < all_blocks.ptrs@.len()
+        {
+            Self{
+                m: self.m,
+                pi: self.pi.map_entries(|k: (BlockIndex<FLLEN, SLLEN>, int), v: int|
+                        if k.0 == new_node && k.1 > 0 {
+                            if k.1 < self.m[new_node].len() {
+                                self.pi[(new_node, k.1 - 1)]
+                            } else {
+                                arbitrary()
+                            }
+                            //((e.0.0, e.0.1 + 1), e.1)
+                        } else { v })
+            }
+        }
+
+        pub(crate) closed spec fn shadow_freelist_has_all_wf_index(self) -> bool {
+            forall|idx: BlockIndex<FLLEN, SLLEN>|
+                self.m.contains_key(idx) <==> idx.wf()
+
+        }
+
+    }
 
     pub(crate) proof fn lemma_ghost_pointer_first_is_least(ls: Seq<*mut BlockHdr>)
         requires ghost_pointer_ordered(ls), ls.len() > 0
@@ -273,26 +306,27 @@ verus! {
     }
 
 
-    pub(crate) closed spec fn is_identity_injection<const FLLEN: usize, const SLLEN: usize>(
-        shadow_freelist: ShadowFreelist<FLLEN, SLLEN>,
-        all_block_ptrs: Seq<*mut BlockHdr>,
-        pi: Pi<FLLEN, SLLEN>) -> bool
+    /// Identitiy injection
+    ///
+    /// If we have set of pointers and identity injection to well-formed AllBlocks structure,
+    /// there are well-formed BlockPerms corresponding to exactly same set of pointers
+    ///
+    /// The benefit of maintaining this simple invariant is to facilitate the proof of intrusive
+    /// structures by establishing connection between different *views* on the data structure.
+    ///
+    pub(crate) open spec fn is_identity_injection<const FLLEN: usize, const SLLEN: usize>(
+        sfl: ShadowFreelist<FLLEN, SLLEN>,
+        all_block_ptrs: Seq<*mut BlockHdr>) -> bool
         recommends
             all_block_ptrs.no_duplicates(),
-            shadow_freelist_has_all_wf_index(shadow_freelist)
+            sfl.shadow_freelist_has_all_wf_index()
     {
-        &&& injective(pi)
+        &&& sfl.pi.is_injective()
         &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
-            idx.wf() && 0 <= m < shadow_freelist[idx].len() ==> {
-                &&& 0 <= pi((idx, m)) < all_block_ptrs.len()
-                &&& shadow_freelist[idx][m] == all_block_ptrs[pi((idx, m))]
+            idx.wf() && 0 <= m < sfl.m[idx].len() ==> {
+                &&& 0 <= sfl.pi[(idx, m)] < all_block_ptrs.len()
+                &&& sfl.m[idx][m] == all_block_ptrs[sfl.pi[(idx, m)]]
             }
-    }
-
-    pub(crate) closed spec fn shadow_freelist_has_all_wf_index<const FLLEN: usize, const SLLEN: usize>(sfl: ShadowFreelist<FLLEN, SLLEN>) -> bool {
-        forall|idx: BlockIndex<FLLEN, SLLEN>|
-            sfl.contains_key(idx) <==> idx.wf()
-
     }
 
 }

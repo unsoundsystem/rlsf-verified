@@ -134,7 +134,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// State *inner bitmap consistency*
     ///      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
-    pub closed spec fn bitmap_wf(&self) -> bool {
+    pub open spec fn bitmap_wf(&self) -> bool {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
         &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==>
             (self.sl_bitmap[idx.0 as int] == 0 <==> !(nth_bit!(self.fl_bitmap, idx.0)))
@@ -153,7 +153,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         forall|idx: BlockIndex<FLLEN, SLLEN>|  idx.wf() ==>
         {
             nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize)
-                <==> self.shadow_freelist@[idx].len() > 0
+                <==> self.shadow_freelist@.m[idx].len() > 0
         }
     }
 }

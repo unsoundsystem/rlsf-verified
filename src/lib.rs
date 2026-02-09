@@ -91,7 +91,7 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub root_provenances: Tracked<Option<IsExposed>>,
 
     /// Auxiliary data used to verify segregated list
-    pub shadow_freelist: Ghost<Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>>
+    pub shadow_freelist: Ghost<ShadowFreelist<FLLEN, SLLEN>>
 }
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// well-formedness of Tlsf structure
@@ -131,7 +131,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             valid_range: Ghost(Set::empty()),
             root_provenances: Tracked(None),
             _phantom: PhantomData,
-            shadow_freelist: Ghost(Map::empty())
+            shadow_freelist: Ghost(ShadowFreelist {
+                m: Map::empty(),
+                pi: Map::empty(),
+            })
         }
     }
 
@@ -305,7 +308,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Link to the list
             {
                 let tracked new_block_freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
-                self.link_free_block(idx, block, Tracked(&mut new_block_freelink_perm));
+                self.link_free_block(idx, block);
             }
 
             // Update bitmaps
@@ -370,7 +373,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             r matches Some(idx) ==> idx.wf() &&
             {
                 &&& min_size as int <= idx.block_size_range().start()
-                &&& self.shadow_freelist@[idx].len() > 0
+                &&& self.shadow_freelist@.m[idx].len() > 0
             }
         // None ==> invalid size requested or there no free entry
     {
@@ -596,7 +599,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             //let tracked mut
 
-            // Permission object for `ptr`
+            // Permission object for `ptr`, the pointer returned to the user
             let tracked mut new_block_perm = old_head_perm;
             if new_size == block_size {
                 // The allocation completely fills this free block.
@@ -615,11 +618,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     new_block_perm.mem = m2;
                 }
 
+                let tracked mut new_free_block_perm;
+
                 let tracked (new_block_header_perm, m3) =
                     m1.split(set_int_range(block as int, (block as int) + size_of::<BlockHdr>() as int));
-                // NOTE: previously new_free_block_perm
                 proof {
-                    new_block_perm = BlockPerm {
+                    new_free_block_perm = BlockPerm {
                         points_to: new_block_header_perm.into_typed::<BlockHdr>(block as usize),
                         free_link_perm: None,
                         mem: m3,
@@ -627,11 +631,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 }
 
                 // equals to divided permission above
-                let tracked next_phys_block_perm = {
-                    let i = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
-                    self.all_blocks.perms.borrow_mut()
-                        .tracked_remove(self.all_blocks.phys_next_of(i).unwrap())
-                };
+                let ghost next_phys_block_ind = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
+                let tracked next_phys_block_perm = self.all_blocks.perms.borrow_mut()
+                    .tracked_remove(self.all_blocks.phys_next_of(next_phys_block_ind).unwrap());
 
                 // Update `next_phys_block.prev_phys_block` to point to this new
                 // free block
@@ -646,16 +648,23 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
 
                 // Create the new free block header
-                ptr_mut_write(new_free_block, Tracked(&mut new_block_perm.points_to),
+                ptr_mut_write(new_free_block, Tracked(&mut new_free_block_perm.points_to),
                     BlockHdr {
                         size: new_free_block_size,
                         prev_phys_block: block,
                     });
                 // NOTE: This unwrap panics when invalid size is provided
                 {
+                    proof {
+                        self.all_blocks.ptrs@ = add_ghost_pointer(self.all_blocks.ptrs@, new_free_block);
+                        self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_block_perm);
+                        self.all_blocks.perms.borrow_mut().tracked_insert(new_free_block, new_free_block_perm);
+                    }
+                    assert(self.all_blocks.wf_node(next_phys_block_ind));
+                    assert(self.all_blocks.wf_node(next_phys_block_ind - 1));
+
                     let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
-                    let tracked freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
-                    self.link_free_block(new_block_idx, new_free_block, Tracked(&mut freelink_perm));
+                    self.link_free_block(new_block_idx, new_free_block);
                 }
             }
 
@@ -797,7 +806,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let new_block_idx = Self::map_floor(size).unwrap();
         {
             let tracked freelink_perm = block_perm.free_link_perm.tracked_unwrap();
-            self.link_free_block(new_block_idx, block, Tracked(&mut freelink_perm));
+
+            self.link_free_block(new_block_idx, block);
         }
 
         // Link `new_next_phys_block.prev_phys_block` to `block`
@@ -903,11 +913,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     spec fn size_class_condition(self) -> bool {
         forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
-            self.shadow_freelist@.contains_key(idx)
-                && 0 <= i < self.shadow_freelist@[idx].len() ==>
+            self.shadow_freelist@.m.contains_key(idx)
+                && 0 <= i < self.shadow_freelist@.m[idx].len() ==>
                     idx.block_size_range().contains(
                         self.all_blocks.perms@[
-                            self.shadow_freelist@[idx][i]
+                            self.shadow_freelist@.m[idx][i]
                         ].points_to.value().size as int)
     }
 }
