@@ -184,10 +184,13 @@ verus! {
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> ShadowFreelist<FLLEN, SLLEN> {
-        pub(crate) open spec fn ii_push_for_index(self, all_blocks: AllBlocks<FLLEN, SLLEN>, new_node: BlockIndex<FLLEN, SLLEN>, i: int) -> Self
-            recommends
-                is_identity_injection(self, all_blocks.ptrs@),
-                0 <= i < all_blocks.ptrs@.len()
+        pub(crate) open spec fn ii_push_for_index(self,
+            all_blocks: AllBlocks<FLLEN, SLLEN>,
+            new_node: BlockIndex<FLLEN, SLLEN>,
+            i: int) -> Self
+        recommends
+            is_identity_injection(self, all_blocks.ptrs@),
+            0 <= i < all_blocks.ptrs@.len()
         {
             Self{
                 m: self.m,
@@ -332,6 +335,10 @@ verus! {
             sfl.shadow_freelist_has_all_wf_index()
     {
         &&& sfl.pi.is_injective()
+        // totality
+        &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+            sfl.pi.contains_key((idx, m)) <==> idx.wf() && 0 <= m < sfl.m[idx].len()
+
         &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
             idx.wf() && 0 <= m < sfl.m[idx].len() ==> {
                 &&& 0 <= sfl.pi[(idx, m)] < all_block_ptrs.len()

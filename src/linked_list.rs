@@ -127,6 +127,10 @@ verus! {
             old(self).all_freelist_wf(),
             old(self).bitmap_sync(),
             old(self).bitmap_wf(),
+            old(self).wf_shadow(),
+            // this can be proved at caller side using pointer order and `phys_next_of` relation
+            forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                ==> !old(self).shadow_freelist@.m[i].contains(node),
             // we need node is wf in all_blocks
             old(self).all_blocks.contains(node),
             //get_freelink_ptr_spec(node) == old(node_fl_pt).ptr(),
@@ -136,6 +140,7 @@ verus! {
             self.all_freelist_wf(),
             self.bitmap_sync(),
             self.bitmap_wf(),
+            self.wf_shadow(),
             self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx])
         {
             proof {
@@ -213,15 +218,19 @@ verus! {
                         implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
                         by {};
                     assert(self.all_blocks.perms@.contains_key(node));
-                    let node_ind = choose|i: int| node == self.all_blocks.ptrs@[i];
+                    assert(exists|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                        && self.all_blocks.ptrs@[i] == node)
+                    by {
+                        assert(old(self).all_blocks.ptrs@.contains(node));
+                        assert(self.all_blocks.ptrs@.contains(node));
+                    };
+                    let node_ind = choose|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                        && node == self.all_blocks.ptrs@[i];
                     assert(self.all_blocks.ptrs@[node_ind] == old(self).all_blocks.ptrs@[node_ind]);
                     assert(self.all_blocks.ptrs@ =~= old(self).all_blocks.ptrs@);
                     assert(node_blk.points_to == old(self).all_blocks.perms@[node].points_to);
                     assert(self.all_blocks.wf_node(node_ind)) by {
-                        if self.all_blocks.value_at(node).prev_phys_block@.addr != 0 {
-                            assume(node_ind > 0);
-                            assert(node_ind < self.all_blocks.ptrs@.len());
-
+                        if 0 < node_ind < self.all_blocks.ptrs@.len() {
                             assert(self.all_blocks.phys_prev_of(node_ind) matches Some(p) &&
                                 p == self.all_blocks.value_at(node).prev_phys_block) by {
                                 assert(old(self).all_blocks.wf_node(node_ind));
@@ -233,11 +242,10 @@ verus! {
                             };
                             assert(self.all_blocks.phys_next_of(node_ind) matches Some(p) &&
                                 p@.addr == (node@.addr + self.all_blocks.value_at(node).size));
-                        } else {
-                            admit();
+                        } else if node_ind == 0 {
+                                assert(old(self).all_blocks.wf_node(0));
                         }
                     };
-                    assume(self.wf_free_node(self.shadow_freelist@.m[idx], 0));
                     self.shadow_freelist@ =
                         self.shadow_freelist@.ii_push_for_index(
                             self.all_blocks,
@@ -251,12 +259,32 @@ verus! {
                                 assert(old(self).all_blocks.wf_node(i));
                             }
                         };
-                    assume(self.all_freelist_wf());
-                    //Self::lemma_ii_push_for_index_ensures(
-                        //self.shadow_freelist@,
-                        //self.all_blocks,
-                        //idx,
-                        //i);
+                    assert(self.all_blocks.wf());
+
+                    self.all_blocks.lemma_wf_nodup();
+
+                    if old(self).shadow_freelist@.pi.values().contains(node_ind) {
+                        let pi = old(self).shadow_freelist@.pi;
+                        assert(exists|i: (BlockIndex<FLLEN, SLLEN>, int)| pi[i] == node_ind);
+                        let i = choose|i: (BlockIndex<FLLEN, SLLEN>, int)|
+                            i.0.wf() && 0 <= i.1 < old(self).shadow_freelist@.m[i.0].len() &&
+                            pi[i] == node_ind;
+
+                        assert(old(self).shadow_freelist@.m[i.0].contains(node)) by {
+                            assert(old(self).shadow_freelist@.m[i.0][i.1]
+                                == old(self).all_blocks.ptrs@[pi[i]]);
+                        };
+
+                        assert(false);
+                    }
+
+                    Self::lemma_ii_push_for_index_ensures(
+                        old(self).shadow_freelist@,
+                        old(self).all_blocks,
+                        idx,
+                        node_ind);
+                    assert(self.wf_free_node(self.shadow_freelist@.m[idx], 0));
+                    assert(self.all_freelist_wf());
                 }
             }
 
