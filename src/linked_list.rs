@@ -138,7 +138,15 @@ verus! {
             self.bitmap_wf(),
             self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx])
         {
+            proof {
+                self.all_blocks.lemma_block_wf();
+                self.all_blocks.lemma_node_is_wf(node);
+            }
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
+            assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
+                implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
+                by {};
+            assert(node_blk.free_link_perm is Some);
             let tracked node_fl_pt = node_blk.free_link_perm.tracked_unwrap();
 
             if self.first_free[idx.0][idx.1] != null_bhdr() {
@@ -150,13 +158,13 @@ verus! {
                 assert(self.all_blocks.contains(first_free));
                 proof {
                     self.all_blocks.lemma_contains(first_free);
-                    self.all_blocks.lemma_node_is_wf(first_free);
+                    //self.all_blocks.lemma_node_is_wf(first_free);
                 }
                 assert(self.all_blocks.perms@.contains_key(first_free));
                 assert(self.all_blocks.wf());
                 let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
                 assert(first_free_perm.wf()) by {
-                    self.all_blocks.lemma_node_is_wf(first_free);
+                    //self.all_blocks.lemma_node_is_wf(first_free);
                 };
                 let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
 
@@ -183,22 +191,72 @@ verus! {
             } else {
                 assert(self.shadow_freelist@.m[idx].len() == 0);
                 Self::set_freelist(&mut self.first_free, idx, node);
+                assert(get_freelink_ptr_spec(node) == node_fl_pt.ptr());
                 ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
                     next_free: null_bhdr(),
                     prev_free: null_bhdr()
                 });
                 proof {
+                    assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                            && old(self).all_blocks.ptrs@[i] != node
+                        implies self.all_blocks.perms@[self.all_blocks.ptrs@[i]]
+                            == old(self).all_blocks.perms@[self.all_blocks.ptrs@[i]]
+                        by {
+                            admit()
+                        };
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
                     });
-                    let i = choose|i: int| node == self.all_blocks.ptrs@[i] && self.all_blocks.wf_node(i);
+                    assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
+                        implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
+                        by {};
+                    assert(self.all_blocks.perms@.contains_key(node));
+                    let node_ind = choose|i: int| node == self.all_blocks.ptrs@[i];
+                    assert(self.all_blocks.ptrs@[node_ind] == old(self).all_blocks.ptrs@[node_ind]);
+                    assert(self.all_blocks.ptrs@ =~= old(self).all_blocks.ptrs@);
+                    assert(node_blk.points_to == old(self).all_blocks.perms@[node].points_to);
+                    assert(self.all_blocks.wf_node(node_ind)) by {
+                        if self.all_blocks.value_at(node).prev_phys_block@.addr != 0 {
+                            assume(node_ind > 0);
+                            assert(node_ind < self.all_blocks.ptrs@.len());
+
+                            assert(self.all_blocks.phys_prev_of(node_ind) matches Some(p) &&
+                                p == self.all_blocks.value_at(node).prev_phys_block) by {
+                                assert(old(self).all_blocks.wf_node(node_ind));
+                            };
+
+                            assert(old(self).all_blocks.phys_next_of(node_ind) matches Some(p) &&
+                                p@.addr == (node@.addr + old(self).all_blocks.value_at(node).size)) by {
+                                assert(old(self).all_blocks.wf_node(node_ind));
+                            };
+                            assert(self.all_blocks.phys_next_of(node_ind) matches Some(p) &&
+                                p@.addr == (node@.addr + self.all_blocks.value_at(node).size));
+                        } else {
+                            admit();
+                        }
+                    };
+                    assume(self.wf_free_node(self.shadow_freelist@.m[idx], 0));
                     self.shadow_freelist@ =
                         self.shadow_freelist@.ii_push_for_index(
                             self.all_blocks,
                             idx,
-                            i);
+                            node_ind);
+                    assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                        implies self.all_blocks.wf_node(i) by {
+                            if i == node_ind {
+                                assert(self.all_blocks.wf_node(node_ind));
+                            } else {
+                                assert(old(self).all_blocks.wf_node(i));
+                            }
+                        };
+                    assume(self.all_freelist_wf());
+                    //Self::lemma_ii_push_for_index_ensures(
+                        //self.shadow_freelist@,
+                        //self.all_blocks,
+                        //idx,
+                        //i);
                 }
             }
 

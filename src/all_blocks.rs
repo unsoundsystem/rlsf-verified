@@ -18,7 +18,7 @@ verus! {
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> AllBlocks<FLLEN, SLLEN> {
-        pub(crate) closed spec fn value_at(self, ptr: *mut BlockHdr) -> BlockHdr
+        pub(crate) open spec fn value_at(self, ptr: *mut BlockHdr) -> BlockHdr
             recommends
             self.contains(ptr),
             self.perms@[ptr].points_to.is_init()
@@ -26,7 +26,7 @@ verus! {
             self.perms@[ptr].points_to.value()
         }
 
-        pub(crate) closed spec fn contains(self, ptr: *mut BlockHdr) -> bool {
+        pub(crate) open spec fn contains(self, ptr: *mut BlockHdr) -> bool {
             self.ptrs@.contains(ptr)
         }
 
@@ -53,10 +53,11 @@ verus! {
 
             // --- Glue invariants between physical state & tracked/ghost state
             // prev_phys_block invariant
-            &&& {
-                ||| self.value_at(ptr).prev_phys_block@.addr != 0 && self.phys_prev_of(i) is None
-                ||| self.value_at(ptr).prev_phys_block == self.phys_prev_of(i).unwrap()
-            }
+            &&& self.value_at(ptr).prev_phys_block@.addr != 0 ==> (self.phys_prev_of(i)
+                    matches Some(p) &&
+                    p == self.value_at(ptr).prev_phys_block)
+            &&& self.value_at(ptr).prev_phys_block@.addr == 0 ==> self.phys_prev_of(i) is None
+
             // if sentinel flag is present then ...
             &&& if self.value_at(ptr).is_sentinel() {
                 // it's last element in ptrs
@@ -78,15 +79,15 @@ verus! {
             // --- Invariants on tracked/ghost states
             // Next block address
             &&& self.phys_next_of(i) matches Some(next_ptr) ==>
-                next_ptr as usize == (ptr as usize + self.value_at(ptr).size) as usize
-                // No adjacent free blocks
-                &&& if self.value_at(ptr).is_free() {
-                    self.phys_next_of(i) matches Some(next_ptr)
-                        && !self.value_at(next_ptr).is_free()
-                } else { true }
+                next_ptr@.addr == ptr@.addr + self.value_at(ptr).size
+            // No adjacent free blocks
+            &&& if self.value_at(ptr).is_free() {
+                self.phys_next_of(i) matches Some(next_ptr)
+                    && !self.value_at(next_ptr).is_free()
+            } else { true }
         }
 
-        pub(crate) closed spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr> {
+        pub(crate) open spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr> {
             if self.ptrs@.len() - 1 == i {
                 None
             } else {
@@ -105,7 +106,21 @@ verus! {
                 }
         }
 
-        pub(crate) closed spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
+        pub(crate) proof fn lemma_block_wf(self)
+            requires self.wf(),
+            ensures forall|i: int| 0 <= i < self.ptrs@.len()
+                ==> self.perms@[self.ptrs@[i]].wf()
+        {
+
+        }
+
+        pub(crate) proof fn lemma_node_is_wf(self, x: *mut BlockHdr)
+            requires self.wf(), self.contains(x)
+            ensures self.wf_node(self.get_ptr_internal_index(x))
+        {}
+
+
+        pub(crate) open spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
             if i == 0 {
                 None
             } else {
@@ -113,7 +128,7 @@ verus! {
             }
         }
 
-        pub(crate) closed spec fn is_sentinel_pointer(self, ptr: *mut BlockHdr) -> bool
+        pub(crate) open spec fn is_sentinel_pointer(self, ptr: *mut BlockHdr) -> bool
             recommends self.wf(), self.contains(ptr)
         {
             self.value_at(ptr).is_sentinel()
@@ -142,16 +157,11 @@ verus! {
             assert(self.wf_node(i));
         }
 
-        pub(crate) closed spec fn get_ptr_internal_index(self, x: *mut BlockHdr) -> int
+        pub(crate) open spec fn get_ptr_internal_index(self, x: *mut BlockHdr) -> int
             recommends exists|i: int| self.ptrs@[i] == x && 0 <= i < self.ptrs@.len()
         {
             choose|i: int| self.ptrs@[i] == x && 0 <= i < self.ptrs@.len()
         }
-
-        pub(crate) proof fn lemma_node_is_wf(self, x: *mut BlockHdr)
-            requires self.contains(x)
-            ensures self.wf_node(self.get_ptr_internal_index(x))
-        {}
 
 
         pub const fn empty() -> Self {
@@ -193,7 +203,7 @@ verus! {
             }
         }
 
-        pub(crate) closed spec fn shadow_freelist_has_all_wf_index(self) -> bool {
+        pub(crate) open spec fn shadow_freelist_has_all_wf_index(self) -> bool {
             forall|idx: BlockIndex<FLLEN, SLLEN>|
                 self.m.contains_key(idx) <==> idx.wf()
 
