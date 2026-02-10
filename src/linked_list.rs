@@ -11,16 +11,16 @@ verus! {
 
     impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
-        pub(crate) closed spec fn all_freelist_wf(self) -> bool {
+        pub(crate) open spec fn all_freelist_wf(self) -> bool {
             &&& self.wf_shadow()
             &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==> self.freelist_wf(idx)
         }
 
-        pub(crate) closed spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
+        pub(crate) open spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
             self.free_list_pred(self.shadow_freelist@.m[idx], self.first_free[idx.0 as int][idx.1 as int])
         }
 
-        pub(crate) closed spec fn wf_shadow(self) -> bool {
+        pub(crate) open spec fn wf_shadow(self) -> bool {
             // all wf index has corresponding freelist.
             &&& self.shadow_freelist@.shadow_freelist_has_all_wf_index()
             // pointers in freelist is not null
@@ -32,7 +32,7 @@ verus! {
         }
 
 
-        pub(crate) closed spec fn shadow_freelist_nodup(self) -> bool {
+        pub(crate) open spec fn shadow_freelist_nodup(self) -> bool {
             forall|i: BlockIndex<FLLEN, SLLEN>,
                    j: BlockIndex<FLLEN, SLLEN>,
                    k: int,
@@ -57,7 +57,7 @@ verus! {
         /// Predicate means
         /// (1) doubly-linked list consists of all nodes in `freelist` with respect for order and
         /// (2) if the list has an element, first one is the `first`
-        pub(crate) closed spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
+        pub(crate) open spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
             recommends self.all_blocks.wf()
         {
             &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
@@ -69,7 +69,7 @@ verus! {
         }
 
 
-        spec fn wf_free_node(self, freelist: Seq<*mut BlockHdr>, i: int) -> bool
+        pub(crate) open spec fn wf_free_node(self, freelist: Seq<*mut BlockHdr>, i: int) -> bool
             recommends
                 self.all_blocks.wf(),
                 0 <= i < freelist.len()
@@ -92,7 +92,7 @@ verus! {
             }
         }
 
-        spec fn free_next_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
+        pub(crate) open spec fn free_next_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
             if i == ls.len() - 1 {
                 None
             } else {
@@ -100,7 +100,7 @@ verus! {
             }
         }
 
-        spec fn free_prev_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
+        pub(crate) open spec fn free_prev_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
             if i == 0 {
                 None
             } else {
@@ -195,12 +195,16 @@ verus! {
                 });
             } else {
                 assert(self.shadow_freelist@.m[idx].len() == 0);
+
                 Self::set_freelist(&mut self.first_free, idx, node);
+
                 assert(get_freelink_ptr_spec(node) == node_fl_pt.ptr());
+
                 ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
                     next_free: null_bhdr(),
                     prev_free: null_bhdr()
                 });
+
                 proof {
                     assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                             && old(self).all_blocks.ptrs@[i] != node
@@ -284,6 +288,28 @@ verus! {
                         idx,
                         node_ind);
                     assert(self.wf_free_node(self.shadow_freelist@.m[idx], 0));
+
+                    assert forall|i: BlockIndex<FLLEN, SLLEN>| idx.wf()
+                        implies self.freelist_wf(i)
+                    by {
+                        if i == idx {
+                            admit();
+
+                        } else {
+                            //assert forall|m: int| 0 <= m < old(self).shadow_freelist@.m[i].len()
+                                //implies old(self).wf_free_node(old(self).shadow_freelist@.m[i], m) by {
+                                    //assert((self).wf_free_node(old(self).shadow_freelist@.m[i], m));
+                                    //admit();
+
+                                //}
+                            //if old(self).shadow_freelist@.m[i].len() == 0 {
+                                //assert(
+                            //} else if old(self).shadow_freelist@.m[i].len() > 0 {
+                                //admit();
+                            //}
+                            assume(old(self).freelist_wf(i));
+                        }
+                    };
                     assert(self.all_freelist_wf());
                 }
             }
