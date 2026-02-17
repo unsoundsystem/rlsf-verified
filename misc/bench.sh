@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+NUM_ITER=$1
 CPU=1
 RUNS=50
 RT_PRIO=99
@@ -73,7 +74,7 @@ run_bench () {
           taskset -c "$CPU" \
           perf stat -x, -e \
           cycles,instructions,branches,branch-misses,cache-misses,dTLB-load-misses,minor-faults \
-          "$BIN" \
+          "$BIN $NUM_ITER" \
           2>> "../$OUTDIR/perf_${k}.csv"
 
       done
