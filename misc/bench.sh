@@ -10,7 +10,7 @@ OUTDIR="results_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$OUTDIR"
 
 SIZES=("64b" "32b" "16b" "8b")
-KINDS=("original" "verified")   # ← ここで両方回す
+KINDS=("original" "verified")
 
 echo "[*] Checking CPU governor..."
 cpupower frequency-info | grep -q "performance" || {

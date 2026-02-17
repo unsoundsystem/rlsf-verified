@@ -4,7 +4,6 @@ use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
 const BUF_SIZE: usize = 65536;
-const NUM_ITER: usize = 50000;
 const FLLEN: usize = 12;
 const SLLEN: usize = 16;
 
