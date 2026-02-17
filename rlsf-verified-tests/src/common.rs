@@ -8,7 +8,7 @@ const NUM_ITER: usize = 50000;
 const FLLEN: usize = 12;
 const SLLEN: usize = 16;
 
-pub fn run_verified(size: usize) {
+pub fn run_verified(size: usize, iters: usize) {
     use rlsf_verified::{parameters::GRANULARITY, round_up, Tlsf};
     let mut pool = [MaybeUninit::<u8>::uninit(); BUF_SIZE];
     let mut tlsf = Tlsf::<FLLEN, SLLEN>::new();
@@ -22,7 +22,7 @@ pub fn run_verified(size: usize) {
         tlsf.insert_free_block_ptr_aligned_test(start as *mut u8, size);
     }
 
-    for _ in 0..NUM_ITER {
+    for _ in 0..iters {
         unsafe {
             let (p, _, _) = tlsf.allocate(black_box(size), align).unwrap();
             black_box(p);
@@ -31,7 +31,7 @@ pub fn run_verified(size: usize) {
     }
 }
 
-pub fn run_original(size: usize) {
+pub fn run_original(size: usize, iters: usize) {
     use rlsf::Tlsf;
     use std::alloc::Layout;
     let layout = Layout::from_size_align(size, size.next_power_of_two()).unwrap();
@@ -41,7 +41,7 @@ pub fn run_original(size: usize) {
     let mut tlsf: Tlsf<'_, u16, u16, FLLEN, SLLEN> = Tlsf::new();
     tlsf.insert_free_block(&mut pool);
 
-    for _ in 0..NUM_ITER {
+    for _ in 0..iters {
         unsafe {
             let mut p = tlsf.allocate(layout).unwrap();
             black_box(p);
