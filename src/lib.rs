@@ -58,6 +58,15 @@ use crate::all_blocks::*;
 use crate::unverified_api::*;
 use core::ptr::null;
 
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "std")]
+static FIRST_BLOCK: OnceLock<usize> = OnceLock::new();
+
+#[cfg(feature = "std")]
+static SENTINEL: OnceLock<usize> = OnceLock::new();
+
 #[cfg(target_pointer_width = "64")]
 global layout usize is size == 8;
 
@@ -66,6 +75,7 @@ global layout BlockHdr is size == 16;
 
 #[verifier::reject_recursive_types(FLLEN)]
 #[verifier::reject_recursive_types(SLLEN)]
+#[repr(C)]
 pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub fl_bitmap: usize,
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
@@ -204,6 +214,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 }
             }
         }
+        println!("== all blocks ==");
+        let mut block = *FIRST_BLOCK.get_or_init(|| unreachable!()) as *mut BlockHdr;
+        unsafe {
+            println!("first block: {:?}", block.as_ref());
+            while block != null_bhdr() {
+                    println!("addr: {:x?}, block: {:?}, sentinel: {}",
+                        block,
+                        block.as_ref(),
+                        block.as_ref().unwrap().size & SIZE_SENTINEL != 0);
+                    block = BlockHdr::next_phys_block(block, Tracked::assume_new());
+            }
+        }
         println!("-----  stats end  -----");
     }
 
@@ -215,6 +237,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     ) -> (r: Option<usize>) {
         self.insert_free_block_ptr_aligned(start, size, Tracked::assume_new())
     }
+
+    #[verifier::external_body]
+    pub unsafe fn deallocate_ext(
+        &mut self,
+        ptr: *mut u8,
+        align: usize
+    ) {
+        self.deallocate(ptr, align, Tracked::assume_new(), Tracked::assume_new())
+    }
+
 
     /// `insert_free_block_ptr` provides NonNull<[u8]> based interface, but Verus doesn't handle
     /// subtile properties like "dereferencing the length field of slice pointer doesn't dereference the
@@ -250,6 +282,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let mut size_remains = size;
         let mut cursor = start as usize;
 
+        #[cfg(feature = "std")]
+        let mut sentinel_tmp = null_bhdr();
 
         // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
         while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */
@@ -279,6 +313,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let prov = expose_provenance(start);
             let mut block = with_exposed_provenance(cursor, prov);
 
+            #[cfg(feature = "std")]
+            {
+                use std::println;
+                FIRST_BLOCK.get_or_init(|| block as usize);
+                println!("first physical block is {:?}", block);
+            }
+
             // Initialize the new free block
             // NOTE: header size calculated as GRANULARITY
             assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(chunk_size - GRANULARITY));
@@ -305,6 +346,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             };
             let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
 
+            #[cfg(feature = "std")]
+            {
+                sentinel_tmp = sentinel_block;
+            }
+
             // Link to the list
             {
                 let tracked new_block_freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
@@ -325,11 +371,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             let tracked mut sentinel_perm =
                 sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize);
-            #[cfg(feature = "std")]
-            {
-                use std::println;
-                println!("staying alive!!!");
-            }
             ptr_mut_write(sentinel_block,
                 Tracked(&mut sentinel_perm),
                 BlockHdr {
@@ -347,6 +388,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
             size_remains -= chunk_size;
             cursor = cursor.wrapping_add(chunk_size);
+        }
+        #[cfg(feature = "std")]
+        {
+            use std::println;
+            SENTINEL.get_or_init(|| sentinel_tmp.clone() as usize);
+            println!("sentinel block is {:?}", sentinel_tmp);
         }
 
         Some(cursor.wrapping_sub(start as usize))
@@ -582,6 +629,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 with_exposed_provenance((block as usize).wrapping_add(size_of::<UsedBlockHdr>()), block_prov);
             let ptr = round_up(unaligned_ptr, align);
 
+            #[cfg(feature = "std")]
+            {
+                if align < GRANULARITY {
+                    assert_eq!(unaligned_ptr, ptr);
+                } else {
+                    assert!(unaligned_ptr != ptr);
+                }
+            }
             //if align < GRANULARITY {
                 //assert(unaligned_ptr ==  ptr.as_ptr());
             //} else {
@@ -705,6 +760,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // Safety: `ptr` is a previously allocated memory block with the same
         //         alignment as `align`. This is upheld by the caller.
         let block = unsafe { self.used_block_hdr_for_allocation(ptr, align) };
+
         let tracked ubh_perm = None.tracked_unwrap();
         unsafe { self.deallocate_block(block, Tracked(ubh_perm)) };
     }

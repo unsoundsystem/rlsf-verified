@@ -180,6 +180,7 @@ verus! {
     #[verifier::reject_recursive_types(SLLEN)]
     pub(crate) struct ShadowFreelist<const FLLEN: usize, const SLLEN: usize> {
         pub(crate) m: Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>,
+        #[cfg(verus_keep_ghost)]
         pub(crate) pi: Pi<FLLEN, SLLEN>
     }
 

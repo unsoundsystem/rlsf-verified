@@ -26,6 +26,10 @@ verus! {
             let size = ptr_ref(block, Tracked(&perm.points_to)).size;
 
             //debug_assert!((size & SIZE_SENTINEL) == 0, "`self` must not be a sentinel");
+            #[cfg(feature = "std")]
+            {
+                assert!((size & SIZE_SENTINEL) == 0, "`self` must not be a sentinel");
+            }
 
             // Safety: Since `self.size & SIZE_SENTINEL` is not lying, the
             //         next block should exist at a non-null location.
@@ -105,7 +109,7 @@ verus! {
             let Tracked(is_exposed) = expose_provenance(ptr);
             // FIXME: this subtraction was wrapping_sub
             let ptr = with_exposed_provenance(
-                ptr as usize - size_of::<BlockHdr>() - size_of::<FreeLink>(),
+                ptr as usize - size_of::<Self>(),
                 Tracked(is_exposed));
             ptr
         }
