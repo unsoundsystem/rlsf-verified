@@ -1,5 +1,5 @@
 extern crate rlsf_verified;
-use rlsf_verified::{Tlsf, parameters::GRANULARITY, round_up};
+use rlsf_verified::{parameters::GRANULARITY, round_up, Tlsf};
 use std::hint::black_box;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
@@ -18,6 +18,8 @@ fn main() {
             for _ in 0..20 {
                 let (x, _, _) = tlsf.allocate(black_box(32), GRANULARITY).unwrap();
                 *x.as_mut().unwrap() = 1;
+                println!("x = {:?}", x);
+                tlsf.deallocate_ext(x, GRANULARITY);
             }
         }
     }
