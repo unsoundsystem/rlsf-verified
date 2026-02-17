@@ -23,11 +23,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 && nth_bit!(self.sl_bitmap[fl as int], sl)
 
     {
-        #[cfg(feature = "std")]
-        {
-            use std::println;
-            println!("set bitmap {}, {}, {:b}", idx.0, idx.1, self.fl_bitmap);
-        }
+        //#[cfg(feature = "std")]
+        //{
+            //use std::println;
+            //println!("set bitmap {}, {}, {:b}", idx.0, idx.1, self.fl_bitmap);
+        //}
         let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap | (1usize << fl);
         // TODO: Confirm that this workaround not needed anymore

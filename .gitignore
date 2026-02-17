@@ -10,3 +10,4 @@ target
 .csdp.cache
 *.long-type-*
 .verus.log
+results_*
