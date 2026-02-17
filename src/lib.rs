@@ -223,6 +223,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         block,
                         block.as_ref(),
                         block.as_ref().unwrap().size & SIZE_SENTINEL != 0);
+                    if block.as_ref().unwrap().size & SIZE_SENTINEL != 0 {
+                        break;
+                    }
                     block = BlockHdr::next_phys_block(block, Tracked::assume_new());
             }
         }
@@ -313,12 +316,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let prov = expose_provenance(start);
             let mut block = with_exposed_provenance(cursor, prov);
 
-            #[cfg(feature = "std")]
-            {
-                use std::println;
-                FIRST_BLOCK.get_or_init(|| block as usize);
-                println!("first physical block is {:?}", block);
-            }
+            //#[cfg(feature = "std")]
+            //{
+                //use std::println;
+                //FIRST_BLOCK.get_or_init(|| block as usize);
+                //println!("first physical block is {:?}", block);
+            //}
 
             // Initialize the new free block
             // NOTE: header size calculated as GRANULARITY
@@ -357,8 +360,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.link_free_block(idx, block);
             }
 
-            // Update bitmaps
-            self.set_bit_for_index(idx);
             //self.set_fl_bitmap(fl as u32);
             //self.sl_bitmap[fl].set_bit(sl as u32);
 
@@ -389,12 +390,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size_remains -= chunk_size;
             cursor = cursor.wrapping_add(chunk_size);
         }
-        #[cfg(feature = "std")]
-        {
-            use std::println;
-            SENTINEL.get_or_init(|| sentinel_tmp.clone() as usize);
-            println!("sentinel block is {:?}", sentinel_tmp);
-        }
+        //#[cfg(feature = "std")]
+        //{
+            //use std::println;
+            //SENTINEL.get_or_init(|| sentinel_tmp.clone() as usize);
+            //println!("sentinel block is {:?}", sentinel_tmp);
+        //}
 
         Some(cursor.wrapping_sub(start as usize))
 
@@ -427,6 +428,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let idx = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
         let BlockIndex(mut fl, mut sl) = idx;
 
+
+        //#[cfg(feature = "std")]
+        //{
+            //use std::println;
+            //println!("hah? hah? {:?} {:b} {:?}", idx, self.fl_bitmap, self.sl_bitmap);
+            //self.print_stat()
+        //}
         assert(min_size <= idx.block_size_range().start());
 
         // Search in range `(fl, sl..SLLEN)`
@@ -441,7 +449,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(min_size <= idx.block_size_range().start());
             return Some(BlockIndex(fl, sl));
         }
-
         // Search in range `(fl + 1.., ..)`
         fl = bit_scan_forward(self.fl_bitmap, fl as u32 + 1) as usize;
         assume(idx.0 < fl);
@@ -450,6 +457,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             sl = self.sl_bitmap[fl].trailing_zeros() as usize;
             assume(sl < SLLEN);
+            //#[cfg(feature = "std")]
+            //{
+                //use std::println;
+                //println!("hah? hah? {:b} {:b}", self.fl_bitmap, self.sl_bitmap[fl]);
+                ////if SLLEN <= sl {
+                    ////self.print_stat()
+                ////}
+            //}
             //if sl >= SLLEN {
                 //debug_assert!(false, "bitmap contradiction");
                 //unreachable!()
@@ -552,6 +567,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
             //self.print_stat();
             let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
+            //#[cfg(feature = "std")]
+            //{
+                //use std::println;
+                //println!("hah?");
+            //}
             let BlockIndex(fl, sl) = idx;
 
             let tracked mut old_head_perm: BlockPerm;
@@ -812,7 +832,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
 
             // Unlink `next_phys_block`.
-            self.unlink_free_block(next_phys_block, next_phys_block_size, Tracked(next_phys_block_perm));
+            self.unlink_free_block(next_phys_block, next_phys_block_size);
         } else {
             new_next_phys_block = next_phys_block;
             proof {
@@ -841,7 +861,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 size += prev_phys_block_size;
 
                 // Unlink `prev_phys_block`.
-                self.unlink_free_block(prev_phys_block, prev_phys_block_size, Tracked(prev_phys_block_perm));
+                self.unlink_free_block(prev_phys_block, prev_phys_block_size);
 
                 // Move `block` to where `prev_phys_block` is located. By doing
                 // this, `block` will implicitly inherit `prev_phys_block.

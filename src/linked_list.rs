@@ -2,8 +2,9 @@ use crate::all_blocks::*;
 use crate::block::*;
 use crate::block_index::BlockIndex;
 use crate::Tlsf;
+use core::hint::unreachable_unchecked;
 use vstd::prelude::*;
-use vstd::raw_ptr::{ptr_mut_read, ptr_mut_write, MemContents, PointsTo, PointsToRaw};
+use vstd::raw_ptr::{ptr_mut_read, ptr_mut_write, ptr_ref, MemContents, PointsTo, PointsToRaw};
 #[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
 
@@ -108,13 +109,59 @@ verus! {
             }
         }
 
-        #[verifier::external_body] // debug
+        //#[verifier::external_body] // debug
         pub(crate) fn unlink_free_block(&mut self,
             node: *mut BlockHdr,
-            size: usize,
-            Tracked(perm): Tracked<BlockPerm>)
+            size: usize)
         {
-            unimplemented!()
+            let link = get_freelink_ptr(node);
+            let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
+            let tracked link_perm = node_blk.freelink_perm.tracked_unwrap();
+
+            let next_free = ptr_ref(link, Tracked(link_perm)).next_free;
+            let next_link = get_freelink_ptr(next_free);
+            let tracked next_blk = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
+
+            let prev_free = ptr_ref(link, Tracked(link_perm)).prev_free;
+            let prev_link = get_freelink_ptr(prev_free);
+            let tracked prev_blk = self.all_blocks.perms.borrow_mut().tracked_remove(prev_free);
+
+            if next_free != null_bhdr() {
+                let tracked next_link_perm = next_blk.free_link_perm.tracked_unwrap();
+                ptr_mut_write(next_link, Tracked(next_link_perm), FreeLink {
+                    next_free: ptr_ref(next_link, Tracked(next_link_perm)).next_free,
+                    prev_free: ptr_ref(link, Tracked(link_perm)).prev_free,
+                });
+                proof {
+                    self.all_blocks.perms.borrow_mut().tracked_insert(next_free, BlockPerm {
+                        points_to: next_blk.points_to,
+                        free_link_perm: Some(next_link_perm),
+                    });
+                }
+            }
+
+            if prev_free != null_bhdr() {
+                let tracked prev_link_perm = prev_blk.free_link_perm.tracked_unwrap();
+                ptr_mut_write(prev_link, Tracked(prev_link_perm), FreeLink {
+                    next_free: ptr_ref(link, Tracked(link_perm)).next_free,
+                    prev_free: ptr_ref(prev_link, Tracked(prev_link_perm)).prev_free,
+                });
+                proof {
+                    self.all_blocks.perms.borrow_mut().tracked_insert(prev_free, BlockPerm {
+                        points_to: prev_blk.points_to,
+                        free_link_perm: Some(prev_link_perm),
+                    });
+                }
+            } else {
+                let idx = Self::map_floor(size).unwrap();
+                let BlockIndex(fl, sl) = idx;
+
+                Self::set_freelist(&mut self.first_free, idx, next_free);
+
+                if next_free != null_bhdr() {
+                    self.clear_bit_for_index(idx);
+                }
+            }
         }
 
         pub(crate) fn link_free_block(&mut self,

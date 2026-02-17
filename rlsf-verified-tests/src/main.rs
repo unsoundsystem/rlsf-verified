@@ -15,10 +15,12 @@ fn main() {
             let start = round_up(unaligned_start, GRANULARITY);
             let size = 65536;
             tlsf.insert_free_block_ptr_aligned_test(start as *mut u8, size);
-            for _ in 0..20 {
-                let (x, _, _) = tlsf.allocate(black_box(32), GRANULARITY).unwrap();
+            for i in 1..200 {
+                let (x, _, _) = tlsf
+                    .allocate(black_box(size_of::<usize>() * i), GRANULARITY)
+                    .unwrap();
                 *x.as_mut().unwrap() = 1;
-                println!("x = {:?}", x);
+                //println!("x = {:?}", x);
                 tlsf.deallocate_ext(x, GRANULARITY);
             }
         }

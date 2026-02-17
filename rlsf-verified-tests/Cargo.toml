@@ -6,8 +6,59 @@ edition = "2024"
 [dependencies]
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 rlsf-verified = { path = "..", features = ["std"] }
+rlsf = "0.2.2"
 
 [profile.release]
 lto = false
 codegen-units = 1
 debug = true
+overflow-checks = true
+
+[[bin]]
+name = "alt8b-verified"
+path = "src/alt8b_verified.rs"
+
+[[bin]]
+name = "alt16b-verified"
+path = "src/alt16b_verified.rs"
+
+[[bin]]
+name = "alt32b-verified"
+path = "src/alt32b_verified.rs"
+
+[[bin]]
+name = "alt64b-verified"
+path = "src/alt64b_verified.rs"
+
+
+[[bin]]
+name = "alt8b-original"
+path = "src/alt8b_original.rs"
+
+[[bin]]
+name = "alt16b-original"
+path = "src/alt16b_original.rs"
+
+[[bin]]
+name = "alt32b-original"
+path = "src/alt32b_original.rs"
+
+[[bin]]
+name = "alt64b-original"
+path = "src/alt64b_original.rs"
+
+[[bin]]
+name = "ada8b"
+path = "src/ada8b.rs"
+
+[[bin]]
+name = "ada16b"
+path = "src/ada16b.rs"
+
+[[bin]]
+name = "ada32b"
+path = "src/ada32b.rs"
+
+[[bin]]
+name = "ada64b"
+path = "src/ada64b.rs"
