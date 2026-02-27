@@ -181,36 +181,70 @@ verus! {
     pub(crate) struct ShadowFreelist<const FLLEN: usize, const SLLEN: usize> {
         pub(crate) m: Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>,
         #[cfg(verus_keep_ghost)]
+        /// Keep index in all_blocks for each shadow_freelist nodes.
         pub(crate) pi: Pi<FLLEN, SLLEN>
     }
 
     impl<const FLLEN: usize, const SLLEN: usize> ShadowFreelist<FLLEN, SLLEN> {
+        // Add all_blocks.ptrs[new_node_ai] at the head of m and update pi
         pub(crate) open spec fn ii_push_for_index(self,
             all_blocks: AllBlocks<FLLEN, SLLEN>,
-            new_node: BlockIndex<FLLEN, SLLEN>,
-            i: int) -> Self
+            new_node_bi: BlockIndex<FLLEN, SLLEN>,
+            new_node_ai: int
+        ) -> Self
         recommends
             is_identity_injection(self, all_blocks.ptrs@),
-            0 <= i < all_blocks.ptrs@.len()
+            !self.pi.values().contains(new_node_ai)
         {
-            Self{
-                m: self.m,
+            Self {
+                m: self.m.insert(new_node_bi, seq![all_blocks.ptrs@[new_node_ai]].add(self.m[new_node_bi])),
+                //                   ┌  self.pi[(i, n)]        if i != idx
+                // self.pi[(i, n)] = ┤  self.pi[(i, n - 1)]    if i == idx and n > 0
+                //                   └  new_node_ai            if i == idx and n == 0
                 pi: self.pi.map_entries(|k: (BlockIndex<FLLEN, SLLEN>, int), v: int|
-                        if k.0 == new_node && k.1 > 0 {
-                            if k.1 < self.m[new_node].len() {
-                                self.pi[(new_node, k.1 - 1)]
-                            } else {
-                                arbitrary()
-                            }
-                            //((e.0.0, e.0.1 + 1), e.1)
-                        } else { v })
+                    // k.0 = block index, k.1 = index in sfl[k.0], v = index in all_blocks
+                    if k.0 == new_node_bi {
+                        if 0 < k.1 < self.m[new_node_bi].len() {
+                            // return pi[(idx, i-1)] for new_pi[(idx, i)]
+                            self.pi[(new_node_bi, k.1 - 1)]
+                        } else if k.1 == 0 {
+                            new_node_ai
+                        } else {
+                            arbitrary()
+                        }
+                    } else { v })
             }
+        }
+
+        pub(crate) open spec fn contains(self, node: *mut BlockHdr) -> bool {
+            exists|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                && self.m[i].contains(node)
         }
 
         pub(crate) open spec fn shadow_freelist_has_all_wf_index(self) -> bool {
             forall|idx: BlockIndex<FLLEN, SLLEN>|
                 self.m.contains_key(idx) <==> idx.wf()
 
+        }
+
+        pub(crate) proof fn lemma_sfl_not_contains_iff_pi_undefined(
+            self,
+            all_blocks: AllBlocks<FLLEN, SLLEN>,
+            node: *mut BlockHdr,
+        )
+            requires
+                all_blocks.wf(),
+                all_blocks.ptrs@.contains(node),
+                is_identity_injection(self, all_blocks.ptrs@),
+                !self.contains(node)
+            ensures
+                !self.pi.values().contains(all_blocks.get_ptr_internal_index(node))
+        {
+            // not exists (ind, n), self.m[ind][n] == node
+            // i.e. forall (ind, n), self.m[ind][n] != node
+            // forall x in pi.values(), 0 <= x < self.all_blocks.ptrs@.len()
+            //
+            // follows from ii cond
         }
 
     }

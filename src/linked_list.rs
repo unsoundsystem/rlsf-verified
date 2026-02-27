@@ -184,11 +184,11 @@ verus! {
             old(self).bitmap_wf(),
             old(self).wf_shadow(),
             // this can be proved at caller side using pointer order and `phys_next_of` relation
-            forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
-                ==> !old(self).shadow_freelist@.m[i].contains(node),
+            !old(self).shadow_freelist@.contains(node),
             // we need node is wf in all_blocks
             old(self).all_blocks.contains(node),
             //get_freelink_ptr_spec(node) == old(node_fl_pt).ptr(),
+            // NOTE: not linked to freelist but the flag is marked free
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
         ensures
             self.all_blocks.wf(),
@@ -201,6 +201,8 @@ verus! {
             proof {
                 self.all_blocks.lemma_block_wf();
                 self.all_blocks.lemma_node_is_wf(node);
+                self.shadow_freelist@
+                    .lemma_sfl_not_contains_iff_pi_undefined(self.all_blocks, node);
             }
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
             assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
@@ -248,6 +250,7 @@ verus! {
                     next_free: first_free,
                     prev_free: null_bhdr()
                 });
+
             } else {
                 assert(self.shadow_freelist@.m[idx].len() == 0);
 
@@ -268,11 +271,13 @@ verus! {
                         by {
                             admit()
                         };
+
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
                     });
+
                     assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
                         implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
                         by {};
@@ -283,8 +288,7 @@ verus! {
                         assert(old(self).all_blocks.ptrs@.contains(node));
                         assert(self.all_blocks.ptrs@.contains(node));
                     };
-                    let node_ind = choose|i: int| 0 <= i < self.all_blocks.ptrs@.len()
-                        && node == self.all_blocks.ptrs@[i];
+                    let node_ind = self.all_blocks.get_ptr_internal_index(node);
                     assert(self.all_blocks.ptrs@[node_ind] == old(self).all_blocks.ptrs@[node_ind]);
                     assert(self.all_blocks.ptrs@ =~= old(self).all_blocks.ptrs@);
                     assert(node_blk.points_to == old(self).all_blocks.perms@[node].points_to);
@@ -305,11 +309,30 @@ verus! {
                                 assert(old(self).all_blocks.wf_node(0));
                         }
                     };
+                    assert(self.all_blocks.wf()) by {
+                        assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                            implies self.all_blocks.wf_node(i)
+                        by {
+                            assert(old(self).all_blocks.wf_node(i));
+                        }
+                    };
+
+                    // Update identity injection
                     self.shadow_freelist@ =
                         self.shadow_freelist@.ii_push_for_index(
                             self.all_blocks,
                             idx,
                             node_ind);
+                    self.all_blocks.lemma_wf_nodup();
+                    Self::lemma_ii_push_for_index_ensures(
+                            old(self).shadow_freelist@,
+                            old(self).all_blocks,
+                            idx,
+                            node_ind);
+                    assert(node == self.all_blocks.ptrs@[node_ind]);
+                    assert(self.shadow_freelist@.m[idx].contains(node));
+
+                    // Each block is well-formed
                     assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                         implies self.all_blocks.wf_node(i) by {
                             if i == node_ind {
@@ -322,6 +345,7 @@ verus! {
 
                     self.all_blocks.lemma_wf_nodup();
 
+                    // Provided node is wasn't registered in old II.
                     if old(self).shadow_freelist@.pi.values().contains(node_ind) {
                         let pi = old(self).shadow_freelist@.pi;
                         assert(exists|i: (BlockIndex<FLLEN, SLLEN>, int)| pi[i] == node_ind);
@@ -344,25 +368,14 @@ verus! {
                         node_ind);
                     assert(self.wf_free_node(self.shadow_freelist@.m[idx], 0));
 
-                    assert forall|i: BlockIndex<FLLEN, SLLEN>| idx.wf()
+                    assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
                         implies self.freelist_wf(i)
                     by {
                         if i == idx {
                             admit();
-
                         } else {
-                            //assert forall|m: int| 0 <= m < old(self).shadow_freelist@.m[i].len()
-                                //implies old(self).wf_free_node(old(self).shadow_freelist@.m[i], m) by {
-                                    //assert((self).wf_free_node(old(self).shadow_freelist@.m[i], m));
-                                    //admit();
-
-                                //}
-                            //if old(self).shadow_freelist@.m[i].len() == 0 {
-                                //assert(
-                            //} else if old(self).shadow_freelist@.m[i].len() > 0 {
-                                //admit();
-                            //}
                             assume(old(self).freelist_wf(i));
+                            self.lemma_shadow_list_contains_unique(idx, node);
                         }
                     };
                     assert(self.all_freelist_wf());
@@ -476,31 +489,32 @@ verus! {
         proof fn lemma_ii_push_for_index_ensures(
             sfl: ShadowFreelist<FLLEN, SLLEN>,
             all_blocks: AllBlocks<FLLEN, SLLEN>,
-            idx: BlockIndex<FLLEN, SLLEN>,
-            i: int
+            new_node_bi: BlockIndex<FLLEN, SLLEN>,
+            new_node_ai: int
         )
             requires
                 all_blocks.ptrs@.no_duplicates(),
-                !sfl.pi.values().contains(i),
-                0 <= i < all_blocks.ptrs@.len(),
+                !sfl.pi.values().contains(new_node_ai),
+                0 <= new_node_ai < all_blocks.ptrs@.len(),
                 sfl.shadow_freelist_has_all_wf_index(),
                 is_identity_injection(sfl, all_blocks.ptrs@),
-                all_blocks.wf_node(i)
+                all_blocks.wf_node(new_node_ai)
             ensures ({
-                let new_sfl = sfl.ii_push_for_index(all_blocks, idx, i);
+                let new_sfl = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai);
                 &&& is_identity_injection(new_sfl, all_blocks.ptrs@)
-                &&& new_sfl.m[idx][0] == all_blocks.ptrs@[i]
+                &&& new_sfl.m[new_node_bi][0] == all_blocks.ptrs@[new_node_ai]
             })
         {
             let old_ii = sfl.pi;
-            let new_ii = sfl.ii_push_for_index(all_blocks, idx, i).pi;
+            let new_ii = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai).pi;
 
             // injectivity
 
-            // forall 0 <= i < sfl[idx].len(),  all_blocks.ptrs[sfl[idx, n]] == sfl[idx, n]
+            // forall 0 <= new_node_ai < sfl[idx].len(),  all_blocks.ptrs[sfl[idx, n]] == sfl[idx, n]
 
             //assert(shadow_freelist_has_all_wf_index(new_ii));
         }
+
 
     }
 
