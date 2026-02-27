@@ -374,7 +374,15 @@ verus! {
                         if i == idx {
                             admit();
                         } else {
-                            assume(old(self).freelist_wf(i));
+                            assert(old(self).freelist_wf(i));
+                            assert forall|n: int|
+                                    0 <= n < old(self).shadow_freelist@.m[i].len()
+                                implies
+                                    old(self).all_blocks.value_at(old(self).shadow_freelist@.m[i][n])
+                                        == self.all_blocks.value_at(self.shadow_freelist@.m[i][n])
+                                by {
+                                    admit();
+                                }
                             self.lemma_shadow_list_contains_unique(idx, node);
                         }
                     };
@@ -503,6 +511,10 @@ verus! {
                 let new_sfl = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai);
                 &&& is_identity_injection(new_sfl, all_blocks.ptrs@)
                 &&& new_sfl.m[new_node_bi][0] == all_blocks.ptrs@[new_node_ai]
+                &&& forall|i: int| 0 <= i < sfl.m[new_node_bi].len() ==> {
+                            &&& sfl.m[new_node_bi][i] == new_sfl.m[new_node_bi][i + 1]
+                            &&& sfl.pi[(new_node_bi, i)] == new_sfl.pi[(new_node_bi, i + 1)]
+                        }
             })
         {
             let old_ii = sfl.pi;
