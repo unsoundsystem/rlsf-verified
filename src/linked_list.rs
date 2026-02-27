@@ -26,7 +26,7 @@ verus! {
             &&& self.shadow_freelist@.shadow_freelist_has_all_wf_index()
             // pointers in freelist is not null
             &&& forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
-                    idx.wf() && 0 <= i < self.shadow_freelist@.m.len()
+                    idx.wf() && 0 <= i < self.shadow_freelist@.m[idx].len()
                         ==> self.shadow_freelist@.m[idx][i]@.addr != 0
             // there is an identity injection to all_blocks
             &&& is_identity_injection(self.shadow_freelist@, self.all_blocks.ptrs@)
@@ -264,13 +264,13 @@ verus! {
                 });
 
                 proof {
-                    assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
-                            && old(self).all_blocks.ptrs@[i] != node
-                        implies self.all_blocks.perms@[self.all_blocks.ptrs@[i]]
-                            == old(self).all_blocks.perms@[self.all_blocks.ptrs@[i]]
-                        by {
-                            admit()
-                        };
+                    //assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                            //&& old(self).all_blocks.ptrs@[i] != node
+                        //implies self.all_blocks.perms@[self.all_blocks.ptrs@[i]]
+                            //== old(self).all_blocks.perms@[self.all_blocks.ptrs@[i]]
+                        //by {
+                            //admit()
+                        //};
 
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
                         points_to: node_blk.points_to,

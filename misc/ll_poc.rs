@@ -587,7 +587,7 @@ verus! {
         spec fn wf_shadow(self) -> bool {
             &&& shadow_freelist_has_all_wf_index(self.shadow_freelist@)
             &&& // there is an identity injection to all_blocks
-                exists|pi: Pi<FLLEN, SLLEN>| self.is_ii(pi)
+                self.is_ii(pi)
         }
 
         spec fn is_ii(self, pi: Pi<FLLEN, SLLEN>) -> bool {
