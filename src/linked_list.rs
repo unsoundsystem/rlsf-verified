@@ -116,24 +116,28 @@ verus! {
         {
             let link = get_freelink_ptr(node);
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
-            let tracked link_perm = node_blk.freelink_perm.tracked_unwrap();
+            let tracked link_perm = node_blk.free_link_perm.tracked_unwrap();
 
-            let next_free = ptr_ref(link, Tracked(link_perm)).next_free;
+            let next_free = ptr_ref(link, Tracked(&link_perm)).next_free;
             let next_link = get_freelink_ptr(next_free);
             let tracked next_blk = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
 
-            let prev_free = ptr_ref(link, Tracked(link_perm)).prev_free;
+            let prev_free = ptr_ref(link, Tracked(&link_perm)).prev_free;
             let prev_link = get_freelink_ptr(prev_free);
             let tracked prev_blk = self.all_blocks.perms.borrow_mut().tracked_remove(prev_free);
 
             if next_free != null_bhdr() {
                 let tracked next_link_perm = next_blk.free_link_perm.tracked_unwrap();
-                ptr_mut_write(next_link, Tracked(next_link_perm), FreeLink {
-                    next_free: ptr_ref(next_link, Tracked(next_link_perm)).next_free,
-                    prev_free: ptr_ref(link, Tracked(link_perm)).prev_free,
-                });
+                {
+                    let n = ptr_ref(next_link, Tracked(&next_link_perm)).next_free;
+                    ptr_mut_write(next_link, Tracked(&mut next_link_perm), FreeLink {
+                        next_free: n,
+                        prev_free: ptr_ref(link, Tracked(&link_perm)).prev_free,
+                    });
+                }
                 proof {
                     self.all_blocks.perms.borrow_mut().tracked_insert(next_free, BlockPerm {
+                        mem: next_blk.mem,
                         points_to: next_blk.points_to,
                         free_link_perm: Some(next_link_perm),
                     });
@@ -142,12 +146,16 @@ verus! {
 
             if prev_free != null_bhdr() {
                 let tracked prev_link_perm = prev_blk.free_link_perm.tracked_unwrap();
-                ptr_mut_write(prev_link, Tracked(prev_link_perm), FreeLink {
-                    next_free: ptr_ref(link, Tracked(link_perm)).next_free,
-                    prev_free: ptr_ref(prev_link, Tracked(prev_link_perm)).prev_free,
-                });
+                {
+                    let p = ptr_ref(prev_link, Tracked(&prev_link_perm)).prev_free;
+                    ptr_mut_write(prev_link, Tracked(&mut prev_link_perm), FreeLink {
+                        next_free: ptr_ref(link, Tracked(&link_perm)).next_free,
+                        prev_free: p,
+                    });
+                }
                 proof {
                     self.all_blocks.perms.borrow_mut().tracked_insert(prev_free, BlockPerm {
+                        mem: prev_blk.mem,
                         points_to: prev_blk.points_to,
                         free_link_perm: Some(prev_link_perm),
                     });
