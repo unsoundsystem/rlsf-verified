@@ -196,23 +196,66 @@ verus! {
             is_identity_injection(self, all_blocks.ptrs@),
             !self.pi.values().contains(new_node_ai)
         {
+            let old_len = self.m[new_node_bi].len();
             Self {
                 m: self.m.insert(new_node_bi, seq![all_blocks.ptrs@[new_node_ai]].add(self.m[new_node_bi])),
-                //                   ┌  self.pi[(i, n)]        if i != idx
-                // self.pi[(i, n)] = ┤  self.pi[(i, n - 1)]    if i == idx and n > 0
-                //                   └  new_node_ai            if i == idx and n == 0
+                //                   ┌  self.pi[(i, n)]          if i != idx
+                // self.pi[(i, n)] = ┤  self.pi[(i, n - 1)]      if i == idx and n > 0
+                //                   └  new_node_ai              if i == idx and n == 0
+                pi: Map::new(
+                    |k: (BlockIndex<FLLEN, SLLEN>, int)| {
+                        if k.0 == new_node_bi {
+                            0 <= k.1 < old_len + 1
+                        } else {
+                            self.pi.contains_key(k)
+                        }
+                    },
+                    |k: (BlockIndex<FLLEN, SLLEN>, int)| {
+                        if k.0 == new_node_bi {
+                            if k.1 == 0 {
+                                new_node_ai
+                            } else {
+                                self.pi[(new_node_bi, k.1 - 1)]
+                            }
+                        } else {
+                            self.pi[k]
+                        }
+                    }
+                )
+            }
+        }
+
+        // Remove m[rm_bi][rm_pos] and shift pi entries for rm_bi.
+        pub(crate) open spec fn ii_remove_for_index(self,
+            all_blocks: AllBlocks<FLLEN, SLLEN>,
+            rm_bi: BlockIndex<FLLEN, SLLEN>,
+            rm_pos: int
+        ) -> Self
+        recommends
+            rm_bi.wf(),
+            is_identity_injection(self, all_blocks.ptrs@),
+            0 <= rm_pos < self.m[rm_bi].len()
+        {
+            let new_m_idx = self.m[rm_bi].remove(rm_pos);
+            let old_len = self.m[rm_bi].len();
+            let last_key = (rm_bi, old_len - 1);
+            Self {
+                m: self.m.insert(rm_bi, new_m_idx),
+                // new_pi[(i, n)]:
+                //   - unchanged when i != rm_bi
+                //   - unchanged when i == rm_bi && n < rm_pos
+                //   - shifted from old (n + 1) when i == rm_bi && n >= rm_pos
                 pi: self.pi.map_entries(|k: (BlockIndex<FLLEN, SLLEN>, int), v: int|
-                    // k.0 = block index, k.1 = index in sfl[k.0], v = index in all_blocks
-                    if k.0 == new_node_bi {
-                        if 0 < k.1 < self.m[new_node_bi].len() {
-                            // return pi[(idx, i-1)] for new_pi[(idx, i)]
-                            self.pi[(new_node_bi, k.1 - 1)]
-                        } else if k.1 == 0 {
-                            new_node_ai
+                    if k.0 == rm_bi {
+                        if k.1 < rm_pos {
+                            self.pi[(rm_bi, k.1)]
+                        } else if rm_pos <= k.1 < old_len - 1 {
+                            self.pi[(rm_bi, k.1 + 1)]
                         } else {
                             arbitrary()
                         }
-                    } else { v })
+                    } else { v }
+                ).remove(last_key)
             }
         }
 
@@ -376,7 +419,7 @@ verus! {
 
         &&& forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
             idx.wf() && 0 <= m < sfl.m[idx].len() ==> {
-                &&& 0 <= sfl.pi[(idx, m)] < all_block_ptrs.len()
+                &&& 0 <= #[trigger] sfl.pi[(idx, m)] < all_block_ptrs.len()
                 &&& sfl.m[idx][m] == all_block_ptrs[sfl.pi[(idx, m)]]
             }
     }

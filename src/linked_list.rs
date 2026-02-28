@@ -140,7 +140,29 @@ verus! {
         //#[verifier::external_body] // debug
         pub(crate) fn unlink_free_block(&mut self,
             node: *mut BlockHdr,
-            size: usize)
+            idx: BlockIndex<FLLEN, SLLEN>)
+        requires
+            idx.wf(),
+            Self::parameter_validity(),
+            old(self).all_blocks.wf(),
+            old(self).all_freelist_wf(),
+            old(self).bitmap_sync(),
+            old(self).bitmap_wf(),
+            // node is an element of the list
+            old(self).shadow_freelist@.m[idx].contains(node),
+            old(self).all_blocks.perms@[node].points_to.value().is_free(),
+        ensures
+            self.all_blocks.wf(),
+            self.all_freelist_wf(),
+            self.bitmap_sync(),
+            self.bitmap_wf(),
+            self.wf_shadow(),
+            ({
+                let i = choose|i: int|
+                    0 <= i < old(self).shadow_freelist@.m[idx].len()
+                    && old(self).shadow_freelist@.m[idx][i] == node;
+                self.shadow_freelist@.m[idx] == old(self).shadow_freelist@.m[idx].remove(i)
+            })
         {
             let link = get_freelink_ptr(node);
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
@@ -189,9 +211,6 @@ verus! {
                     });
                 }
             } else {
-                let idx = Self::map_floor(size).unwrap();
-                let BlockIndex(fl, sl) = idx;
-
                 self.set_freelist(idx, next_free);
 
                 if next_free != null_bhdr() {
@@ -241,7 +260,7 @@ verus! {
             if self.first_free[idx.0][idx.1] != null_bhdr() {
                 let first_free = self.first_free[idx.0][idx.1];
                 assert(self.all_blocks.perms@.contains_key(first_free)) by {
-                    old(self).all_blocks.lemma_contains(first_free);
+
                 };
                 let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
                 assert(old(self).wf_free_node(idx, 0));
@@ -525,6 +544,7 @@ verus! {
                 all_blocks.ptrs@.no_duplicates(),
                 !sfl.pi.values().contains(new_node_ai),
                 0 <= new_node_ai < all_blocks.ptrs@.len(),
+                new_node_bi.wf(),
                 sfl.shadow_freelist_has_all_wf_index(),
                 is_identity_injection(sfl, all_blocks.ptrs@),
                 all_blocks.wf_node(new_node_ai)
@@ -538,14 +558,47 @@ verus! {
                         }
             })
         {
-            let old_ii = sfl.pi;
-            let new_ii = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai).pi;
+            let new_sfl = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai);
+            assert(new_sfl.pi.is_injective()) by {
+                assert forall|x: (BlockIndex<FLLEN, SLLEN>, int), y: (BlockIndex<FLLEN, SLLEN>, int)|
+                    x != y && new_sfl.pi.dom().contains(x) && new_sfl.pi.dom().contains(y)
+                        implies new_sfl.pi[x] != new_sfl.pi[y]
+                by {
+                    if x.0 == new_node_bi && x.1 == 0 {
+                        assert(new_sfl.pi[x] == new_node_ai);
+                        if y.0 == new_node_bi {
+                            assert(sfl.pi.contains_key((new_node_bi, y.1 - 1)));
+                        }
+                    } else if y.0 == new_node_bi && y.1 == 0 {
+                        assert(new_sfl.pi[y] == new_node_ai);
+                        if x.0 == new_node_bi {
+                            assert(sfl.pi.contains_key((new_node_bi, x.1 - 1)));
+                        }
+                    }
+                };
+            };
+        }
 
-            // injectivity
-
-            // forall 0 <= new_node_ai < sfl[idx].len(),  all_blocks.ptrs[sfl[idx, n]] == sfl[idx, n]
-
-            //assert(shadow_freelist_has_all_wf_index(new_ii));
+        pub(crate) proof fn lemma_ii_remove_for_index_ensures(
+            sfl: ShadowFreelist<FLLEN, SLLEN>,
+            all_blocks: AllBlocks<FLLEN, SLLEN>,
+            bi: BlockIndex<FLLEN, SLLEN>,
+            rm_pos: int,
+        )
+            requires
+                all_blocks.ptrs@.no_duplicates(),
+                is_identity_injection(sfl, all_blocks.ptrs@),
+                bi.wf(),
+                0 <= rm_pos < sfl.m[bi].len(),
+                forall|j: BlockIndex<FLLEN, SLLEN>, n: int|
+                    j.wf() && 0 <= n < sfl.m[j].len()
+                        ==> 0 <= #[trigger] sfl.pi[(j, n)] < all_blocks.ptrs@.len(),
+            ensures ({
+                let new_sfl = sfl.ii_remove_for_index(all_blocks, bi, rm_pos);
+                &&& new_sfl.m[bi] == sfl.m[bi].remove(rm_pos)
+                &&& is_identity_injection(new_sfl, all_blocks.ptrs@)
+            })
+        {
         }
 
 
