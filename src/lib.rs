@@ -156,6 +156,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         [const { [null_bhdr(); SLLEN] }; FLLEN]
     }
 
+    spec fn is_ii(self) -> bool {
+        is_identity_injection::<FLLEN, SLLEN>(
+            self.shadow_freelist@, self.all_blocks.ptrs@
+        )
+    }
+
     //#[verifier::external_body] // debug
 
 
@@ -615,9 +621,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // we already know `(fl, sl)` and that `block.prev_free` is `None`.
             let block_freelink = get_freelink_ptr(block);
             let tracked block_freelink_perm = old_head_perm.free_link_perm.tracked_unwrap();
-            Self::set_freelist(&mut self.first_free,
-                idx,
-                ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
+            self.set_freelist(idx, ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
 
             if ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free != null_bhdr() {
                 let next_free = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free;

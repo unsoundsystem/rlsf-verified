@@ -15,10 +15,10 @@ verus! {
     }
 
     impl BlockHdr {
-        pub(crate) closed spec fn is_sentinel(self) -> bool {
+        pub(crate) open spec fn is_sentinel(self) -> bool {
             self.size & SIZE_SENTINEL != 0
         }
-        pub(crate) closed spec fn is_free(self) -> bool {
+        pub(crate) open spec fn is_free(self) -> bool {
             self.size & SIZE_USED == 0
         }
 
@@ -68,7 +68,7 @@ verus! {
     }
 
     impl UsedInfo {
-        pub closed spec fn wf(self) -> bool {
+        pub(crate) open spec fn wf(self) -> bool {
             &&& ghost_pointer_ordered(self.ptrs@)
             // FIXME: replace with II
             //&&& forall|ptr: *mut UsedBlockHdr|
@@ -77,7 +77,7 @@ verus! {
                     //self.ptrs@.contains(p) ==> self.perms@[p].ptr() == p
         }
 
-        pub closed spec fn contains(self, ptr: *mut BlockHdr) -> bool
+        pub(crate) open spec fn contains(self, ptr: *mut BlockHdr) -> bool
             recommends self.wf()
         {
             &&& self.wf()

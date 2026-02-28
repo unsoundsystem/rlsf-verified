@@ -153,7 +153,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     /// Bitmap kept sync with shadow segregated free lists.
     /// NOTE: this def only depends on sl_bitmap
-    pub(crate) closed spec fn bitmap_sync(self) -> bool
+    pub(crate) open spec fn bitmap_sync(self) -> bool
         recommends
             self.all_blocks.wf(),
             self.all_freelist_wf(),

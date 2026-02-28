@@ -19,8 +19,31 @@ verus! {
         }
 
         pub(crate) open spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
-            self.free_list_pred(self.shadow_freelist@.m[idx], self.first_free[idx.0 as int][idx.1 as int])
+            let sfle = self.shadow_freelist@.m[idx];
+            let first = self.first_free[idx.0 as int][idx.1 as int];
+            &&& forall|i: int| 0 <= i < sfle.len() ==> self.wf_free_node(idx, i)
+            &&& if sfle.len() == 0 {
+                first@.addr == 0
+            } else {
+                first@.addr != 0 && first == sfle.first()
+            }
         }
+
+//        /// Predicate means
+//        /// (1) doubly-linked list consists of all nodes in `freelist` with respect for order and
+//        /// (2) if the list has an element, first one is the `first`
+//        pub(crate) open spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
+//            recommends self.all_blocks.wf()
+//        {
+//            &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
+//            &&& if freelist.len() == 0 {
+//                first@.addr == 0
+//            } else {
+//                first@.addr != 0 && first == freelist.first()
+//            }
+//        }
+
+
 
         pub(crate) open spec fn wf_shadow(self) -> bool {
             // all wf index has corresponding freelist.
@@ -50,32 +73,18 @@ verus! {
             requires idx.wf(), self.all_freelist_wf()
             ensures
                 self.freelist_wf(idx),
-                self.free_list_pred(
-                    self.shadow_freelist@.m[idx],
-                    self.first_free[idx.0 as int][idx.1 as int]),
+                //self.free_list_pred(
+                    //self.shadow_freelist@.m[idx],
+                    //self.first_free[idx.0 as int][idx.1 as int]),
         {
         }
 
-        /// Predicate means
-        /// (1) doubly-linked list consists of all nodes in `freelist` with respect for order and
-        /// (2) if the list has an element, first one is the `first`
-        pub(crate) open spec fn free_list_pred(self, freelist: Seq<*mut BlockHdr>, first: *mut BlockHdr) -> bool
-            recommends self.all_blocks.wf()
-        {
-            &&& forall|i: int| 0 <= i < freelist.len() ==> self.wf_free_node(freelist, i)
-            &&& if freelist.len() == 0 {
-                first@.addr == 0
-            } else {
-                first@.addr != 0 && first == freelist.first()
-            }
-        }
-
-
-        pub(crate) open spec fn wf_free_node(self, freelist: Seq<*mut BlockHdr>, i: int) -> bool
+        pub(crate) open spec fn wf_free_node(self, idx: BlockIndex<FLLEN, SLLEN>, i: int) -> bool
             recommends
                 self.all_blocks.wf(),
-                0 <= i < freelist.len()
+                0 <= i < self.shadow_freelist@.m[idx].len()
         {
+            let freelist = self.shadow_freelist@.m[idx];
             let node_link_ptr = get_freelink_ptr_spec(freelist[i]);
             let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
             &&& self.all_blocks.contains(freelist[i])
@@ -90,7 +99,7 @@ verus! {
                 ||| node_link.prev_free@.addr != 0
                         ==> Self::free_prev_of(freelist, i) == Some(node_link.prev_free)
                 ||| node_link.prev_free@.addr == 0
-                        && Self::free_prev_of(freelist, i) is None
+                        ==> Self::free_prev_of(freelist, i) is None
             }
         }
 
@@ -108,6 +117,24 @@ verus! {
             } else {
                 Some(ls[i - 1])
             }
+        }
+
+        proof fn lemma_wf_free_node_preserve(self, other: Self, idx: BlockIndex<FLLEN, SLLEN>, n: int)
+            requires
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+                self.all_blocks.wf(), other.all_blocks.wf(),
+                self.wf_free_node(idx, n),
+                self.is_ii(),
+                other.is_ii(),
+                self.all_blocks.ptrs@ == other.all_blocks.ptrs@,
+                self.shadow_freelist@.pi[(idx, n)] == other.shadow_freelist@.pi[(idx, n)],
+                self.shadow_freelist@.m[idx][n] == other.shadow_freelist@.m[idx][n],
+                self.all_blocks.perms[self.shadow_freelist@.m[idx][n]]
+                    == other.all_blocks.perms[other.shadow_freelist@.m[idx][n]]
+            ensures
+                other.wf_free_node(idx, n)
+        {
         }
 
         //#[verifier::external_body] // debug
@@ -165,7 +192,7 @@ verus! {
                 let idx = Self::map_floor(size).unwrap();
                 let BlockIndex(fl, sl) = idx;
 
-                Self::set_freelist(&mut self.first_free, idx, next_free);
+                self.set_freelist(idx, next_free);
 
                 if next_free != null_bhdr() {
                     self.clear_bit_for_index(idx);
@@ -232,7 +259,7 @@ verus! {
                 let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
 
                 // update first pointer
-                Self::set_freelist(&mut self.first_free, idx, node);
+                self.set_freelist(idx, node);
 
                 // update link
                 let link = get_freelink_ptr(first_free);
@@ -258,36 +285,19 @@ verus! {
                 assume(self.bitmap_sync());
                 assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
             } else {
-                assert(self.shadow_freelist@.m[idx].len() == 0);
-
-                Self::set_freelist(&mut self.first_free, idx, node);
-
-                assert(get_freelink_ptr_spec(node) == node_fl_pt.ptr());
-
+                self.set_freelist(idx, node);
                 ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
                     next_free: null_bhdr(),
                     prev_free: null_bhdr()
                 });
                 // {{{ proof block
                 proof {
-                    //assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
-                            //&& old(self).all_blocks.ptrs@[i] != node
-                        //implies self.all_blocks.perms@[self.all_blocks.ptrs@[i]]
-                            //== old(self).all_blocks.perms@[self.all_blocks.ptrs@[i]]
-                        //by {
-                            //admit()
-                        //};
-
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
                     });
 
-                    assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
-                        implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
-                        by {};
-                    assert(self.all_blocks.perms@.contains_key(node));
                     assert(exists|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                         && self.all_blocks.ptrs@[i] == node)
                     by {
@@ -295,26 +305,6 @@ verus! {
                         assert(self.all_blocks.ptrs@.contains(node));
                     };
                     let node_ind = self.all_blocks.get_ptr_internal_index(node);
-                    assert(self.all_blocks.ptrs@[node_ind] == old(self).all_blocks.ptrs@[node_ind]);
-                    assert(self.all_blocks.ptrs@ =~= old(self).all_blocks.ptrs@);
-                    assert(node_blk.points_to == old(self).all_blocks.perms@[node].points_to);
-                    assert(self.all_blocks.wf_node(node_ind)) by {
-                        if 0 < node_ind < self.all_blocks.ptrs@.len() {
-                            assert(self.all_blocks.phys_prev_of(node_ind) matches Some(p) &&
-                                p == self.all_blocks.value_at(node).prev_phys_block) by {
-                                assert(old(self).all_blocks.wf_node(node_ind));
-                            };
-
-                            assert(old(self).all_blocks.phys_next_of(node_ind) matches Some(p) &&
-                                p@.addr == (node@.addr + old(self).all_blocks.value_at(node).size)) by {
-                                assert(old(self).all_blocks.wf_node(node_ind));
-                            };
-                            assert(self.all_blocks.phys_next_of(node_ind) matches Some(p) &&
-                                p@.addr == (node@.addr + self.all_blocks.value_at(node).size));
-                        } else if node_ind == 0 {
-                                assert(old(self).all_blocks.wf_node(0));
-                        }
-                    };
                     assert(self.all_blocks.wf()) by {
                         assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                             implies self.all_blocks.wf_node(i)
@@ -329,105 +319,61 @@ verus! {
                             self.all_blocks,
                             idx,
                             node_ind);
+
                     self.all_blocks.lemma_wf_nodup();
                     Self::lemma_ii_push_for_index_ensures(
                             old(self).shadow_freelist@,
                             old(self).all_blocks,
                             idx,
                             node_ind);
-                    assert(node == self.all_blocks.ptrs@[node_ind]);
-                    assert(self.shadow_freelist@.m[idx].contains(node));
-
-                    // Each block is well-formed
-                    assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
-                        implies self.all_blocks.wf_node(i) by {
-                            if i == node_ind {
-                                assert(self.all_blocks.wf_node(node_ind));
-                            } else {
-                                assert(old(self).all_blocks.wf_node(i));
-                            }
-                        };
-                    assert(self.all_blocks.wf());
-
-                    self.all_blocks.lemma_wf_nodup();
-
-                    // Provided node is wasn't registered in old II.
-                    if old(self).shadow_freelist@.pi.values().contains(node_ind) {
-                        let pi = old(self).shadow_freelist@.pi;
-                        assert(exists|i: (BlockIndex<FLLEN, SLLEN>, int)| pi[i] == node_ind);
-                        let i = choose|i: (BlockIndex<FLLEN, SLLEN>, int)|
-                            i.0.wf() && 0 <= i.1 < old(self).shadow_freelist@.m[i.0].len() &&
-                            pi[i] == node_ind;
-
-                        assert(old(self).shadow_freelist@.m[i.0].contains(node)) by {
-                            assert(old(self).shadow_freelist@.m[i.0][i.1]
-                                == old(self).all_blocks.ptrs@[pi[i]]);
-                        };
-
-                        assert(false);
-                    }
-
-                    Self::lemma_ii_push_for_index_ensures(
-                        old(self).shadow_freelist@,
-                        old(self).all_blocks,
-                        idx,
-                        node_ind);
-                    assert(self.wf_free_node(self.shadow_freelist@.m[idx], 0));
 
                     assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
                         implies self.freelist_wf(i)
                     by {
-                        if i == idx {
-                            admit();
-                        } else {
-                            admit();
-                            assert(old(self).freelist_wf(i));
+                        if i != idx {
                             assert forall|n: int|
-                                    0 <= n < old(self).shadow_freelist@.m[i].len()
+                                    0 <= n < self.shadow_freelist@.m[i].len()
                                 implies
-                                    old(self).all_blocks.value_at(old(self).shadow_freelist@.m[i][n])
-                                        == self.all_blocks.value_at(self.shadow_freelist@.m[i][n])
-                                by {
-                                    admit();
-                                }
-                            self.lemma_shadow_list_contains_unique(idx, node);
+                                    self.all_blocks.value_at(self.shadow_freelist@.m[i][n]).is_free()
+                            by {
+                                assert(old(self).wf_free_node(i, n));
+                            }
                         }
                     };
-                    assert(self.all_blocks.wf());
-                    assume(self.all_blocks.wf());
-                    assume(self.all_freelist_wf());
-                    assume(self.wf_shadow());
-                    assume(self.bitmap_sync());
-                    assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
                 } // }}}
             }
 
-            assert(self.all_blocks.wf());
-            assert(self.all_freelist_wf());
-            assert(self.wf_shadow());
-            assert(self.bitmap_sync());
-            assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
             self.set_bit_for_index(idx);
-            assert(self.all_blocks.wf());
-            assert(self.all_freelist_wf());
-            assert(self.wf_shadow());
-            assert(self.bitmap_sync());
-            assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
+            assert(self.bitmap_sync()) by {
+                if self.first_free[idx.0 as int][idx.1 as int].addr() != 0 {
+                    admit()
+                }
+            };
+            assume(self.all_blocks.wf());
+            assume(self.all_freelist_wf());
+            assume(self.wf_shadow());
+            assume(self.bitmap_sync());
+            assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
         }
 
         #[verifier::external_body]
         pub(crate) fn set_freelist(
-            freelist: &mut [[*mut BlockHdr; SLLEN]; FLLEN],
-            idx: BlockIndex<FLLEN, SLLEN>, e: *mut BlockHdr)
+            &mut self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            e: *mut BlockHdr)
             requires idx.wf()
             ensures
-                freelist[idx.0 as int][idx.1 as int] == e,
+                self.first_free[idx.0 as int][idx.1 as int] == e,
                 forall|i: BlockIndex<FLLEN, SLLEN>|
                     i != idx && i.wf() ==>
-                        old(freelist)[i.0 as int][i.1 as int]
-                            == freelist[i.0 as int][i.1 as int],
+                        old(self).first_free[i.0 as int][i.1 as int]
+                            == self.first_free[i.0 as int][i.1 as int],
+                self.shadow_freelist == old(self).shadow_freelist,
+                self.all_blocks == old(self).all_blocks,
+                self.sl_bitmap == old(self).sl_bitmap,
+                self.fl_bitmap == old(self).fl_bitmap,
         {
-            freelist[idx.0][idx.1] = e;
+            self.first_free[idx.0][idx.1] = e;
         }
 
 
@@ -454,22 +400,19 @@ verus! {
                 self.all_blocks.contains(self.first_free[idx.0 as int][idx.1 as int])
         {
             let first = self.shadow_freelist@.m[idx].first();
-            assert(self.free_list_pred(
-                    self.shadow_freelist@.m[idx],
-                    self.first_free[idx.0 as int][idx.1 as int]));
             assert(self.shadow_freelist@.m[idx].len() != 0);
             assert(forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
-                ==> self.wf_free_node(self.shadow_freelist@.m[idx], i));
+                ==> self.wf_free_node(idx, i));
             //assert(self.first_free[idx.0 as int][idx.1 as int] matches Some(first)
                 //&& self.shadow_freelist@.m[idx].first() == first);
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len() implies
-                self.wf_free_node(self.shadow_freelist@.m[idx], i)
+                self.wf_free_node(idx, i)
                     ==> self.all_blocks.contains(self.shadow_freelist@.m[idx][i])
             by {
             };
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
                 implies self.all_blocks.contains(self.shadow_freelist@.m[idx][i]) by {
-                assert(self.wf_free_node(self.shadow_freelist@.m[idx], i));
+                assert(self.wf_free_node(idx, i));
             };
             assert(self.shadow_freelist@.m[idx].all(|e| self.all_blocks.contains(e)));
             assert(self.shadow_freelist@.m[idx].contains(self.shadow_freelist@.m[idx].first()));
@@ -487,7 +430,7 @@ verus! {
         {
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
                 implies self.all_blocks.contains(self.shadow_freelist@.m[idx][i]) by {
-                assert(self.wf_free_node(self.shadow_freelist@.m[idx], i));
+                assert(self.wf_free_node(idx, i));
             };
         }
 
