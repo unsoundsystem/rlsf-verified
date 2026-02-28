@@ -89,18 +89,15 @@ verus! {
             let node_link = #[trigger] self.all_blocks.perms@[freelist[i]].free_link_perm.unwrap().value();
             &&& self.all_blocks.contains(freelist[i])
             &&& self.all_blocks.value_at(freelist[i]).is_free()
-            &&& {
-                ||| node_link.next_free@.addr != 0
-                        ==> Some(node_link.next_free) == Self::free_next_of(freelist, i)
-                ||| node_link.next_free@.addr == 0
-                        ==> Self::free_next_of(freelist, i) is None
-            }
-            &&& {
-                ||| node_link.prev_free@.addr != 0
-                        ==> Self::free_prev_of(freelist, i) == Some(node_link.prev_free)
-                ||| node_link.prev_free@.addr == 0
-                        ==> Self::free_prev_of(freelist, i) is None
-            }
+            // Glue invariants for abstract freelist
+            &&& node_link.next_free@.addr != 0
+                    ==> Some(node_link.next_free) == Self::free_next_of(freelist, i)
+            &&& node_link.next_free@.addr == 0
+                    ==> Self::free_next_of(freelist, i) is None
+            &&& node_link.prev_free@.addr != 0
+                    ==> Self::free_prev_of(freelist, i) == Some(node_link.prev_free)
+            &&& node_link.prev_free@.addr == 0
+                    ==> Self::free_prev_of(freelist, i) is None
         }
 
         pub(crate) open spec fn free_next_of(ls: Seq<*mut BlockHdr>, i: int) -> Option<*mut BlockHdr> {
@@ -342,7 +339,7 @@ verus! {
                                     0 <= n < self.shadow_freelist@.m[i].len()
                                 implies self.wf_free_node(i, n)
                             by {
-                                assert(old(self).wf_free_node(i, n));
+                                old(self).lemma_wf_free_node_preserve(*self, i, n);
                             };
                         }
                     };
