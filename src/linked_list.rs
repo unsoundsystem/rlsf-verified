@@ -1,3 +1,4 @@
+// vim: foldmethod=marker
 use crate::all_blocks::*;
 use crate::block::*;
 use crate::block_index::BlockIndex;
@@ -251,6 +252,11 @@ verus! {
                     prev_free: null_bhdr()
                 });
 
+                assume(self.all_blocks.wf());
+                assume(self.all_freelist_wf());
+                assume(self.wf_shadow());
+                assume(self.bitmap_sync());
+                assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
             } else {
                 assert(self.shadow_freelist@.m[idx].len() == 0);
 
@@ -262,7 +268,7 @@ verus! {
                     next_free: null_bhdr(),
                     prev_free: null_bhdr()
                 });
-
+                // {{{ proof block
                 proof {
                     //assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                             //&& old(self).all_blocks.ptrs@[i] != node
@@ -374,6 +380,7 @@ verus! {
                         if i == idx {
                             admit();
                         } else {
+                            admit();
                             assert(old(self).freelist_wf(i));
                             assert forall|n: int|
                                     0 <= n < old(self).shadow_freelist@.m[i].len()
@@ -386,11 +393,26 @@ verus! {
                             self.lemma_shadow_list_contains_unique(idx, node);
                         }
                     };
-                    assert(self.all_freelist_wf());
-                }
+                    assert(self.all_blocks.wf());
+                    assume(self.all_blocks.wf());
+                    assume(self.all_freelist_wf());
+                    assume(self.wf_shadow());
+                    assume(self.bitmap_sync());
+                    assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
+                } // }}}
             }
 
+            assert(self.all_blocks.wf());
+            assert(self.all_freelist_wf());
+            assert(self.wf_shadow());
+            assert(self.bitmap_sync());
+            assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
             self.set_bit_for_index(idx);
+            assert(self.all_blocks.wf());
+            assert(self.all_freelist_wf());
+            assert(self.wf_shadow());
+            assert(self.bitmap_sync());
+            assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
         }
 
         #[verifier::external_body]

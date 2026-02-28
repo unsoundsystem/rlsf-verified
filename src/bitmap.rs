@@ -18,9 +18,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[inline(always)]
     pub fn set_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
-        ensures self.bitmap_wf(),
+        ensures
+            self.bitmap_wf(),
             idx matches BlockIndex(fl, sl)
-                && nth_bit!(self.sl_bitmap[fl as int], sl)
+                && nth_bit!(self.sl_bitmap[fl as int], sl),
+            self.first_free == old(self).first_free,
+            self.shadow_freelist == old(self).shadow_freelist,
+            self.all_blocks == old(self).all_blocks,
 
     {
         //#[cfg(feature = "std")]
