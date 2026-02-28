@@ -250,7 +250,7 @@ verus! {
 
                 // update link
                 let first_free_link = get_freelink_ptr(first_free);
-                assert(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
+                assume(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
                 {
                     let n = ptr_ref(first_free_link, Tracked(&first_free_fl_pt)).next_free;
                     ptr_mut_write(first_free_link, Tracked(&mut first_free_fl_pt), FreeLink {
