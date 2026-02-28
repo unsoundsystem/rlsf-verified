@@ -259,8 +259,10 @@ verus! {
 
             if self.first_free[idx.0][idx.1] != null_bhdr() {
                 let first_free = self.first_free[idx.0][idx.1];
-                assert(self.all_blocks.perms@.contains_key(first_free)) by {
 
+                assert(self.all_blocks.perms@.contains_key(first_free)) by {
+                    old(self).freelist_nonempty(idx);
+                    old(self).all_blocks.lemma_contains(first_free);
                 };
                 let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
                 assert(old(self).wf_free_node(idx, 0));
@@ -400,13 +402,47 @@ verus! {
                     assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
                         implies self.freelist_wf(i)
                     by {
-                        if i != idx {
+                        if i == idx {
+                            old(self).wf_index_in_freelist(idx);
+                            assert(old(self).shadow_freelist@.m[idx].len() == 0) by {
+                                if old(self).shadow_freelist@.m[idx].len() != 0 {
+                                    old(self).freelist_nonempty(idx);
+                                }
+                            };
+                            assert(self.shadow_freelist@.m[idx] == seq![node]) by {
+                                assert(self.all_blocks.ptrs@[node_ind] == node);
+                                assert(old(self).shadow_freelist@.m[idx] == Seq::<*mut BlockHdr>::empty());
+                            };
                             assert forall|n: int|
                                     0 <= n < self.shadow_freelist@.m[i].len()
-                                implies
-                                    self.all_blocks.value_at(self.shadow_freelist@.m[i][n]).is_free()
+                                implies self.wf_free_node(i, n)
                             by {
-                                assert(old(self).wf_free_node(i, n));
+                                assert(n == 0);
+                                assert(self.shadow_freelist@.m[i][n] == node);
+                                assert(self.all_blocks.contains(node));
+                                assert(self.all_blocks.value_at(node).is_free());
+                                assert(self.all_blocks.perms@[self.shadow_freelist@.m[i][n]].free_link_perm.unwrap().value().next_free@.addr == 0);
+                                assert(self.all_blocks.perms@[self.shadow_freelist@.m[i][n]].free_link_perm.unwrap().value().prev_free@.addr == 0);
+                                assert(Self::free_next_of(self.shadow_freelist@.m[i], n) is None);
+                                assert(Self::free_prev_of(self.shadow_freelist@.m[i], n) is None);
+                            };
+                        } else {
+                            assert forall|n: int|
+                                    0 <= n < self.shadow_freelist@.m[i].len()
+                                implies self.wf_free_node(i, n)
+                            by {
+                                assert(self.shadow_freelist@.m[i] == old(self).shadow_freelist@.m[i]);
+                                assert(self.shadow_freelist@.pi[(i, n)] == old(self).shadow_freelist@.pi[(i, n)]);
+                                assert(self.shadow_freelist@.m[i][n] == old(self).shadow_freelist@.m[i][n]);
+                                assert(old(self).shadow_freelist@.m[i].contains(old(self).shadow_freelist@.m[i][n]));
+                                assert(old(self).shadow_freelist@.m.contains_pair(i, old(self).shadow_freelist@.m[i]));
+                                assert(old(self).shadow_freelist@.contains(old(self).shadow_freelist@.m[i][n]));
+                                assert(old(self).shadow_freelist@.m[i][n] != node);
+                                assert(old(self).all_blocks.perms@[old(self).shadow_freelist@.m[i][n]]
+                                    == self.all_blocks.perms@[old(self).shadow_freelist@.m[i][n]]);
+                                assert(self.all_blocks.perms@[self.shadow_freelist@.m[i][n]]
+                                    == old(self).all_blocks.perms@[old(self).shadow_freelist@.m[i][n]]);
+                                old(self).lemma_wf_free_node_preserve(*self, i, n);
                             }
                         }
                     };
