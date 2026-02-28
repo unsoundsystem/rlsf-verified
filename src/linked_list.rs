@@ -240,41 +240,28 @@ verus! {
             let tracked node_fl_pt = node_blk.free_link_perm.tracked_unwrap();
 
             if self.first_free[idx.0][idx.1] != null_bhdr() {
-                proof {admit()}
                 let first_free = self.first_free[idx.0][idx.1];
-                assert(self.freelist_wf(idx));
-                assert(self.all_freelist_wf());
-                assert(self.all_blocks.wf());
-                assert(self.all_blocks.contains(first_free));
-                proof {
-                    self.all_blocks.lemma_contains(first_free);
-                    //self.all_blocks.lemma_node_is_wf(first_free);
-                }
                 assert(self.all_blocks.perms@.contains_key(first_free));
-                assert(self.all_blocks.wf());
                 let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
-                assert(first_free_perm.wf()) by {
-                    //self.all_blocks.lemma_node_is_wf(first_free);
-                };
                 let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
 
                 // update first pointer
                 self.set_freelist(idx, node);
 
                 // update link
-                let link = get_freelink_ptr(first_free);
-                assert(first_free == first_free_perm.points_to.ptr());
-                assert(get_freelink_ptr_spec(first_free) == get_freelink_ptr_spec(first_free_perm.points_to.ptr()));
+                let first_free_link = get_freelink_ptr(first_free);
                 assert(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
-                let link_payload = ptr_mut_read(link, Tracked(&mut first_free_fl_pt));
-                ptr_mut_write(link, Tracked(&mut first_free_fl_pt), FreeLink {
-                    next_free: link_payload.next_free,
-                    prev_free: node
-                });
+                {
+                    let n = ptr_ref(first_free_link, Tracked(&first_free_fl_pt)).next_free;
+                    ptr_mut_write(first_free_link, Tracked(&mut first_free_fl_pt), FreeLink {
+                        next_free: n,
+                        prev_free: node
+                    });
+                }
 
                 // update new node's link
-                let link = get_freelink_ptr(node);
-                ptr_mut_write(link, Tracked(&mut node_fl_pt), FreeLink {
+                let new_node_link = get_freelink_ptr(node);
+                ptr_mut_write(new_node_link, Tracked(&mut node_fl_pt), FreeLink {
                     next_free: first_free,
                     prev_free: null_bhdr()
                 });
