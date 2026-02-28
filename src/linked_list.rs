@@ -216,7 +216,7 @@ verus! {
             // we need node is wf in all_blocks
             old(self).all_blocks.contains(node),
             //get_freelink_ptr_spec(node) == old(node_fl_pt).ptr(),
-            // NOTE: not linked to freelist but the flag is marked free
+            // NOTE: not linked to freelist but the flag is marked free & free_link_perm is Some
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
         ensures
             self.all_blocks.wf(),
@@ -236,13 +236,15 @@ verus! {
             assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
                 implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
                 by {};
-            assert(node_blk.free_link_perm is Some);
             let tracked node_fl_pt = node_blk.free_link_perm.tracked_unwrap();
 
             if self.first_free[idx.0][idx.1] != null_bhdr() {
                 let first_free = self.first_free[idx.0][idx.1];
-                assert(self.all_blocks.perms@.contains_key(first_free));
+                assert(self.all_blocks.perms@.contains_key(first_free)) by {
+                    old(self).all_blocks.lemma_contains(first_free);
+                };
                 let tracked first_free_perm = self.all_blocks.perms.borrow_mut().tracked_remove(first_free);
+                assert(old(self).wf_free_node(idx, 0));
                 let tracked first_free_fl_pt = first_free_perm.free_link_perm.tracked_unwrap();
 
                 // update first pointer
@@ -250,7 +252,8 @@ verus! {
 
                 // update link
                 let first_free_link = get_freelink_ptr(first_free);
-                assume(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
+                assert(old(self).all_blocks.wf_node(old(self).all_blocks.get_ptr_internal_index(first_free)));
+                assert(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
                 {
                     let n = ptr_ref(first_free_link, Tracked(&first_free_fl_pt)).next_free;
                     ptr_mut_write(first_free_link, Tracked(&mut first_free_fl_pt), FreeLink {
@@ -266,11 +269,71 @@ verus! {
                     prev_free: null_bhdr()
                 });
 
-                assume(self.all_blocks.wf());
-                assume(self.all_freelist_wf());
-                assume(self.wf_shadow());
-                assume(self.bitmap_sync());
-                assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
+                // {{{ proof block
+                proof {
+                    self.all_blocks.perms.borrow_mut().tracked_insert(first_free, BlockPerm {
+                        points_to: first_free_perm.points_to,
+                        free_link_perm: Some(first_free_fl_pt),
+                        mem: first_free_perm.mem,
+                    });
+
+                    self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
+                        points_to: node_blk.points_to,
+                        free_link_perm: Some(node_fl_pt),
+                        mem: node_blk.mem,
+                    });
+
+
+                    assert(self.all_blocks.wf()) by {
+                        assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                            implies self.all_blocks.wf_node(i)
+                            by {
+                                assert(old(self).all_blocks.wf_node(i));
+                            }
+                    };
+
+                    let node_ind = self.all_blocks.get_ptr_internal_index(node);
+                    self.shadow_freelist@ =
+                        self.shadow_freelist@.ii_push_for_index(
+                            self.all_blocks,
+                            idx,
+                            node_ind);
+
+                    self.all_blocks.lemma_wf_nodup();
+                    Self::lemma_ii_push_for_index_ensures(
+                            old(self).shadow_freelist@,
+                            old(self).all_blocks,
+                            idx,
+                            node_ind);
+
+
+                    assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
+                        implies self.freelist_wf(i)
+                    by {
+                        if i == idx {
+                            assert forall|n: int|
+                                    0 <= n < self.shadow_freelist@.m[i].len()
+                                implies self.wf_free_node(i, n)
+                            by {
+                                if n != 0 {
+                                    assert(old(self).wf_free_node(idx, n - 1));
+                                }
+                            };
+                        } else {
+                            assert forall|n: int|
+                                    0 <= n < self.shadow_freelist@.m[i].len()
+                                implies self.wf_free_node(i, n)
+                            by {
+                                assert(old(self).wf_free_node(i, n));
+                            };
+                        }
+                    };
+
+                    assert(self.wf_shadow());
+                    assert(self.all_freelist_wf());
+                    assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
+                }
+                // }}}
             } else {
                 self.set_freelist(idx, node);
                 ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
@@ -292,6 +355,7 @@ verus! {
                         assert(self.all_blocks.ptrs@.contains(node));
                     };
                     let node_ind = self.all_blocks.get_ptr_internal_index(node);
+
                     assert(self.all_blocks.wf()) by {
                         assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                             implies self.all_blocks.wf_node(i)
@@ -330,17 +394,22 @@ verus! {
                 } // }}}
             }
 
+            let ghost pre = *self;
             self.set_bit_for_index(idx);
-            assert(self.bitmap_sync()) by {
-                if self.first_free[idx.0 as int][idx.1 as int].addr() != 0 {
-                    admit()
-                }
+            // NOTE: this is workaround for discontineuous proof context
+            assert(self.all_freelist_wf()) by {
+                assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
+                    implies self.freelist_wf(bi)
+                by {
+                    pre.wf_index_in_freelist(bi);
+                    assert(self.shadow_freelist@.m[bi] == pre.shadow_freelist@.m[bi]);
+                    assert forall|n: int| 0 <= n < self.shadow_freelist@.m[bi].len()
+                        implies self.wf_free_node(bi, n)
+                    by {
+                        pre.lemma_wf_free_node_preserve(*self, bi, n);
+                    };
+                };
             };
-            assume(self.all_blocks.wf());
-            assume(self.all_freelist_wf());
-            assume(self.wf_shadow());
-            assume(self.bitmap_sync());
-            assume(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
         }
 
         #[verifier::external_body]

@@ -22,10 +22,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.bitmap_wf(),
             idx matches BlockIndex(fl, sl)
                 && nth_bit!(self.sl_bitmap[fl as int], sl),
+            forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                ==> nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                    == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize),
+            forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                ==> (1 & self.sl_bitmap[i.0 as int] >> i.1 as usize)
+                    == (1 & old(self).sl_bitmap[i.0 as int] >> i.1 as usize),
             self.first_free == old(self).first_free,
             self.shadow_freelist == old(self).shadow_freelist,
             self.all_blocks == old(self).all_blocks,
-
+            self.used_info == old(self).used_info,
+            self.valid_range == old(self).valid_range,
+            self.root_provenances == old(self).root_provenances,
     {
         //#[cfg(feature = "std")]
         //{
@@ -81,6 +89,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     }
                 }
             }
+
+            assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                implies nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                    == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize)
+            by {
+                let BlockIndex(f, s) = i;
+                let BlockIndex(fl, sl) = idx;
+                if f == fl {
+                    assert(s != sl);
+                    lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+                } else {
+                    assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int]);
+                }
+            };
+            assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                implies (1 & self.sl_bitmap[i.0 as int] >> i.1 as usize)
+                    == (1 & old(self).sl_bitmap[i.0 as int] >> i.1 as usize)
+            by {
+                assert(nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                    == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize));
+            };
         }
     }
 

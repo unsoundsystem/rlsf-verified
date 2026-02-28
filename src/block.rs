@@ -53,11 +53,11 @@ verus! {
     impl BlockPerm {
         pub(crate) open spec fn wf(self) -> bool {
             &&& self.points_to.is_init()
-            &&& self.points_to.value().is_free()
-                ==> self.free_link_perm is Some
-            &&& self.free_link_perm matches Some(pt) &&
-                get_freelink_ptr_spec(self.points_to.ptr()) == pt.ptr()
-                    && pt.is_init()
+            &&& self.points_to.value().is_free() ==> {
+                    self.free_link_perm matches Some(pt) &&
+                        get_freelink_ptr_spec(self.points_to.ptr()) == pt.ptr()
+                            && pt.is_init()
+                }
         }
     }
 
