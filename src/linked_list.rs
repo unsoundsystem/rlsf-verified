@@ -252,9 +252,6 @@ verus! {
                     .lemma_sfl_not_contains_iff_pi_undefined(self.all_blocks, node);
             }
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
-            assert forall|n: *mut BlockHdr| old(self).all_blocks.perms@.contains_key(n) && n != node
-                implies old(self).all_blocks.perms@[n] == self.all_blocks.perms@[n]
-                by {};
             let tracked node_fl_pt = node_blk.free_link_perm.tracked_unwrap();
 
             if self.first_free[idx.0][idx.1] != null_bhdr() {
