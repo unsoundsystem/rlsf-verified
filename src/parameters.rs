@@ -153,7 +153,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
     pub open spec fn parameter_validity() -> bool {
-        &&& 0 < FLLEN <= usize::BITS
+        &&& 0 < FLLEN < usize::BITS - Self::granularity_log2_spec()
         &&& 0 < SLLEN <= usize::BITS
             && is_power_of_two(SLLEN as int)
         &&& usize::BITS == 64 ==> GRANULARITY == 32 // 64bit platform

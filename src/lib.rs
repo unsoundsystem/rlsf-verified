@@ -126,6 +126,71 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& self.bitmap_sync()
     }
 
+    proof fn lemma_usize_add_le_from_int(x: usize, y: usize)
+        requires (x as int) <= (usize::MAX - y) as int
+        ensures x + y <= usize::MAX
+    {
+        assert(x <= usize::MAX - y) by (nonlinear_arith);
+        assert(x + y <= usize::MAX) by (bit_vector);
+    }
+
+    proof fn lemma_round_up_pow2_mono(x: usize, y: usize, g: usize)
+        requires
+            is_power_of_two(g as int),
+            0 <= x + (g - 1) <= usize::MAX,
+            0 <= y + (g - 1) <= usize::MAX,
+            x <= y,
+        ensures
+            ((x + (g - 1)) as usize) & !((g - 1) as usize)
+                <= ((y + (g - 1)) as usize) & !((g - 1) as usize)
+    {
+        assert(((x + (g - 1)) as usize) & !((g - 1) as usize)
+            <= ((y + (g - 1)) as usize) & !((g - 1) as usize)) by (bit_vector)
+            requires x <= y;
+    }
+
+    proof fn lemma_checked_add_eq(x: usize, y: usize, res: usize)
+        requires x.checked_add(y) == Some(res)
+        ensures res == x + y
+    {
+        assert(x + y <= usize::MAX) by (nonlinear_arith);
+        assert(res == (x + y) as usize) by (bit_vector);
+        assert(res == x + y) by (bit_vector);
+    }
+
+    proof fn lemma_usize_add_le_mono(a: usize, b: usize, c: usize)
+        requires
+            a <= b,
+            b + c <= usize::MAX,
+        ensures
+            a + c <= b + c
+    {
+        assert(a as int <= b as int) by (nonlinear_arith);
+        assert(a as int + c as int <= b as int + c as int) by (nonlinear_arith);
+        assert((a + c) as int <= (b + c) as int) by (nonlinear_arith);
+        assert(a + c <= b + c) by (bit_vector);
+    }
+
+    proof fn lemma_usize_le_from_int(x: usize, y: usize)
+        requires (x as int) <= (y as int)
+        ensures x <= y
+    {
+        assert(x <= y) by (nonlinear_arith);
+    }
+
+    proof fn lemma_int_le_implies_usize_le(x: int, y: usize)
+        requires 0 <= x, x <= y as int
+        ensures (x as usize) <= y
+    {
+        assert((x as usize) <= y) by (nonlinear_arith);
+    }
+
+    proof fn lemma_usize_nonneg(u: usize)
+        ensures 0 <= u as int
+    {
+        assert(0 <= u as int) by (bit_vector);
+    }
+
     pub const fn new() -> (r: Self)
         ensures r.wf()
     {
@@ -508,8 +573,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             /* TODO: Allocation precondition
              * - already initialized
              * */
+            BlockIndex::<FLLEN, SLLEN>::parameter_validity(),
             old(self).wf(),
             is_power_of_two(align as int),
+            // this assumption might be weak: UsedBlockHdr overhead no considered
+            align < pow2(FLLEN as nat) * GRANULARITY as int,
         ensures
             r matches Some((ptr, points_to, tok)) ==> ({
                 /* NOTE: Allocation correctness
@@ -597,13 +665,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let block_prov = expose_provenance(block);
 
             proof {
-                assert(self.all_blocks.wf());
-                assume(self.all_blocks.ptrs@.len() > 0);
-                assert(self.all_blocks.wf_node(0));
-                assert(old(self).all_blocks.wf_node(0));
-                assume(old(self).all_blocks.perms@[block].wf());
+                assert(self.all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(block)));
                 assert(block == old(self).all_blocks.perms@[block].points_to.ptr());
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
+                assert(old_head_perm == old(self).all_blocks.perms@[block]);
                 assert(old_head_perm.wf());
             }
 
@@ -612,7 +677,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(&old_head_perm));
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
             let block_size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
-            proof {admit();} //---------------------------------------------------------------------------------------------------------------
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
 
             //debug_assert!(size >= search_size);
@@ -620,12 +684,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Unlink the free block. We are not using `unlink_free_block` because
             // we already know `(fl, sl)` and that `block.prev_free` is `None`.
             let block_freelink = get_freelink_ptr(block);
+            assert(old(self).wf_free_node(idx, 0));
             let tracked block_freelink_perm = old_head_perm.free_link_perm.tracked_unwrap();
             self.set_freelist(idx, ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
 
             if ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free != null_bhdr() {
                 let next_free = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free;
                 proof {
+                    assert(old(self).wf_free_node(idx, 1));
+                    assert(old(self).all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(next_free)));
                     new_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
                 }
 
@@ -670,7 +737,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //// Calculate the actual overhead and the final block size of the
             //// used block being created here
             let overhead = ptr as usize - block as usize;
-            assert(overhead <= max_overhead);
+            assert(overhead <= max_overhead) by {
+                // TODO
+                admit();
+                assume(block as int + 2*GRANULARITY <= usize::MAX);
+                // ptr = round_up(block + G / 2, align)
+                //assert(unaligned_ptr - ptr < align);
+            };
 
             let new_size = overhead + size;
             let new_size = (new_size + GRANULARITY - 1) & !(GRANULARITY - 1);
@@ -678,6 +751,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             //let tracked mut
 
+            proof {admit();} //---------------------------------------------------------------------------------------------------------------
             // Permission object for `ptr`, the pointer returned to the user
             let tracked mut new_block_perm = old_head_perm;
             if new_size == block_size {
@@ -1036,7 +1110,7 @@ pub tracked struct DeallocToken;
 pub unsafe fn round_up(ptr: *mut u8, align: usize) -> (r: *mut u8)
     requires is_power_of_two(align as int)
     ensures
-        (ptr as usize) <= (r as usize),
+        (ptr as int) <= (r as int) < (ptr as int) + align as int ,
         ptr as usize % align == 0
 {
     let prov = expose_provenance(ptr);

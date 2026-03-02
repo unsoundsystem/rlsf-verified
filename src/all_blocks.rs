@@ -1,4 +1,5 @@
 use crate::block::*;
+use crate::block_index::GRANULARITY;
 use crate::block_index::BlockIndex;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
@@ -47,6 +48,9 @@ verus! {
             let ptr = self.ptrs@[i];
             // --- Well-formedness for tracked/ghost states
             &&& ptr@.addr != 0
+            &&& 0 <= ptr@.addr
+            // All blocks are GRANULARITY-aligned.
+            &&& (ptr@.addr as int) % (GRANULARITY as int) == 0
             &&& self.perms@.contains_key(ptr)
             &&& ptr == self.perms@[ptr].points_to.ptr()
             &&& self.perms@[ptr].wf()
