@@ -18,12 +18,13 @@ import matplotlib.pyplot as plt
 CPU = "1"
 RT_PRIO = "99"
 
-BENCH_PROJ = Path("./rlsf-verified-tests")
+# Adjust if your repo layout differs.
+BENCH_PROJ = Path(__file__).resolve().parent.parent.parent / "rlsf-verified-tests"
 SIZES = ["64b", "32b", "16b", "8b"]
 KINDS = ["original", "verified"]
 
 # Jitter probe: minimum events
-JITTER_EVENTS = "task-clock"  # plus implicit "time elapsed" from perf stat
+JITTER_EVENTS = "cycles,instructions,task-clock,L1-dcache-loads,L1-dcache-load-misses"
 
 # Main measurement: richer events
 MAIN_EVENTS = (
@@ -48,7 +49,7 @@ def require_cmd(name: str):
 
 
 def env_checks():
-    for c in ["cargo", "perf", "chrt", "taskset"]:
+    for c in ["cargo", "perf", "chrt", "taskset", "cpupower", "tee", "sudo"]:
         require_cmd(c)
 
 
@@ -95,7 +96,12 @@ def build_project():
 def parse_perf_xcsv(stderr_text: str) -> dict[str, tuple[float, str]]:
     """
     Parse `perf stat -x,` stderr into: event -> (value, unit)
-    Includes "time elapsed" line (event contains "time elapsed").
+
+    NOTE (your environment):
+      - 'time elapsed' line is NOT printed.
+      - unit field for task-clock may be empty.
+      - trailing 'CPUs utilized' can appear on the same line.
+    We only rely on: value (col0), unit (col1), event (col2).
     """
     out: dict[str, tuple[float, str]] = {}
     for line in stderr_text.splitlines():
@@ -105,24 +111,50 @@ def parse_perf_xcsv(stderr_text: str) -> dict[str, tuple[float, str]]:
         cols = [c.strip() for c in line.split(",")]
         if len(cols) < 3:
             continue
+
         val_s, unit, event = cols[0], cols[1], cols[2]
         if not val_s or val_s.startswith("<"):
             continue
+
         val_s = val_s.replace(",", "")
         try:
             val = float(val_s)
         except ValueError:
             continue
+
         event = event or "(unknown)"
         out[event] = (val, unit)
     return out
 
 
-def extract_time_elapsed_s(perf_map: dict[str, tuple[float, str]]) -> float:
-    for ev, (val, _unit) in perf_map.items():
-        if "time elapsed" in ev:
-            return float(val)
-    raise KeyError("time elapsed not found")
+def extract_runtime_s(perf_map: dict[str, tuple[float, str]]) -> float:
+    """
+    In this environment, perf stat -x, does NOT include 'time elapsed'.
+    Use task-clock as runtime proxy.
+
+    Special handling:
+      - unit may be empty; interpret as nanoseconds (observed).
+    """
+    if "task-clock" not in perf_map:
+        raise KeyError("task-clock not found in perf output")
+
+    val, unit = perf_map["task-clock"]
+    unit = (unit or "").strip().lower()
+
+    if unit in ("msec", "ms"):
+        return float(val) * 1e-3
+    if unit in ("usec", "us"):
+        return float(val) * 1e-6
+    if unit in ("nsec", "ns"):
+        return float(val) * 1e-9
+    if unit in ("sec", "secs", "second", "seconds", "s"):
+        return float(val)
+
+    # Your observed case: unit == "" -> assume nanoseconds
+    if unit == "":
+        return float(val) * 1e-9
+
+    raise ValueError(f"Unknown task-clock unit: {unit!r}")
 
 
 def run_perf_stat(bin_path: Path, num_iter: int, events: str) -> tuple[int, dict[str, tuple[float, str]], str]:
@@ -149,11 +181,41 @@ def run_perf_stat(bin_path: Path, num_iter: int, events: str) -> tuple[int, dict
 
 
 ########################################
-# 1) Jitter probe: runtime distribution only
+# 0) Common kernel/OS setup
+########################################
+def setup_common():
+    print("[*] Setting up kernel/OS knobs (needs sudo)")
+
+    def run(cmd, input_text=None):
+        print(">>", " ".join(cmd))
+        subprocess.run(
+            cmd,
+            input=input_text,
+            text=True,
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+
+    # fix frequency
+    run(["sudo", "cpupower", "frequency-set", "-g", "performance"])
+
+    # disable THP
+    if Path("/sys/kernel/mm/transparent_hugepage/enabled").exists():
+        run(["sudo", "tee", "/sys/kernel/mm/transparent_hugepage/enabled"], input_text="never\n")
+
+    # disable ASLR
+    run(["sudo", "tee", "/proc/sys/kernel/randomize_va_space"], input_text="0\n")
+
+    # relax perf restrictions
+    run(["sudo", "tee", "/proc/sys/kernel/perf_event_paranoid"], input_text="1\n")
+
+
+########################################
+# 1) Run-to-run variability probe (distribution + violin)
 ########################################
 def measure_jitter(num_iter: int, runs: int, paths: Paths):
     """
-    Measure run-to-run jitter (distribution of time elapsed).
+    Measure run-to-run variability using task-clock (converted to seconds).
     Output: jitter_time_distribution.csv and per-size violin plots.
     """
     records: list[dict] = []
@@ -164,28 +226,30 @@ def measure_jitter(num_iter: int, runs: int, paths: Paths):
             if not bin_path.exists():
                 raise SystemExit(f"ERROR: binary not found: {bin_path} (build first)")
 
-            print(f"[*] JITTER size={s} kind={k}")
+            print(f"[*] VARIABILITY size={s} kind={k}")
             for i in range(1, runs + 1):
                 rc, perf_map, _raw = run_perf_stat(bin_path, num_iter, JITTER_EVENTS)
-                t = extract_time_elapsed_s(perf_map)
+                t_s = extract_runtime_s(perf_map)
 
-                # (optional) task-clock in msec, useful to see CPU-time jitter too
-                task_clock = None
-                if "task-clock" in perf_map:
-                    task_clock = perf_map["task-clock"][0]
-
+                # store raw task-clock too (value/unit)
+                task_clock_val, task_clock_unit = perf_map.get("task-clock", (None, None))
                 records.append({
                     "kind": k,
                     "size": s,
                     "run": i,
                     "return_code": rc,
-                    "time_s": t,
-                    "task_clock": task_clock,
+                    "time_s": t_s,  # task-clock converted to seconds
+                    "task_clock": task_clock_val,
+                    "task_clock_unit": task_clock_unit,
+                    "cycles": perf_map["cycles"][0],
+                    "instructions": perf_map["instructions"][0],
+                    "L1-dcache-loads": perf_map["L1-dcache-loads"][0],
+                    "L1-dcache-load-misses": perf_map["L1-dcache-load-misses"][0],
                 })
 
     df = pd.DataFrame.from_records(records)
     df.to_csv(paths.jitter_csv, index=False)
-    print(f"[*] Saved jitter CSV: {paths.jitter_csv}")
+    print(f"[*] Saved variability CSV: {paths.jitter_csv}")
 
     plot_jitter_violins(df, paths.fig_dir)
 
@@ -201,7 +265,7 @@ def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path):
 
         ax.set_xticks(np.arange(1, len(kinds) + 1))
         ax.set_xticklabels(kinds)
-        ax.set_ylabel("seconds time elapsed (s)")
+        ax.set_ylabel("task-clock (s)")
         ax.set_title(title)
 
         for idx, k in enumerate(kinds, start=1):
@@ -220,21 +284,21 @@ def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path):
             continue
         violinplot_by_kind(
             sub,
-            fig_dir / f"jitter_violin_time_{s}.png",
-            title=f"Jitter (runtime distribution) size={s}",
+            fig_dir / f"variability_violin_taskclock_{s}.png",
+            title=f"Run-to-run variability (task-clock) size={s}",
         )
 
     # all sizes mixed (reference)
     violinplot_by_kind(
         df,
-        fig_dir / "jitter_violin_time_all_sizes.png",
-        title="Jitter (runtime distribution) all sizes",
+        fig_dir / "variability_violin_taskclock_all_sizes.png",
+        title="Run-to-run variability (task-clock) all sizes",
     )
-    print(f"[*] Jitter figures saved under: {fig_dir}")
+    print(f"[*] Variability figures saved under: {fig_dir}")
 
 
 ########################################
-# 2) Main measurement: your bench.py run equivalent (perf CSV)
+# 2) Main measurement (perf CSV + summary)
 ########################################
 def run_main_measurement(num_iter: int, runs: int, paths: Paths):
     """
@@ -242,7 +306,7 @@ def run_main_measurement(num_iter: int, runs: int, paths: Paths):
     Output:
       - meta.log
       - perf_original.csv / perf_verified.csv (raw perf -x, stderr appended)
-      - main_summary.csv (one row per run, with time elapsed extracted)
+      - main_summary.csv (one row per run, with task-clock seconds as time_s)
     """
     meta_fp = open(paths.meta_log, "a")
     summary_rows: list[dict] = []
@@ -268,17 +332,16 @@ def run_main_measurement(num_iter: int, runs: int, paths: Paths):
                         if not raw.endswith("\n"):
                             f.write("\n")
 
-                    # also store a structured per-run summary (handy for stats/plots)
-                    t = extract_time_elapsed_s(perf_map)
+                    # per-run structured summary
+                    t_s = extract_runtime_s(perf_map)  # task-clock seconds
                     row = {
                         "kind": k,
                         "size": s,
                         "run": i,
                         "return_code": rc,
-                        "time_s": t,
+                        "time_s": t_s,
                     }
-                    # pull a few events if present
-                    for ev in ["cycles", "instructions", "cache-misses", "branch-misses", "dTLB-load-misses", "task-clock"]:
+                    for ev in ["cycles", "instructions", "cache-misses", "branch-misses", "dTLB-load-misses", "minor-faults", "task-clock"]:
                         if ev in perf_map:
                             row[ev] = perf_map[ev][0]
                     summary_rows.append(row)
@@ -300,12 +363,12 @@ def main():
     ap = argparse.ArgumentParser()
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--build", action="store_true")
-    mode.add_argument("--jitter", action="store_true", help="Measure runtime jitter + violin plots")
+    mode.add_argument("--jitter", action="store_true", help="Measure run-to-run variability + violin plots")
     mode.add_argument("--run", action="store_true", help="Main perf measurement (run equivalent)")
-    mode.add_argument("--all", action="store_true", help="Build + jitter + run")
+    mode.add_argument("--all", action="store_true", help="Setup + build + jitter + run")
 
     ap.add_argument("NUM_ITER", nargs="?", type=int, help="Iteration count passed to each benchmark binary")
-    ap.add_argument("--runs", type=int, default=50)
+    ap.add_argument("--runs", type=int, default=100)
     ap.add_argument("--outdir", default=None)
 
     args = ap.parse_args()
@@ -321,6 +384,7 @@ def main():
         raise SystemExit("ERROR: NUM_ITER is required for --jitter/--run/--all")
 
     if args.all:
+        setup_common()
         build_project()
         measure_jitter(args.NUM_ITER, args.runs, paths)
         run_main_measurement(args.NUM_ITER, args.runs, paths)
@@ -328,11 +392,13 @@ def main():
         return
 
     if args.jitter:
+        setup_common()
         measure_jitter(args.NUM_ITER, args.runs, paths)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
     if args.run:
+        setup_common()
         run_main_measurement(args.NUM_ITER, args.runs, paths)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
