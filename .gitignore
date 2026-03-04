@@ -11,3 +11,4 @@ target
 *.long-type-*
 .verus.log
 results_*
+__pycache__

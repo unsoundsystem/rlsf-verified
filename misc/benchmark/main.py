@@ -24,6 +24,7 @@ BENCH_PROJ = Path(__file__).resolve().parent.parent.parent / "rlsf-verified-test
 SIZES = ["16k", "2k", "256b", "64b", "32b", "16b", "8b"]
 KINDS = ["original", "verified"]
 TASKS = ["alt", "aaaddd"]
+LTO_MODES = ["none", "fat"]
 
 # Jitter probe: minimum events
 JITTER_EVENTS = "cycles,instructions,task-clock,L1-dcache-loads,L1-dcache-load-misses"
@@ -73,10 +74,11 @@ def make_outdir(user_outdir: str | None) -> Paths:
     )
 
 
-def build_project(task: str):
+def build_project(task: str, lto_mode: str):
     print(f"[*] Building in {BENCH_PROJ}")
     if not BENCH_PROJ.exists():
         raise SystemExit(f"ERROR: BENCH_PROJ not found: {BENCH_PROJ}")
+    print(f"[*] Build config: task={task} lto={lto_mode}")
 
     for s in SIZES:
         for k in KINDS:
@@ -84,6 +86,10 @@ def build_project(task: str):
             print(f"  - build {bin_name}")
             env = os.environ.copy()
             env["RUSTFLAGS"] = "-C target-cpu=native"
+            if lto_mode == "fat":
+                env["CARGO_PROFILE_RELEASE_LTO"] = "fat"
+            else:
+                env.pop("CARGO_PROFILE_RELEASE_LTO", None)
             subprocess.run(
                 ["cargo", "build", "--release", "--bin", bin_name],
                 cwd=str(BENCH_PROJ),
@@ -121,6 +127,18 @@ def parse_task_arg(task_arg: str | None) -> str:
             f"ERROR: unknown task: {task_arg}. valid: {', '.join(TASKS)}"
         )
     return task
+
+
+def parse_lto_arg(lto_arg: str | None) -> str:
+    if lto_arg is None:
+        return "none"
+
+    lto = lto_arg.strip().lower()
+    if lto not in LTO_MODES:
+        raise SystemExit(
+            f"ERROR: unknown lto mode: {lto_arg}. valid: {', '.join(LTO_MODES)}"
+        )
+    return lto
 
 
 def bin_name_for(task: str, size: str, kind: str) -> str:
@@ -288,10 +306,10 @@ def measure_jitter(num_iter: int, runs: int, paths: Paths, sizes: list[str], tas
     df.to_csv(paths.jitter_csv, index=False)
     print(f"[*] Saved variability CSV: {paths.jitter_csv}")
 
-    plot_jitter_violins(df, paths.fig_dir)
+    plot_jitter_violins(df, paths.fig_dir, sizes)
 
 
-def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path):
+def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path, sizes: list[str]):
     def violinplot_by_kind(sub: pd.DataFrame, outpath: Path, title: str):
         kinds = sorted(sub["kind"].unique().tolist())
         data = [sub[sub["kind"] == k]["time_s"].to_numpy() for k in kinds]
@@ -488,6 +506,7 @@ def main():
     ap.add_argument("NUM_ITER", nargs="?", type=int, help="Iteration count passed to each benchmark binary")
     ap.add_argument("--runs", type=int, default=100)
     ap.add_argument("--task", default="alt", help=f"Benchmark task prefix. valid: {','.join(TASKS)}")
+    ap.add_argument("--lto", default="none", help=f"Release LTO mode for build/all. valid: {','.join(LTO_MODES)}")
     ap.add_argument("--sizes", default=None, help=f"Comma-separated sizes to run (default: all). valid: {','.join(SIZES)}")
     ap.add_argument("--violin-html", action="store_true", help="Write an HTML gallery for variability violin plots")
     ap.add_argument("--outdir", default=None)
@@ -497,10 +516,11 @@ def main():
     env_checks()
     paths = make_outdir(args.outdir)
     selected_task = parse_task_arg(args.task)
+    selected_lto = parse_lto_arg(args.lto)
     selected_sizes = parse_sizes_arg(args.sizes)
 
     if args.build:
-        build_project(selected_task)
+        build_project(selected_task, selected_lto)
         return
 
     if args.NUM_ITER is None:
@@ -508,7 +528,7 @@ def main():
 
     if args.all:
         setup_common()
-        build_project(selected_task)
+        build_project(selected_task, selected_lto)
         measure_jitter(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         if args.violin_html:
             write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html")
