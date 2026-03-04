@@ -72,6 +72,62 @@ name = "alt16k-original"
 path = "src/alt16k_original.rs"
 
 [[bin]]
+name = "aaaddd8b-verified"
+path = "src/aaaddd8b_verified.rs"
+
+[[bin]]
+name = "aaaddd16b-verified"
+path = "src/aaaddd16b_verified.rs"
+
+[[bin]]
+name = "aaaddd32b-verified"
+path = "src/aaaddd32b_verified.rs"
+
+[[bin]]
+name = "aaaddd64b-verified"
+path = "src/aaaddd64b_verified.rs"
+
+[[bin]]
+name = "aaaddd256b-verified"
+path = "src/aaaddd256b_verified.rs"
+
+[[bin]]
+name = "aaaddd2k-verified"
+path = "src/aaaddd2k_verified.rs"
+
+[[bin]]
+name = "aaaddd16k-verified"
+path = "src/aaaddd16k_verified.rs"
+
+[[bin]]
+name = "aaaddd8b-original"
+path = "src/aaaddd8b_original.rs"
+
+[[bin]]
+name = "aaaddd16b-original"
+path = "src/aaaddd16b_original.rs"
+
+[[bin]]
+name = "aaaddd32b-original"
+path = "src/aaaddd32b_original.rs"
+
+[[bin]]
+name = "aaaddd64b-original"
+path = "src/aaaddd64b_original.rs"
+
+[[bin]]
+name = "aaaddd256b-original"
+path = "src/aaaddd256b_original.rs"
+
+[[bin]]
+name = "aaaddd2k-original"
+path = "src/aaaddd2k_original.rs"
+
+[[bin]]
+name = "aaaddd16k-original"
+path = "src/aaaddd16k_original.rs"
+
+[[bin]]
 name = "ada8b"
 path = "src/ada8b.rs"
 
