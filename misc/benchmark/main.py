@@ -20,7 +20,7 @@ RT_PRIO = "99"
 
 # Adjust if your repo layout differs.
 BENCH_PROJ = Path(__file__).resolve().parent.parent.parent / "rlsf-verified-tests"
-SIZES = ["64b", "32b", "16b", "8b"]
+SIZES = ["16k", "2k", "256b", "64b", "32b", "16b", "8b"]
 KINDS = ["original", "verified"]
 
 # Jitter probe: minimum events
@@ -88,6 +88,25 @@ def build_project():
                 env=env,
                 check=True,
             )
+
+
+def parse_sizes_arg(sizes_arg: str | None) -> list[str]:
+    if sizes_arg is None:
+        return SIZES
+
+    raw = [s.strip() for s in sizes_arg.split(",")]
+    selected = [s for s in raw if s]
+    if not selected:
+        raise SystemExit("ERROR: --sizes is empty")
+
+    invalid = [s for s in selected if s not in SIZES]
+    if invalid:
+        raise SystemExit(
+            f"ERROR: unknown size(s): {', '.join(invalid)}. valid: {', '.join(SIZES)}"
+        )
+
+    # keep user order, drop duplicates
+    return list(dict.fromkeys(selected))
 
 
 ########################################
@@ -213,14 +232,14 @@ def setup_common():
 ########################################
 # 1) Run-to-run variability probe (distribution + violin)
 ########################################
-def measure_jitter(num_iter: int, runs: int, paths: Paths):
+def measure_jitter(num_iter: int, runs: int, paths: Paths, sizes: list[str]):
     """
     Measure run-to-run variability using task-clock (converted to seconds).
     Output: jitter_time_distribution.csv and per-size violin plots.
     """
     records: list[dict] = []
 
-    for s in SIZES:
+    for s in sizes:
         for k in KINDS:
             bin_path = BENCH_PROJ / f"target/release/alt{s}-{k}"
             if not bin_path.exists():
@@ -278,7 +297,7 @@ def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path):
         plt.close(fig)
 
     # per-size
-    for s in SIZES:
+    for s in sizes:
         sub = df[df["size"] == s].copy()
         if sub.empty:
             continue
@@ -300,7 +319,7 @@ def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path):
 ########################################
 # 2) Main measurement (perf CSV + summary)
 ########################################
-def run_main_measurement(num_iter: int, runs: int, paths: Paths):
+def run_main_measurement(num_iter: int, runs: int, paths: Paths, sizes: list[str]):
     """
     Main perf measurement (events like cycles/instructions/...).
     Output:
@@ -312,7 +331,7 @@ def run_main_measurement(num_iter: int, runs: int, paths: Paths):
     summary_rows: list[dict] = []
 
     try:
-        for s in SIZES:
+        for s in sizes:
             for k in KINDS:
                 bin_path = BENCH_PROJ / f"target/release/alt{s}-{k}"
                 if not bin_path.exists():
@@ -369,12 +388,14 @@ def main():
 
     ap.add_argument("NUM_ITER", nargs="?", type=int, help="Iteration count passed to each benchmark binary")
     ap.add_argument("--runs", type=int, default=100)
+    ap.add_argument("--sizes", default=None, help=f"Comma-separated sizes to run (default: all). valid: {','.join(SIZES)}")
     ap.add_argument("--outdir", default=None)
 
     args = ap.parse_args()
 
     env_checks()
     paths = make_outdir(args.outdir)
+    selected_sizes = parse_sizes_arg(args.sizes)
 
     if args.build:
         build_project()
@@ -386,20 +407,20 @@ def main():
     if args.all:
         setup_common()
         build_project()
-        measure_jitter(args.NUM_ITER, args.runs, paths)
-        run_main_measurement(args.NUM_ITER, args.runs, paths)
+        measure_jitter(args.NUM_ITER, args.runs, paths, selected_sizes)
+        run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
     if args.jitter:
         setup_common()
-        measure_jitter(args.NUM_ITER, args.runs, paths)
+        measure_jitter(args.NUM_ITER, args.runs, paths, selected_sizes)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
     if args.run:
         setup_common()
-        run_main_measurement(args.NUM_ITER, args.runs, paths)
+        run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
