@@ -1,6 +1,6 @@
 use crate::block::*;
-use crate::block_index::GRANULARITY;
 use crate::block_index::BlockIndex;
+use crate::block_index::GRANULARITY;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
@@ -89,6 +89,7 @@ verus! {
                 self.phys_next_of(i) matches Some(next_ptr)
                     && !self.value_at(next_ptr).is_free()
             } else { true }
+
         }
 
         pub(crate) open spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr> {

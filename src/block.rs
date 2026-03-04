@@ -54,9 +54,13 @@ verus! {
         pub(crate) open spec fn wf(self) -> bool {
             &&& self.points_to.is_init()
             &&& self.points_to.value().is_free() ==> {
-                    self.free_link_perm matches Some(pt) &&
-                        get_freelink_ptr_spec(self.points_to.ptr()) == pt.ptr()
-                            && pt.is_init()
+                    let size = self.points_to.value().size;
+                    &&& self.free_link_perm matches Some(pt) &&
+                            get_freelink_ptr_spec(self.points_to.ptr()) == pt.ptr()
+                                && pt.is_init()
+                    // NOTE: SIZE_USED and SIZE_SENTINEL is not present
+                    &&& size == size & SIZE_SIZE_MASK
+                    &&& self.mem.is_range(self.points_to.ptr() as int, size as int)
                 }
         }
     }
