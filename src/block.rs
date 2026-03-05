@@ -22,7 +22,11 @@ verus! {
             self.size & SIZE_USED == 0
         }
 
-        pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<&BlockPerm>) -> *mut Self {
+        pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<&BlockPerm>) -> (r: *mut Self)
+            ensures
+                r@.provenance == block@.provenance,
+                r@.addr == block@.addr + ((perm.points_to.value().size & SIZE_SIZE_MASK) as int),
+        {
             let size = ptr_ref(block, Tracked(&perm.points_to)).size;
 
             //debug_assert!((size & SIZE_SENTINEL) == 0, "`self` must not be a sentinel");
@@ -34,7 +38,8 @@ verus! {
             // Safety: Since `self.size & SIZE_SENTINEL` is not lying, the
             //         next block should exist at a non-null location.
             let prov = expose_provenance(block);
-            with_exposed_provenance((block as usize) + (size & SIZE_SIZE_MASK), prov)
+            let r = with_exposed_provenance((block as usize) + (size & SIZE_SIZE_MASK), prov);
+            r
         }
     }
 
@@ -53,6 +58,7 @@ verus! {
     impl BlockPerm {
         pub(crate) open spec fn wf(self) -> bool {
             &&& self.points_to.is_init()
+            &&& self.mem.provenance() == self.points_to.ptr()@.provenance
             &&& self.points_to.value().is_free() ==> {
                     let size = self.points_to.value().size;
                     &&& self.free_link_perm matches Some(pt) &&
@@ -128,7 +134,9 @@ verus! {
     }
 
     pub fn get_freelink_ptr(ptr: *mut BlockHdr) -> (r: *mut FreeLink)
-        ensures r == get_freelink_ptr_spec(ptr)
+        ensures
+            r == get_freelink_ptr_spec(ptr),
+            r as usize == ptr as usize + size_of::<BlockHdr>(),
     {
         let prov = expose_provenance(ptr);
         with_exposed_provenance(ptr as usize + size_of::<BlockHdr>(), prov)

@@ -71,7 +71,10 @@ static SENTINEL: OnceLock<usize> = OnceLock::new();
 global layout usize is size == 8;
 
 #[cfg(target_pointer_width = "64")]
-global layout BlockHdr is size == 16;
+global layout BlockHdr is size == 16, align == 8;
+
+#[cfg(target_pointer_width = "64")]
+global layout FreeLink is size == 16, align == 8;
 
 #[verifier::reject_recursive_types(FLLEN)]
 #[verifier::reject_recursive_types(SLLEN)]
@@ -495,24 +498,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
         // Search in range `(fl, sl..SLLEN)`
         sl = bit_scan_forward(self.sl_bitmap[fl], sl as u32) as usize;
-        assume(idx.1 < sl);
+        assert(idx.1 < sl) by { admit(); };
         if sl < SLLEN {
             //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
             let new_idx = BlockIndex::<FLLEN, SLLEN>(fl, sl);
-            assume(idx.block_index_lt(new_idx));
-            assume(idx.block_size_range().start() < new_idx.block_size_range().start());
+            assert(idx.block_index_lt(new_idx)) by { admit(); };
+            assert(idx.block_size_range().start() < new_idx.block_size_range().start()) by { admit(); };
 
             assert(min_size <= idx.block_size_range().start());
             return Some(BlockIndex(fl, sl));
         }
         // Search in range `(fl + 1.., ..)`
         fl = bit_scan_forward(self.fl_bitmap, fl as u32 + 1) as usize;
-        assume(idx.0 < fl);
+        assert(idx.0 < fl) by { admit(); };
         if fl < FLLEN {
             //debug_assert!(self.fl_bitmap.get_bit(fl as u32));
 
             sl = self.sl_bitmap[fl].trailing_zeros() as usize;
-            assume(sl < SLLEN);
+            assert(sl < SLLEN) by { admit(); };
             //#[cfg(feature = "std")]
             //{
                 //use std::println;
@@ -528,8 +531,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //}
 
             let new_idx = BlockIndex::<FLLEN, SLLEN>(fl, sl);
-            assume(idx.block_index_lt(new_idx));
-            assume(idx.block_size_range().start() < new_idx.block_size_range().start());
+            assert(idx.block_index_lt(new_idx)) by { admit(); };
+            assert(idx.block_size_range().start() < new_idx.block_size_range().start()) by { admit(); };
             //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
             assert(min_size <= idx.block_size_range().start());
             Some(BlockIndex(fl, sl))
@@ -640,11 +643,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Get a free block: `block`
             //let first_free = self.first_free[fl][sl].unwrap();
             let block = self.first_free[fl][sl]; // ==> null i.e. bimap outdated
+            let ghost block_id = self.all_blocks.get_ptr_internal_index(block);
             proof {
                 self.wf_index_in_freelist(idx);
                 self.freelist_nonempty(idx);
                 self.all_blocks.lemma_contains(block);
-                assert(self.all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(block)));
+                assert(self.all_blocks.wf_node(block_id));
                 assert(self.all_blocks.perms@[block].points_to.is_init());
             }
             let ghost selected_block_size = self.all_blocks.perms@[block].points_to.value().size;
@@ -659,7 +663,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(idx.block_size_range().start() <= selected_block_size as int);
                 assert(search_size as int <= idx.block_size_range().start());
                 assert(search_size as int <= selected_block_size as int);
-                assert(self.all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(block)));
+                assert(self.all_blocks.wf_node(block_id));
                 assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(selected_block_size as int));
             }
 
@@ -667,7 +671,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let block_prov = expose_provenance(block);
 
             proof {
-                assert(self.all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(block)));
+                assert(self.all_blocks.wf_node(block_id));
                 assert(block == old(self).all_blocks.perms@[block].points_to.ptr());
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
                 assert(old_head_perm == old(self).all_blocks.perms@[block]);
@@ -695,14 +699,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let block_freelink = get_freelink_ptr(block);
             assert(old(self).wf_free_node(idx, 0));
             let tracked block_freelink_perm = old_head_perm.free_link_perm.tracked_unwrap();
-            self.set_freelist(idx, ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free);
+            let next_free_candidate = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free;
+            self.set_freelist(idx, next_free_candidate);
+            let ghost perms_after_removing_block = self.all_blocks.perms@;
 
-            if ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free != null_bhdr() {
-                let next_free = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free;
+            if next_free_candidate != null_bhdr() {
+                let next_free = next_free_candidate;
                 proof {
                     assert(old(self).wf_free_node(idx, 1));
                     assert(old(self).all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(next_free)));
                     new_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
+                    assert(self.all_blocks.perms@ == perms_after_removing_block.remove(next_free));
                 }
 
                 let next_free_link = get_freelink_ptr(next_free);
@@ -749,7 +756,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             assert(overhead <= max_overhead) by {
                 // TODO
                 admit();
-                assume(block as int + 2*GRANULARITY <= usize::MAX);
+                assert(block as int + 2*GRANULARITY <= usize::MAX) by { admit(); };
                 // ptr = round_up(block + G / 2, align)
                 //assert(unaligned_ptr - ptr < align);
             };
@@ -775,38 +782,60 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // of length (`new_free_block_size`).
                 let new_free_block: *mut BlockHdr =
                     with_exposed_provenance(block as usize + new_size, expose_provenance(ptr));
+                let new_freelink = get_freelink_ptr(new_free_block);
                 let new_free_block_size = block_size - new_size;
+                let bhdr_size = size_of::<BlockHdr>();
+                let freelink_size = size_of::<FreeLink>();
 
-                assert((new_size as int) + size_of::<BlockHdr>() <= new_block_perm.points_to.value().size as int) by {
+                // m1: return it for this request, m2: create a new free block from it
+                let tracked (m1, m2) = new_block_perm.mem.split(
+                    set_int_range(block as int,
+                            (block as int) + (new_size as int)));
+                let tracked mut new_free_block_perm;
+
+                proof {
+                    // Requested region
+                    new_block_perm.mem = m1;
+
+                    assert((new_size as int) + bhdr_size as int + freelink_size as int <= new_block_perm.points_to.value().size as int) by {
+                        assert(new_size % GRANULARITY == 0) by {
+                            granularity_is_power_of_two();
+                            lemma_round_up_pow2((overhead + size) as usize, GRANULARITY);
+                        };
+                    };
+                    let tracked (new_block_header_perm, m3) =
+                        m2.split(set_int_range(new_free_block as int,
+                            (new_free_block as int) + bhdr_size as int));
+
+                    let tracked (new_header_freelink, mem) =
+                        m3.split(set_int_range(get_freelink_ptr_spec(new_free_block) as int,
+                            get_freelink_ptr_spec(new_free_block) as int + size_of::<FreeLink>() as int));
+
                     assert(new_size % GRANULARITY == 0) by {
                         granularity_is_power_of_two();
                         lemma_round_up_pow2((overhead + size) as usize, GRANULARITY);
                     };
-                };
-                let tracked (m1, m2) = new_block_perm.mem.split(
-                    set_int_range((block as int) + new_size,
-                            (block as int) + (new_size as int) + size_of::<BlockHdr>()));
-                proof {
-                    new_block_perm.mem = m2;
-                }
-                proof { admit(); } //--------------------------------------------------------------------------------------------------------
-                let tracked mut new_free_block_perm;
 
-                let tracked (new_block_header_perm, m3) =
-                    m1.split(set_int_range(block as int, (block as int) + size_of::<BlockHdr>() as int));
-                proof {
                     new_free_block_perm = BlockPerm {
-                        points_to: new_block_header_perm.into_typed::<BlockHdr>(block as usize),
-                        free_link_perm: None,
-                        mem: m3,
+                        points_to: new_block_header_perm.into_typed::<BlockHdr>(new_free_block.addr()),
+                        free_link_perm: Some(new_header_freelink.into_typed::<FreeLink>(
+                                get_freelink_ptr_spec(new_free_block).addr())),
+                        mem,
                     };
                 }
 
                 // equals to divided permission above
-                let ghost next_phys_block_ind = choose|i: int| self.all_blocks.ptrs@[i] == next_phys_block;
+                let ghost next_phys_block_ind = self.all_blocks.get_ptr_internal_index(next_phys_block);
+                proof {
+                    old(self).all_blocks.lemma_contains(next_phys_block);
+                }
                 let tracked next_phys_block_perm = self.all_blocks.perms.borrow_mut()
-                    .tracked_remove(self.all_blocks.phys_next_of(next_phys_block_ind).unwrap());
+                    .tracked_remove(next_phys_block);
 
+                proof {
+                    assert(old(self).all_blocks.wf_node(next_phys_block_ind));
+                    assert(next_phys_block_perm.wf());
+                }
                 // Update `next_phys_block.prev_phys_block` to point to this new
                 // free block
                 // Invariant: No two adjacent free blocks
@@ -817,7 +846,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         size,
                         prev_phys_block: new_free_block
                     });
-
 
                 // Create the new free block header
                 ptr_mut_write(new_free_block, Tracked(&mut new_free_block_perm.points_to),
@@ -832,11 +860,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_block_perm);
                         self.all_blocks.perms.borrow_mut().tracked_insert(new_free_block, new_free_block_perm);
                     }
+
                     assert(self.all_blocks.wf_node(next_phys_block_ind));
                     assert(self.all_blocks.wf_node(next_phys_block_ind - 1));
 
                     let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
                     self.link_free_block(new_block_idx, new_free_block);
+
+                    proof { admit(); } //--------------------------------------------------------------------------------------------------------
+                    assert(self.all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(new_free_block)));
                 }
             }
             proof { admit(); } //---------------------------------------------------------------------------------------------------------------
@@ -1130,7 +1162,8 @@ pub unsafe fn round_up(ptr: *mut u8, align: usize) -> (r: *mut u8)
     requires is_power_of_two(align as int)
     ensures
         (ptr as int) <= (r as int) < (ptr as int) + align as int ,
-        ptr as usize % align == 0
+        ptr as usize % align == 0,
+        r@.provenance == ptr@.provenance,
 {
     let prov = expose_provenance(ptr);
     with_exposed_provenance(

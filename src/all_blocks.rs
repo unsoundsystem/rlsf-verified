@@ -72,6 +72,7 @@ verus! {
                 // there no zero-sized block except sentinel block
                 &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(self.value_at(ptr).size as int)
                 &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
+                &&& self.phys_next_of(i) is Some
             }
             // if used flag is not present then it connected to freelist
             &&& if self.value_at(ptr).is_free() {
@@ -79,11 +80,12 @@ verus! {
                     && p.ptr() == get_freelink_ptr_spec(ptr)
             } else { true }
 
-            // TODO: Move following to self.wf() ?
             // --- Invariants on tracked/ghost states
             // Next block address
-            &&& self.phys_next_of(i) matches Some(next_ptr) ==>
-                next_ptr@.addr == ptr@.addr + self.value_at(ptr).size
+            &&& self.phys_next_of(i) matches Some(next_ptr) ==> {
+                &&& next_ptr@.addr == ptr@.addr + self.value_at(ptr).size
+                &&& next_ptr@.provenance == ptr@.provenance
+            }
             // No adjacent free blocks
             &&& if self.value_at(ptr).is_free() {
                 self.phys_next_of(i) matches Some(next_ptr)
