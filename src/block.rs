@@ -1,4 +1,5 @@
 use crate::parameters::*;
+use crate::ordered_pointer_list::ghost_pointer_ordered;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
@@ -143,20 +144,6 @@ verus! {
     {
         let prov = expose_provenance(ptr);
         with_exposed_provenance(ptr as usize + size_of::<BlockHdr>(), prov)
-    }
-
-    pub(crate) open spec fn pointer_leq<T>() -> spec_fn(*mut T, *mut T) -> bool {
-        |x: *mut T, y: *mut T| {
-            let xi = x as usize as int;
-            let yi = y as usize as int;
-            xi <= yi
-        }
-    }
-
-    pub(crate) open spec fn ghost_pointer_ordered(ls: Seq<*mut BlockHdr>) -> bool {
-        forall|i: int, j: int|
-            0 <= i < ls.len() && 0 <= j < ls.len() && i < j ==>
-                (ls[i] as usize as int) <= (ls[j] as usize as int)
     }
 
     pub(crate) const fn null_bhdr() -> (r: *mut BlockHdr)
