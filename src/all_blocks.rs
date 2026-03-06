@@ -1,6 +1,7 @@
 use crate::block::*;
 use crate::block_index::BlockIndex;
 use crate::block_index::GRANULARITY;
+use crate::parameters::SIZE_SIZE_MASK;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
@@ -70,7 +71,7 @@ verus! {
                 &&& self.value_at(ptr).size == 0
             } else {
                 // there no zero-sized block except sentinel block
-                &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(self.value_at(ptr).size as int)
+                &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size((self.value_at(ptr).size & SIZE_SIZE_MASK) as int)
                 &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
                 &&& self.phys_next_of(i) is Some
             }

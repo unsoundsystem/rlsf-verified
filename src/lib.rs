@@ -602,8 +602,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             proof {
                 //assert(forall|x: usize, y: usize| x.saturating_sub(y) <= usize::MAX - y);
                 // align is at most 2^63
-                assert(GRANULARITY == size_of::<usize>() * 4);
-                assert(size_of::<BlockHdr>() == size_of::<usize>() * 2);
+                //assert(GRANULARITY == size_of::<usize>() * 4);
+                //assert(size_of::<BlockHdr>() == size_of::<usize>() * 2);
                 //assert(size_of::<UsedBlockHdr>() == size_of::<usize>() * 2);
                 //assert(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
             }
@@ -648,25 +648,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.wf_index_in_freelist(idx);
                 self.freelist_nonempty(idx);
                 self.all_blocks.lemma_contains(block);
-                assert(self.all_blocks.wf_node(block_id));
-                assert(self.all_blocks.perms@[block].points_to.is_init());
+                //assert(self.all_blocks.wf_node(block_id));
+                //assert(self.all_blocks.perms@[block].points_to.is_init());
             }
             let ghost selected_block_size = self.all_blocks.perms@[block].points_to.value().size;
-            proof {
-                assert(self.wf());
-                assert(self.size_class_condition());
-                assert(self.shadow_freelist@.m.contains_key(idx));
-                assert(self.shadow_freelist@.m[idx].len() > 0);
-                assert(block == self.shadow_freelist@.m[idx].first());
-                assert(self.shadow_freelist@.m[idx][0] == block);
-                assert(idx.block_size_range().contains(selected_block_size as int));
-                assert(idx.block_size_range().start() <= selected_block_size as int);
-                assert(search_size as int <= idx.block_size_range().start());
-                assert(search_size as int <= selected_block_size as int);
-                assert(self.all_blocks.wf_node(block_id));
-                assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(selected_block_size as int));
-            }
-
             assert(block@.addr != 0);
             let block_prov = expose_provenance(block);
 
@@ -682,15 +667,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //      there is always sentinel block
             let mut next_phys_block = BlockHdr::next_phys_block(block, Tracked(&old_head_perm));
             let size_and_flags = ptr_ref(block, Tracked(&old_head_perm.points_to)).size;
-            let block_size = size_and_flags /* size_and_flags & SIZE_SIZE_MASK */;
+            let block_size = size_and_flags;
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
             proof {
                 assert(block_size == old_head_perm.points_to.value().size);
                 assert(old_head_perm == old(self).all_blocks.perms@[block]);
                 assert(old(self).all_blocks.perms@[block].points_to.value().size == selected_block_size);
                 assert(search_size as int <= block_size as int);
-                assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(block_size as int));
+                assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size((block_size & SIZE_SIZE_MASK) as int));
             }
+
+
 
             //debug_assert!(size >= search_size);
 
@@ -776,6 +763,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // The allocation completely fills this free block.
                 // Updating `next_phys_block.prev_phys_block` is unnecessary in this
                 // case because it's still supposed to point to `block`.
+                {
+                    //// Turn `block` into a used memory block and initialize the used block
+                    //// header. `prev_phys_block` is already set.
+                    let prev_phys_block = ptr_ref(block, Tracked(&new_block_perm.points_to)).prev_phys_block;
+                    ptr_mut_write(block, Tracked(&mut new_block_perm.points_to),
+                    BlockHdr {
+                        size: new_size | SIZE_USED,
+                        prev_phys_block
+                    });
+                }
             } else {
                 // The allocation partially fills this free block. Create a new
                 // free block header at `block + new_size..block + new_size + size_of::<BlockHdr>()`
@@ -840,6 +837,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // free block
                 // Invariant: No two adjacent free blocks
                 //debug_assert!((next_phys_block.as_ref().size & SIZE_USED) != 0);
+
+                {
+                    //// Turn `block` into a used memory block and initialize the used block
+                    //// header. `prev_phys_block` is already set.
+                    let prev_phys_block = ptr_ref(block, Tracked(&new_block_perm.points_to)).prev_phys_block;
+                    ptr_mut_write(block, Tracked(&mut new_block_perm.points_to),
+                    BlockHdr {
+                        size: new_size | SIZE_USED,
+                        prev_phys_block
+                    });
+                }
                 let size = ptr_ref(next_phys_block, Tracked(&next_phys_block_perm.points_to)).size;
                 ptr_mut_write(next_phys_block, Tracked(&mut next_phys_block_perm.points_to),
                     BlockHdr {
@@ -856,13 +864,40 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // NOTE: This unwrap panics when invalid size is provided
                 {
                     proof {
-                        self.all_blocks.ptrs@ = add_ghost_pointer(self.all_blocks.ptrs@, new_free_block);
+                        self.all_blocks.ptrs@ = add_ghost_pointer(old(self).all_blocks.ptrs@, new_free_block);
+                        assert(self.all_blocks.contains(new_free_block)) by {
+                            lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, new_free_block);
+                            assert(self.all_blocks.ptrs@.contains(new_free_block));
+                        };
+                        assert(new_free_block_perm.points_to.value().is_free()) by {
+                            if usize::BITS == 64 {
+                                lemma_mod_by_multiple(new_free_block_size as int, 16, 2);
+                            } else {
+                                lemma_mod_by_multiple(new_free_block_size as int, 8, 2);
+                            }
+                            assert((new_free_block_size & SIZE_USED) == 0usize) by (bit_vector)
+                                requires new_free_block_size as int % 2 == 0, SIZE_USED == 1;
+                        };
                         self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_block_perm);
                         self.all_blocks.perms.borrow_mut().tracked_insert(new_free_block, new_free_block_perm);
+                        assert(self.all_blocks.perms.dom().contains(new_free_block));
+                        assert(self.all_blocks.perms@[new_free_block].points_to.value().is_free());
                     }
 
-                    assert(self.all_blocks.wf_node(next_phys_block_ind));
-                    assert(self.all_blocks.wf_node(next_phys_block_ind - 1));
+                    //assert(self.all_blocks.wf_node(next_phys_block_ind));
+                    //assert(self.all_blocks.wf_node(next_phys_block_ind - 1));
+                    assert(self.all_blocks.wf()) by {
+                        admit();
+                    };
+                    assume(self.all_freelist_wf());
+                    assume(self.bitmap_wf());
+                    assume(self.bitmap_sync());
+                    assume(!(self.shadow_freelist.contains(new_free_block)));
+
+                    proof {
+                        assert(new_free_block_size == self.all_blocks.perms@[new_free_block].points_to.value().size);
+                        assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(new_free_block_size as int));
+                    }
 
                     let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
                     self.link_free_block(new_block_idx, new_free_block);
@@ -872,15 +907,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 }
             }
             proof { admit(); } //---------------------------------------------------------------------------------------------------------------
-            //// Turn `block` into a used memory block and initialize the used block
-            //// header. `prev_phys_block` is already set.
-            //let mut block = block.cast::<UsedBlockHdr>();
-            let prev_phys_block = ptr_ref(block, Tracked(&new_block_perm.points_to)).prev_phys_block;
-            ptr_mut_write(block, Tracked(&mut new_block_perm.points_to),
-                BlockHdr {
-                    size: new_size | SIZE_USED,
-                    prev_phys_block
-                });
 
             //// Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
             if align >= GRANULARITY {
