@@ -66,7 +66,9 @@ verus! {
                                 && pt.is_init()
                     // NOTE: SIZE_USED and SIZE_SENTINEL is not present
                     &&& size == size & SIZE_SIZE_MASK
-                    &&& self.mem.is_range(self.points_to.ptr() as int, size as int)
+                    &&& self.mem.is_range(
+                        self.points_to.ptr() as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
+                        size as int - size_of::<BlockHdr>() as int - size_of::<FreeLink>() as int)
                 }
         }
     }
@@ -136,6 +138,7 @@ verus! {
     pub fn get_freelink_ptr(ptr: *mut BlockHdr) -> (r: *mut FreeLink)
         ensures
             r == get_freelink_ptr_spec(ptr),
+            r@.provenance == ptr@.provenance,
             r as usize == ptr as usize + size_of::<BlockHdr>(),
     {
         let prov = expose_provenance(ptr);
