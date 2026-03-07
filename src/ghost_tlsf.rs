@@ -88,7 +88,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //       1. all_blocks[i] has corresponding permission for the header in first_free / used_info
         //       2. FreeBlockHdr and UsedBlockHdr is non-zero-sized
         //       3. PointsTo::is_disjoint ensures all pointers are distinct
-        // TODO: self.all_blocks.map_values(|b: Block| b.to_ptr()).no_duplicates()
+        // TODO: self.all_blocks.map_values(|b: Block| b.to_ptr()) uniqueness
     }
 
     /// Block is sentinel
@@ -228,4 +228,3 @@ impl BlockPerm {
 }
 
 }
-

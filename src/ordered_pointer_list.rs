@@ -17,6 +17,48 @@ verus! {
                 (ls[i] as usize as int) <= (ls[j] as usize as int)
     }
 
+    #[verifier::opaque]
+    pub(crate) open spec fn ptrs_no_duplicates(ls: Seq<*mut BlockHdr>) -> bool {
+        ls.no_duplicates()
+    }
+
+    pub(crate) proof fn lemma_ptrs_no_duplicates_index_neq(
+        ls: Seq<*mut BlockHdr>,
+        i: int,
+        j: int,
+    )
+        requires
+            ptrs_no_duplicates(ls),
+            0 <= i < ls.len(),
+            0 <= j < ls.len(),
+            i != j,
+        ensures
+            ls[i] != ls[j],
+    {
+        reveal(ptrs_no_duplicates);
+        assert(ls.no_duplicates());
+        assert(ls[i] != ls[j]);
+    }
+
+    pub(crate) proof fn lemma_ptrs_no_duplicates_eq_index(
+        ls: Seq<*mut BlockHdr>,
+        i: int,
+        j: int,
+    )
+        requires
+            ptrs_no_duplicates(ls),
+            0 <= i < ls.len(),
+            0 <= j < ls.len(),
+            ls[i] == ls[j],
+        ensures
+            i == j,
+    {
+        if i != j {
+            lemma_ptrs_no_duplicates_index_neq(ls, i, j);
+            assert(false);
+        }
+    }
+
     pub(crate) proof fn lemma_ghost_pointer_ordered_index(ls: Seq<*mut BlockHdr>, i: int, j: int)
         requires
             ghost_pointer_ordered(ls),
@@ -80,7 +122,7 @@ verus! {
                 assert forall|e: *mut BlockHdr| ls.contains(e)
                     implies add_ghost_pointer(ls, p).contains(e)
                 by {
-                    let i = choose|i: int| ls[i] == e;
+                    let i = choose|i: int| 0 <= i < ls.len() && ls[i] == e;
                     assert(seq![p, ls.first()].add(ls.drop_first()) == seq![p].add(ls));
                     lemma_list_add_contains(ls, seq![p], e);
                 }
@@ -101,6 +143,15 @@ verus! {
                         lemma_drop_first_elements(ls);
                         lemma_list_add_contains(add_ghost_pointer(ls.drop_first(), p),
                             seq![ls.first()], e);
+                    } else {
+                        assert(i == 0);
+                        assert(e == ls[0]);
+                        assert(ls[0] == ls.first());
+                        assert(add_ghost_pointer(ls, p) == seq![ls.first()].add(add_ghost_pointer(ls.drop_first(), p)));
+                        assert(0 <= 0 < add_ghost_pointer(ls, p).len());
+                        assert(add_ghost_pointer(ls, p)[0] == ls.first());
+                        assert(add_ghost_pointer(ls, p)[0] == e);
+                        assert(add_ghost_pointer(ls, p).contains(e));
                     }
                 }
             }

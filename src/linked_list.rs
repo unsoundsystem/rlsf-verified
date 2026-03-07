@@ -721,7 +721,7 @@ verus! {
             new_node_ai: int
         )
             requires
-                all_blocks.ptrs@.no_duplicates(),
+                ptrs_no_duplicates(all_blocks.ptrs@),
                 !sfl.pi.values().contains(new_node_ai),
                 0 <= new_node_ai < all_blocks.ptrs@.len(),
                 new_node_bi.wf(),
@@ -766,7 +766,7 @@ verus! {
             rm_pos: int,
         )
             requires
-                all_blocks.ptrs@.no_duplicates(),
+                ptrs_no_duplicates(all_blocks.ptrs@),
                 is_identity_injection(sfl, all_blocks.ptrs@),
                 bi.wf(),
                 0 <= rm_pos < sfl.m[bi].len(),
@@ -788,7 +788,7 @@ verus! {
             new_ptr: *mut BlockHdr,
         )
             requires
-                old_ptrs.no_duplicates(),
+                ptrs_no_duplicates(old_ptrs),
                 ghost_pointer_ordered(old_ptrs),
                 sfl.shadow_freelist_has_all_wf_index(),
                 is_identity_injection(sfl, old_ptrs),

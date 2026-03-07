@@ -723,7 +723,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(old(self).shadow_freelist@.shadow_freelist_has_all_wf_index());
                 };
                 old(self).all_blocks.lemma_wf_nodup();
-                assert(old(self).all_blocks.ptrs@.no_duplicates());
+                assert(ptrs_no_duplicates(old(self).all_blocks.ptrs@));
                 Self::lemma_ii_remove_for_index_ensures(pre_sfl, self.all_blocks, idx, 0);
                 self.shadow_freelist@ = pre_sfl.ii_remove_for_index(self.all_blocks, idx, 0);
                 assert(is_identity_injection(self.shadow_freelist@, self.all_blocks.ptrs@));
@@ -999,7 +999,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             }
                         };
                         old(self).all_blocks.lemma_wf_nodup();
-                        assert(old_ptrs.no_duplicates());
+                        assert(ptrs_no_duplicates(old_ptrs));
                         assert(old(self).shadow_freelist@.shadow_freelist_has_all_wf_index()) by {
                             assert(old(self).wf_shadow());
                         };
@@ -1062,7 +1062,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     == Some(old(self).shadow_freelist@.m[idx][1]));
                                 assert(next_free_candidate == old(self).shadow_freelist@.m[idx][1]);
                                 old(self).lemma_shadow_list_no_duplicates();
-                                assert(old(self).shadow_freelist@.m[idx].no_duplicates());
+                                assert(old(self).shadow_freelist_nodup());
+                                assert((idx, 0int) != (idx, 1int));
+                                assert(old(self).shadow_freelist@.m[idx][0] != old(self).shadow_freelist@.m[idx][1]);
                                 assert(block != old(self).shadow_freelist@.m[idx][1]);
                             };
                             assert(next_free_candidate != next_phys_block) by {
@@ -1086,7 +1088,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(old_ptrs[ci] == next_free_candidate);
                                     assert(old_ptrs[block_id] == block);
                                     old(self).all_blocks.lemma_wf_nodup();
-                                    assert(old_ptrs.no_duplicates());
+                                    assert(ptrs_no_duplicates(old_ptrs));
                                     assert(ci != block_id) by {
                                         if ci == block_id {
                                             assert(old_ptrs[ci] == old_ptrs[block_id]);
@@ -1154,7 +1156,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         let ghost old_ptrs = old(self).all_blocks.ptrs@;
                         lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, new_free_block);
                         old(self).all_blocks.lemma_wf_nodup();
-                        assert(old_ptrs.no_duplicates());
+                        assert(ptrs_no_duplicates(old_ptrs));
                         assert(0 <= block_id < old_ptrs.len());
                         assert(old_ptrs[block_id] == block);
                         assert((block as usize as int) < (new_free_block as usize as int)) by {
@@ -1190,7 +1192,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(old_ptrs[block_id + 1] == next_phys_block);
                             assert(old_ptrs[next_phys_block_ind] == next_phys_block);
                             old(self).all_blocks.lemma_wf_nodup();
-                            assert(old_ptrs.no_duplicates());
+                            assert(ptrs_no_duplicates(old_ptrs));
+                            lemma_ptrs_no_duplicates_eq_index(old_ptrs, block_id + 1, next_phys_block_ind);
                         };
                         assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(new_size as int)) by {
                             assert(old(self).all_blocks.wf_node(block_id));
@@ -1220,6 +1223,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 assert(self.all_blocks.ptrs@[block_id + 1] == new_free_block);
                                 assert(i <= block_id) by {
                                     if block_id + 1 <= i {
+                                        lemma_ghost_pointer_ordered_index(self.all_blocks.ptrs@, block_id + 1, i);
                                         assert((self.all_blocks.ptrs@[block_id + 1] as usize as int)
                                             <= (self.all_blocks.ptrs@[i] as usize as int));
                                         assert((new_free_block as usize as int)
@@ -1235,6 +1239,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         assert(self.all_blocks.ptrs@[block_id] == old_ptrs[block_id]);
                                         assert(old_ptrs[i] == block);
                                         assert(old_ptrs[block_id] == block);
+                                        lemma_ptrs_no_duplicates_eq_index(old_ptrs, i, block_id);
                                         assert(false);
                                     }
                                 };
@@ -1294,7 +1299,42 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     };
                                 };
                             } else if ptr == next_phys_block {
-                                assert(i == next_phys_block_ind + 1);
+                                assert(i == next_phys_block_ind + 1) by {
+                                    assert(self.all_blocks.ptrs@ == add_ghost_pointer(old_ptrs, new_free_block));
+                                    lemma_add_ghost_pointer_insert_after_index(old_ptrs, new_free_block, block_id);
+                                    old(self).all_blocks.lemma_wf_nodup();
+                                    assert(ptrs_no_duplicates(old_ptrs));
+
+                                    if i <= block_id {
+                                        assert(self.all_blocks.ptrs@[i] == old_ptrs[i]);
+                                        assert(old_ptrs[i] == next_phys_block);
+                                        assert(old_ptrs[block_id + 1] == next_phys_block);
+                                        lemma_ptrs_no_duplicates_eq_index(old_ptrs, i, block_id + 1);
+                                        assert(i == block_id + 1);
+                                        assert(false);
+                                    } else if i == block_id + 1 {
+                                        assert(self.all_blocks.ptrs@[i] == new_free_block);
+                                        assert(old(self).all_blocks.wf_node(block_id));
+                                        assert(old(self).all_blocks.phys_next_of(block_id) is Some);
+                                        assert(old(self).all_blocks.phys_next_of(block_id).unwrap() == next_phys_block);
+                                        assert((new_free_block as usize as int) == (block as usize as int) + new_size as int);
+                                        assert((next_phys_block as usize as int) == (block as usize as int) + block_size as int);
+                                        assert(new_size < block_size);
+                                        assert((new_free_block as usize as int) < (next_phys_block as usize as int));
+                                        assert(new_free_block != next_phys_block);
+                                        assert(false);
+                                    } else {
+                                        assert(block_id + 1 < i);
+                                        assert(self.all_blocks.ptrs@[i] == old_ptrs[i - 1]);
+                                        assert(old_ptrs[i - 1] == next_phys_block);
+                                        assert(old_ptrs[block_id + 1] == next_phys_block);
+                                        lemma_ptrs_no_duplicates_eq_index(old_ptrs, i - 1, block_id + 1);
+                                        assert(i - 1 == block_id + 1);
+                                    }
+                                    old(self).all_blocks.lemma_wf_nodup();
+                                    assert(next_phys_block_ind == block_id + 1);
+                                    assert(i == block_id + 2);
+                                };
                                 assert(self.all_blocks.wf_node(i)) by {
                                     assert(old(self).all_blocks.wf_node(next_phys_block_ind));
                                     assert(i == block_id + 2);

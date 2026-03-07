@@ -106,8 +106,9 @@ verus! {
 
         pub(crate) proof fn lemma_wf_nodup(self)
             requires self.wf()
-            ensures self.ptrs@.no_duplicates()
+            ensures ptrs_no_duplicates(self.ptrs@)
         {
+            reveal(ptrs_no_duplicates);
             assert forall|i: int| 0 <= i < self.ptrs@.len() - 1
                 implies (#[trigger] self.ptrs@[i] as int) < self.ptrs@[i + 1] as int
                 by {
@@ -362,7 +363,7 @@ verus! {
         sfl: ShadowFreelist<FLLEN, SLLEN>,
         all_block_ptrs: Seq<*mut BlockHdr>) -> bool
         recommends
-            all_block_ptrs.no_duplicates(),
+            ptrs_no_duplicates(all_block_ptrs),
             sfl.shadow_freelist_has_all_wf_index()
     {
         &&& sfl.pi.is_injective()
