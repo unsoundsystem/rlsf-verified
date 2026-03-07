@@ -386,6 +386,8 @@ verus! {
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
         ensures
             self.all_blocks.wf(),
+            // preserving pointer set
+            self.all_blocks.ptrs@ == old(self).all_blocks.ptrs@,
             self.all_freelist_wf(),
             self.bitmap_sync(),
             self.bitmap_wf(),
@@ -489,6 +491,23 @@ verus! {
                                     0 <= n < self.shadow_freelist@.m[i].len()
                                 implies self.wf_free_node(i, n)
                             by {
+                                assert(self.shadow_freelist@.m[i] == old(self).shadow_freelist@.m[i]);
+                                assert(self.shadow_freelist@.pi[(i, n)] == old(self).shadow_freelist@.pi[(i, n)]);
+                                assert(self.shadow_freelist@.m[i][n] == old(self).shadow_freelist@.m[i][n]);
+                                let ghost x = old(self).shadow_freelist@.m[i][n];
+                                assert(x != node) by {
+                                    assert(!old(self).shadow_freelist@.contains(node));
+                                    assert(old(self).shadow_freelist@.m[i].contains(x));
+                                    assert(old(self).shadow_freelist@.m.contains_pair(i, old(self).shadow_freelist@.m[i]));
+                                    assert(old(self).shadow_freelist@.contains(x));
+                                };
+                                assert(x != first_free) by {
+                                    old(self).lemma_shadow_list_contains_unique(idx, first_free);
+                                    assert(i.wf() && i != idx);
+                                    assert(!old(self).shadow_freelist@.m[i].contains(first_free));
+                                    assert(old(self).shadow_freelist@.m[i].contains(x));
+                                };
+                                assert(self.all_blocks.perms@[x] == old(self).all_blocks.perms@[x]);
                                 old(self).lemma_wf_free_node_preserve(*self, i, n);
                             };
                         }

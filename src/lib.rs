@@ -2024,11 +2024,32 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     }
 
                     let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
+                    let ghost ptrs_before_link = self.all_blocks.ptrs@;
+                    proof {
+                        let ghost old_ptrs = old(self).all_blocks.ptrs@;
+                        assert(old_ptrs.contains(block));
+                        assert(self.all_blocks.ptrs@ == add_ghost_pointer(old_ptrs, new_free_block));
+                        lemma_add_ghost_pointer_ensures(old_ptrs, new_free_block);
+                        assert(add_ghost_pointer(old_ptrs, new_free_block).contains(block));
+                        assert(self.all_blocks.ptrs@.contains(block));
+                    }
                     self.link_free_block(new_block_idx, new_free_block);
 
-                    proof { admit(); } //--------------------------------------------------------------------------------------------------------
-                    assert(self.all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(new_free_block)));
                     proof {
+                        assert(self.all_blocks.perms@.contains_key(block)) by {
+                            assert(self.all_blocks.wf());
+                            assert(self.all_freelist_wf());
+                            self.wf_index_in_freelist(new_block_idx);
+                            assert(self.shadow_freelist@.m[new_block_idx].len() > 0);
+                            assert(self.shadow_freelist@.m[new_block_idx][0] == new_free_block);
+                            assert(self.wf_free_node(new_block_idx, 0));
+                            assert(self.all_blocks.contains(new_free_block));
+                            self.all_blocks.lemma_node_is_wf(new_free_block);
+                            assert(self.all_blocks.ptrs@ == ptrs_before_link);
+                            assert(ptrs_before_link.contains(block));
+                            assert(self.all_blocks.ptrs@.contains(block));
+                            self.all_blocks.lemma_contains(block);
+                        };
                         new_block_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
                     }
                 }
