@@ -118,11 +118,16 @@ verus! {
     impl UsedBlockPad {
         //#[verifier::external_body] // debug
         #[inline]
-        pub(crate) fn get_for_allocation(ptr: *mut u8) -> (r: *mut Self) {
+        pub(crate) fn get_for_allocation(ptr: *mut u8) -> (r: *mut Self)
+            ensures
+                r@.provenance == ptr@.provenance,
+                r@.addr == ((ptr as usize).wrapping_sub(core::mem::size_of::<Self>()) as int),
+                ptr@.addr >= core::mem::size_of::<Self>() as int
+                    ==> r@.addr == ptr@.addr - core::mem::size_of::<Self>() as int,
+        {
             let Tracked(is_exposed) = expose_provenance(ptr);
-            // FIXME: this subtraction was wrapping_sub
             let ptr = with_exposed_provenance(
-                ptr as usize - size_of::<Self>(),
+                (ptr as usize).wrapping_sub(core::mem::size_of::<Self>()),
                 Tracked(is_exposed));
             ptr
         }

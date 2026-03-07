@@ -81,6 +81,9 @@ global layout BlockHdr is size == 16, align == 8;
 #[cfg(target_pointer_width = "64")]
 global layout FreeLink is size == 16, align == 8;
 
+#[cfg(target_pointer_width = "64")]
+global layout UsedBlockPad is size == 8, align == 8;
+
 #[verifier::reject_recursive_types(FLLEN)]
 #[verifier::reject_recursive_types(SLLEN)]
 #[repr(C)]
@@ -203,6 +206,89 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             requires sz as int % 32 == 0;
         assert(((sz | 1usize) & !31usize) == sz) by (bit_vector)
             requires sz as int % 32 == 0;
+    }
+
+    proof fn lemma_join_adjacent_ranges_is_range(
+        tracked left: PointsToRaw,
+        tracked right: PointsToRaw,
+        start: int,
+        mid: int,
+        end: int,
+    ) -> (tracked joined: PointsToRaw)
+        requires
+            left.provenance() == right.provenance(),
+            left.is_range(start, mid - start),
+            right.is_range(mid, end - mid),
+            start <= mid <= end,
+        ensures
+            joined.provenance() == left.provenance(),
+            joined.is_range(start, end - start),
+    {
+        let tracked joined0 = left.join(right);
+        assert(joined0.is_range(start, end - start)) by {
+            assert forall |a:int| #[trigger] joined0.dom().contains(a)
+                <==> set_int_range(start, end).contains(a)
+            by {
+                if joined0.dom().contains(a) {
+                    assert(left.dom().contains(a) || right.dom().contains(a));
+                    if left.dom().contains(a) {
+                        assert(set_int_range(start, mid).contains(a));
+                        assert(start <= a < mid);
+                        assert(set_int_range(start, end).contains(a));
+                    } else {
+                        assert(right.dom().contains(a));
+                        assert(set_int_range(mid, end).contains(a));
+                        assert(mid <= a < end);
+                        assert(start <= mid);
+                        assert(set_int_range(start, end).contains(a));
+                    }
+                } else if set_int_range(start, end).contains(a) {
+                    assert(start <= a < end);
+                    if a < mid {
+                        assert(set_int_range(start, mid).contains(a));
+                        assert(left.dom().contains(a));
+                    } else {
+                        assert(mid <= a < end);
+                        assert(set_int_range(mid, end).contains(a));
+                        assert(right.dom().contains(a));
+                    }
+                    assert(left.dom().contains(a) || right.dom().contains(a));
+                    assert(joined0.dom().contains(a));
+                }
+            };
+            assert(joined0.dom() =~= set_int_range(start, end));
+        };
+        joined0
+    }
+
+    proof fn lemma_range_subset_of_mem_dom(
+        mem: PointsToRaw,
+        mem_start: int,
+        mem_end: int,
+        lo: int,
+        hi: int,
+    )
+        requires
+            mem.is_range(mem_start, mem_end - mem_start),
+            mem_start <= lo,
+            hi <= mem_end,
+        ensures
+            set_int_range(lo, hi).subset_of(mem.dom()),
+    {
+        assert(mem.dom() == set_int_range(mem_start, mem_end));
+        assert forall |a:int|
+            #[trigger] set_int_range(lo, hi).contains(a)
+            implies mem.dom().contains(a)
+        by {
+            assert(lo <= a < hi) by {
+                assert(set_int_range(lo, hi).contains(a));
+            };
+            assert(mem_start <= a < mem_end) by {
+                assert(mem_start <= lo <= a);
+                assert(a < hi <= mem_end);
+            };
+            assert(set_int_range(mem_start, mem_end).contains(a));
+        };
     }
 
     pub const fn new() -> (r: Self)
@@ -680,6 +766,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let ghost selected_block_size = self.all_blocks.perms@[block].points_to.value().size;
             assert(block@.addr != 0);
             let block_prov = expose_provenance(block);
+            let Tracked(block_prov_for_root) = block_prov;
 
             proof {
                 assert(self.all_blocks.wf_node(block_id));
@@ -828,6 +915,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // Permission object for `ptr`, the pointer returned to the user
             let tracked mut new_block_perm = old_head_perm;
+            proof {
+                assert(new_block_perm.points_to.ptr() == block);
+                assert(old_head_perm.wf());
+                assert(new_block_perm.mem.provenance() == block@.provenance);
+            }
             if new_size == block_size {
                 // The allocation completely fills this free block.
                 // Updating `next_phys_block.prev_phys_block` is unnecessary in this
@@ -853,6 +945,49 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             requires SIZE_USED == 1;
                     };
                     assert(!(new_block_perm.points_to.value().is_free()));
+                }
+                {
+                    let freelink = get_freelink_ptr(block);
+                    let tracked mut freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
+                    let _old_freelink = ptr_mut_read(freelink, Tracked(&mut freelink_perm));
+                    proof {
+                        let tracked freelink_raw = freelink_perm.into_raw();
+                        let tracked payload_mem = new_block_perm.mem;
+                        assert(payload_mem.is_range(
+                            block as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
+                            new_size as int - size_of::<BlockHdr>() as int - size_of::<FreeLink>() as int
+                        )) by {
+                            assert(new_size == block_size);
+                            assert(old_head_perm.wf());
+                            assert(payload_mem == old_head_perm.mem);
+                            assert(old_head_perm.points_to.ptr() == block);
+                        };
+                        new_block_perm.mem = Self::lemma_join_adjacent_ranges_is_range(
+                            freelink_raw,
+                            payload_mem,
+                            block as int + size_of::<BlockHdr>() as int,
+                            block as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
+                            block as int + new_size as int,
+                        );
+                        assert(new_block_perm.mem.is_range(
+                            block as int + size_of::<BlockHdr>() as int,
+                            new_size as int - size_of::<BlockHdr>() as int
+                        ));
+                        new_block_perm.free_link_perm = None;
+                    }
+                    assert(new_block_perm.mem.is_range(
+                        block as int + size_of::<BlockHdr>() as int,
+                        new_size as int - size_of::<BlockHdr>() as int
+                    ));
+                    assert(new_block_perm.mem.dom() == set_int_range(
+                        block as int + size_of::<BlockHdr>() as int,
+                        block as int + new_size as int
+                    )) by {
+                        assert(new_block_perm.mem.is_range(
+                            block as int + size_of::<BlockHdr>() as int,
+                            new_size as int - size_of::<BlockHdr>() as int
+                        ));
+                    };
                 }
             } else {
                 // The allocation partially fills this free block. Create a new
@@ -924,6 +1059,46 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(new_free_block_perm.free_link_perm.unwrap().ptr() == get_freelink_ptr_spec(new_free_block)) by {
                         assert(new_freelink == get_freelink_ptr_spec(new_free_block));
                         assert(new_free_block_perm.free_link_perm.unwrap().ptr() == new_freelink);
+                    };
+                }
+                {
+                    let freelink = get_freelink_ptr(block);
+                    let tracked mut freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
+                    let _old_freelink = ptr_mut_read(freelink, Tracked(&mut freelink_perm));
+                    proof {
+                        let tracked freelink_raw = freelink_perm.into_raw();
+                        let tracked payload_mem = new_block_perm.mem;
+                        assert(payload_mem.is_range(
+                            block as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
+                            new_size as int - size_of::<BlockHdr>() as int - size_of::<FreeLink>() as int
+                        )) by {
+                            assert(payload_mem == m1);
+                        };
+                        new_block_perm.mem = Self::lemma_join_adjacent_ranges_is_range(
+                            freelink_raw,
+                            payload_mem,
+                            block as int + size_of::<BlockHdr>() as int,
+                            block as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
+                            block as int + new_size as int,
+                        );
+                        assert(new_block_perm.mem.is_range(
+                            block as int + size_of::<BlockHdr>() as int,
+                            new_size as int - size_of::<BlockHdr>() as int
+                        ));
+                        new_block_perm.free_link_perm = None;
+                    }
+                    assert(new_block_perm.mem.is_range(
+                        block as int + size_of::<BlockHdr>() as int,
+                        new_size as int - size_of::<BlockHdr>() as int
+                    ));
+                    assert(new_block_perm.mem.dom() == set_int_range(
+                        block as int + size_of::<BlockHdr>() as int,
+                        block as int + new_size as int
+                    )) by {
+                        assert(new_block_perm.mem.is_range(
+                            block as int + size_of::<BlockHdr>() as int,
+                            new_size as int - size_of::<BlockHdr>() as int
+                        ));
                     };
                 }
 
@@ -1134,18 +1309,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     }
                                 }
                             };
-                            assert(perms_after_insert_block[next_free_candidate]
-                                == perms_after_remove_next_phys[next_free_candidate]);
-                            assert(perms_after_insert_next_phys[next_free_candidate]
-                                == perms_after_insert_block[next_free_candidate]);
-                            assert(self.all_blocks.perms@[next_free_candidate]
-                                == perms_after_insert_next_phys[next_free_candidate]);
-                            assert(perms_after_remove_next_phys[next_free_candidate]
-                                == perms_before_split_update[next_free_candidate]);
-                            assert(perms_before_split_update[next_free_candidate].free_link_perm.unwrap().value().next_free
-                                == next_next_free_candidate);
-                            assert(self.all_blocks.perms@[next_free_candidate].free_link_perm.unwrap().value().next_free
-                                == next_next_free_candidate);
                         }
                     }
 
@@ -1702,12 +1865,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
                             implies self.freelist_wf(bi)
                         by {
-                            // {{{
-                            let ghost sfl_after_remove =
-                                old(self).shadow_freelist@.ii_remove_for_index(old(self).all_blocks, idx, 0);
-                            old(self).wf_index_in_freelist(bi);
-                            assert(self.shadow_freelist@.m[bi] == sfl_after_remove.m[bi]);
-                            if bi == idx {
+                            assert(self.freelist_wf(bi)) by {
+                                // {{{
+                                let ghost sfl_after_remove =
+                                    old(self).shadow_freelist@.ii_remove_for_index(old(self).all_blocks, idx, 0);
+                                old(self).wf_index_in_freelist(bi);
+                                assert(self.shadow_freelist@.m[bi] == sfl_after_remove.m[bi]);
+                                if bi == idx {
                                 assert(sfl_after_remove.m[bi] == old(self).shadow_freelist@.m[bi].remove(0));
                                 assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi].remove(0));
                                 assert forall|n: int| 0 <= n < self.shadow_freelist@.m[bi].len()
@@ -1850,7 +2014,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         }
                                     }
                                 };
-                                assert(self.freelist_wf(bi));
                             } else {
                                 assert(sfl_after_remove.m[bi] == old(self).shadow_freelist@.m[bi]);
                                 assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
@@ -1913,9 +2076,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(self.all_blocks.perms@[node] == old(self).all_blocks.perms@[node]);
                                     old(self).lemma_wf_free_node_preserve_if_not_touched(*self, bi, n);
                                 };
-                                assert(self.freelist_wf(bi));
-                            }
-                            // }}}
+                                }
+                                // }}}
+                            };
                         };
                     };
                     assert(self.bitmap_wf());
@@ -1933,9 +2096,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 if next_free_candidate@.addr == 0 {
                                     assert(!nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize));
                                     assert(self.freelist_wf(idx));
-                                    assert(self.first_free[idx.0 as int][idx.1 as int] == next_free_candidate);
-                                    assert(self.first_free[idx.0 as int][idx.1 as int]@.addr == 0);
-                                    assert(self.shadow_freelist@.m[idx].len() == 0);
                                 } else {
                                     assert(self.sl_bitmap[idx.0 as int] == old(self).sl_bitmap[idx.0 as int]);
                                     assert(old(self).bitmap_sync());
@@ -1943,9 +2103,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(nth_bit!(old(self).sl_bitmap[idx.0 as int], idx.1 as usize));
                                     assert(nth_bit!(self.sl_bitmap[idx.0 as int], idx.1 as usize));
                                     assert(self.freelist_wf(idx));
-                                    assert(self.first_free[idx.0 as int][idx.1 as int] == next_free_candidate);
-                                    assert(self.first_free[idx.0 as int][idx.1 as int]@.addr != 0);
-                                    assert(self.shadow_freelist@.m[idx].len() > 0);
                                 }
                             } else {
                                 assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
@@ -1972,15 +2129,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 assert(0 <= block_id + 1 < old_ptrs.len());
                                 if i <= block_id {
                                     lemma_ghost_pointer_ordered_index(old_ptrs, i, block_id);
-                                    assert((old_ptrs[i] as usize as int) <= (old_ptrs[block_id] as usize as int));
-                                    assert(old_ptrs[block_id] == block);
-                                    assert((block as usize as int) < (new_free_block as usize as int));
                                 } else {
-                                    assert(block_id + 1 <= i);
                                     lemma_ghost_pointer_ordered_index(old_ptrs, block_id + 1, i);
-                                    assert((old_ptrs[block_id + 1] as usize as int) <= (old_ptrs[i] as usize as int));
-                                    assert(old_ptrs[block_id + 1] == next_phys_block);
-                                    assert((new_free_block as usize as int) < (next_phys_block as usize as int));
                                 }
                                 assert(old_ptrs[i] == new_free_block);
                                 assert(false);
@@ -2018,56 +2168,244 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         // }}}
                     };
 
-                    proof {
-                        assert(new_free_block_size == self.all_blocks.perms@[new_free_block].points_to.value().size);
-                        assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(new_free_block_size as int));
-                    }
+                    //proof {
+                        //assert(new_free_block_size == self.all_blocks.perms@[new_free_block].points_to.value().size);
+                        //assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(new_free_block_size as int));
+                    //}
 
                     let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
                     let ghost ptrs_before_link = self.all_blocks.ptrs@;
-                    proof {
-                        let ghost old_ptrs = old(self).all_blocks.ptrs@;
-                        assert(old_ptrs.contains(block));
-                        assert(self.all_blocks.ptrs@ == add_ghost_pointer(old_ptrs, new_free_block));
-                        lemma_add_ghost_pointer_ensures(old_ptrs, new_free_block);
-                        assert(add_ghost_pointer(old_ptrs, new_free_block).contains(block));
-                        assert(self.all_blocks.ptrs@.contains(block));
-                    }
+
                     self.link_free_block(new_block_idx, new_free_block);
 
                     proof {
-                        assert(self.all_blocks.perms@.contains_key(block)) by {
-                            assert(self.all_blocks.wf());
-                            assert(self.all_freelist_wf());
-                            self.wf_index_in_freelist(new_block_idx);
-                            assert(self.shadow_freelist@.m[new_block_idx].len() > 0);
-                            assert(self.shadow_freelist@.m[new_block_idx][0] == new_free_block);
-                            assert(self.wf_free_node(new_block_idx, 0));
-                            assert(self.all_blocks.contains(new_free_block));
-                            self.all_blocks.lemma_node_is_wf(new_free_block);
-                            assert(self.all_blocks.ptrs@ == ptrs_before_link);
-                            assert(ptrs_before_link.contains(block));
-                            assert(self.all_blocks.ptrs@.contains(block));
-                            self.all_blocks.lemma_contains(block);
-                        };
+                        let ghost old_ptrs = old(self).all_blocks.ptrs@;
+                        assert(old_ptrs[block_id] == block);
+                        assert(old_ptrs.contains(block));
+                        lemma_add_ghost_pointer_ensures(old_ptrs, new_free_block);
+                        assert(ptrs_before_link == add_ghost_pointer(old_ptrs, new_free_block));
+                        assert(ptrs_before_link.contains(block));
+                        assert(self.all_blocks.ptrs@ == ptrs_before_link);
+                        assert(self.all_blocks.ptrs@.contains(block));
+                        self.all_blocks.lemma_contains(block);
+                        assert(self.all_blocks.perms@.contains_key(block));
                         new_block_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
                     }
                 }
             }
-            proof { admit(); } //---------------------------------------------------------------------------------------------------------------
+            //proof { admit(); } // -----------------------
 
             //// Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
+            let ghost mem_dom_before_pad = new_block_perm.mem.dom();
+            proof {
+                assert(mem_dom_before_pad
+                    == set_int_range(
+                        block as int + size_of::<BlockHdr>() as int,
+                        block as int + new_size as int,
+                    )) by {
+                    assert(new_block_perm.mem.is_range(
+                        block as int + size_of::<BlockHdr>() as int,
+                        new_size as int - size_of::<BlockHdr>() as int
+                    ));
+                };
+            }
             if align >= GRANULARITY {
-                let tracked mut pad: PointsTo<UsedBlockPad> = self.used_info.pad_perms.borrow_mut().tracked_remove(ptr);
-                ptr_mut_write(UsedBlockPad::get_for_allocation(ptr), Tracked(&mut pad),
-                    UsedBlockPad { block_hdr: block as *mut UsedBlockHdr });
+                let pad_ptr = UsedBlockPad::get_for_allocation(ptr);
+                let pad_addr = pad_ptr as usize;
                 proof {
-                    self.used_info.pad_perms.borrow_mut().tracked_insert(ptr, pad);
+                    let ghost mem_start = block as int + size_of::<BlockHdr>() as int;
+                    let ghost mem_end = block as int + new_size as int;
+                    let ghost pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+                    assert(ptr@.addr >= pad_size) by {
+                        assert(ptr@.addr >= block@.addr + size_of::<UsedBlockHdr>() as int);
+                        assert(block@.addr != 0);
+                    };
+                    assert(ptr@.addr >= pad_size ==> pad_ptr@.addr == ptr@.addr - pad_size);
+                    assert(pad_ptr@.addr + pad_size == ptr@.addr);
+                    assert(pad_addr as int == pad_ptr@.addr);
+                    assert(pad_addr as int + pad_size == ptr@.addr);
+
+                    assert((ptr@.addr as int) % align as int == 0);
+                    if usize::BITS == 64 {
+                        let ghost p = ptr@.addr as int;
+                        let ghost b = block@.addr as int;
+                        assert(GRANULARITY == 32);
+                        assert(align % 32 == 0) by {
+                            lemma_pow2_value_in_usize(align);
+                        };
+                        assert(p % 32 == 0) by {
+                            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(align as int, 32);
+                            assert(align as int == 32 * ((align as int) / 32)) by {
+                                assert((align as int) % 32 == 0);
+                            };
+                            assert(p % (32 * ((align as int) / 32)) == 0);
+                            lemma_mod_by_multiple(p, (align as int) / 32, 32);
+                        };
+                        assert(b % 32 == 0) by {
+                            assert(b % GRANULARITY as int == 0);
+                            assert(GRANULARITY as int == 32);
+                        };
+                        assert(ptr@.addr >= block@.addr + 16);
+                        assert(ptr@.addr < block@.addr + 16 + align as int);
+                        assert(ptr@.addr >= block@.addr + 32) by {
+                            if ptr@.addr < block@.addr + 32 {
+                                assert(0 <= ptr@.addr - block@.addr < 32);
+                                assert((p - b) % 32 == 0) by {
+                                    vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish(p, 32);
+                                };
+                                assert(ptr@.addr - block@.addr >= 16);
+                                assert(false);
+                            }
+                        };
+                        assert(p % 8 == 0) by {
+                            lemma_mod_by_multiple(p, 4, 8);
+                        };
+                        assert((pad_addr + 8) % 8 == 0) by {
+                            assert(pad_addr as int + 8 == ptr@.addr);
+                        };
+                        assert(pad_addr as int % 8 == 0) by {
+                            vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish((pad_addr as int) + 8, 8);
+                            assert(((pad_addr as int) + 8) % 8 == 0);
+                        };
+                        assert((pad_addr as int) % vstd::layout::align_of::<UsedBlockPad>() as int == 0);
+                    } else {
+                        let ghost p = ptr@.addr as int;
+                        let ghost b = block@.addr as int;
+                        assert(GRANULARITY == 16);
+                        assert(align % 16 == 0) by {
+                            lemma_pow2_value_in_usize(align);
+                        };
+                        assert(p % 16 == 0) by {
+                            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(align as int, 16);
+                            assert(align as int == 16 * ((align as int) / 16)) by {
+                                assert((align as int) % 16 == 0);
+                            };
+                            assert(p % (16 * ((align as int) / 16)) == 0);
+                            lemma_mod_by_multiple(p, (align as int) / 16, 16);
+                        };
+                        assert(b % 16 == 0) by {
+                            assert(b % GRANULARITY as int == 0);
+                            assert(GRANULARITY as int == 16);
+                        };
+                        assert(ptr@.addr >= block@.addr + 8);
+                        assert(ptr@.addr < block@.addr + 8 + align as int);
+                        assert(ptr@.addr >= block@.addr + 16) by {
+                            if ptr@.addr < block@.addr + 16 {
+                                assert(0 <= ptr@.addr - block@.addr < 16);
+                                assert((p - b) % 16 == 0) by {
+                                    vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish(p, 16);
+                                };
+                                assert(ptr@.addr - block@.addr >= 8);
+                                assert(false);
+                            }
+                        };
+                        assert((pad_addr + 4) % 4 == 0) by {
+                            assert(pad_addr as int + 4 == ptr@.addr);
+                        };
+                        assert(pad_addr as int % 4 == 0) by {
+                            vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish((pad_addr as int) + 4, 4);
+                            assert(((pad_addr as int) + 4) % 4 == 0);
+                        };
+                        assert((pad_addr as int) % vstd::layout::align_of::<UsedBlockPad>() as int == 0);
+                    }
+
+                    assert(set_int_range(
+                        pad_addr as int,
+                        pad_addr as int + pad_size,
+                    ).subset_of(new_block_perm.mem.dom())) by {
+                        assert(mem_start <= pad_addr as int) by {
+                            assert(pad_addr as int + pad_size == ptr@.addr);
+                            assert(ptr@.addr >= block@.addr + size_of::<UsedBlockHdr>() as int);
+                            assert(size_of::<UsedBlockHdr>() as int >= size_of::<BlockHdr>() as int);
+                        };
+                        assert(pad_addr as int + pad_size <= mem_end) by {
+                            assert(ptr@.addr <= block@.addr + new_size as int);
+                        };
+                        if new_size == block_size {
+                            assert(new_block_perm.mem.is_range(mem_start, mem_end - mem_start));
+                        } else {
+                            assert(new_block_perm.mem.is_range(mem_start, mem_end - mem_start));
+                        }
+                        Self::lemma_range_subset_of_mem_dom(
+                            new_block_perm.mem,
+                            mem_start,
+                            mem_end,
+                            pad_addr as int,
+                            pad_addr as int + pad_size,
+                        );
+                    };
+                }
+                let tracked (pad_raw, mem_rest) = new_block_perm.mem.split(
+                    set_int_range(
+                        pad_addr as int,
+                        pad_addr as int + vstd::layout::size_of::<UsedBlockPad>() as int,
+                    ),
+                );
+                proof {
+                    assert(pad_raw.is_range(pad_addr as int, vstd::layout::size_of::<UsedBlockPad>() as int)) by {
+                        assert(pad_raw.dom()
+                            == set_int_range(pad_addr as int, pad_addr as int + vstd::layout::size_of::<UsedBlockPad>() as int));
+                    };
+                }
+                let tracked mut pad_perm = pad_raw.into_typed::<UsedBlockPad>(pad_addr);
+                proof {
+                    assert(pad_perm.ptr()@ == pad_ptr@) by {
+                        assert(pad_perm.ptr()@.addr == pad_ptr@.addr) by {
+                            assert(pad_perm.ptr()@.addr == pad_addr as int);
+                            assert(pad_ptr@.addr == pad_addr as int);
+                        };
+                        assert(pad_perm.ptr()@.provenance == pad_ptr@.provenance) by {
+                            assert(pad_perm.ptr()@.provenance == pad_raw.provenance());
+                            assert(pad_raw.provenance() == new_block_perm.mem.provenance());
+                            assert(new_block_perm.mem.provenance() == block@.provenance) by {
+                                if new_size == block_size {
+                                    assert(old_head_perm.wf());
+                                    assert(old_head_perm.mem.provenance() == old_head_perm.points_to.ptr()@.provenance);
+                                    assert(old_head_perm.points_to.ptr() == block);
+                                    assert(old_head_perm.mem.provenance() == block@.provenance);
+                                    assert(new_block_perm.mem.provenance() == old_head_perm.mem.provenance());
+                                } else {
+                                    assert(new_block_perm.mem.provenance() == block@.provenance);
+                                }
+                            };
+                            assert(ptr@.provenance == block@.provenance);
+                            assert(pad_ptr@.provenance == ptr@.provenance);
+                        };
+                    };
+                    assert(pad_perm.ptr() == pad_ptr);
+                }
+                ptr_mut_write(pad_ptr, Tracked(&mut pad_perm), UsedBlockPad { block_hdr: block });
+                proof {
+                    let ghost pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+                    let ghost pad_lo = ptr as int - pad_size;
+                    self.used_info.pad_perms.borrow_mut().tracked_insert(ptr, pad_perm);
+                    new_block_perm.mem = mem_rest;
+                    assert(new_block_perm.mem.dom() == mem_dom_before_pad.difference(
+                        set_int_range(
+                            pad_lo,
+                            ptr as int,
+                        ),
+                    ));
                 }
             }
+            //proof {
+                //admit(); //-------------------------------------------------------------
+            //}
+
+            let tracked (ret_mem, mem_rest2) = new_block_perm.mem.split(
+                set_int_range(ptr as int, ptr as int + size as int),
+            );
+            proof {
+                assert(ret_mem.is_range(ptr as int, size as int)) by {
+                    assert(ret_mem.dom() == set_int_range(ptr as int, ptr as int + size as int));
+                };
+                new_block_perm.mem = mem_rest2;
+                self.all_blocks.perms.borrow_mut().tracked_insert(block, new_block_perm);
+            }
+            self.root_provenances = Tracked(Some(block_prov_for_root));
 
             //self.print_stat();
-            Some((ptr, Tracked(new_block_perm.mem), Tracked(DeallocToken)))
+            Some((ptr, Tracked(ret_mem), Tracked(DeallocToken)))
         }
     }
 
@@ -2336,7 +2674,7 @@ pub unsafe fn round_up(ptr: *mut u8, align: usize) -> (r: *mut u8)
     requires is_power_of_two(align as int)
     ensures
         (ptr as int) <= (r as int) < (ptr as int) + align as int ,
-        ptr as usize % align == 0,
+        r as usize % align == 0,
         r@.provenance == ptr@.provenance,
 {
     let prov = expose_provenance(ptr);
