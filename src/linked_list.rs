@@ -2,6 +2,7 @@
 use crate::all_blocks::*;
 use crate::block::*;
 use crate::block_index::BlockIndex;
+use crate::ordered_pointer_list::*;
 use crate::Tlsf;
 use core::hint::unreachable_unchecked;
 use vstd::prelude::*;
@@ -132,6 +133,155 @@ verus! {
             ensures
                 other.wf_free_node(idx, n)
         {
+        }
+
+        pub(crate) proof fn lemma_wf_free_node_preserve_if_not_touched(
+            self,
+            other: Self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            n: int,
+        )
+            requires
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+                self.wf_free_node(idx, n),
+                self.shadow_freelist@.m[idx] == other.shadow_freelist@.m[idx],
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]]
+                    == other.all_blocks.perms@[other.shadow_freelist@.m[idx][n]],
+                other.is_ii(),
+            ensures
+                other.wf_free_node(idx, n)
+        {
+            let ghost freelist = self.shadow_freelist@.m[idx];
+            let ghost node = freelist[n];
+            assert(other.shadow_freelist@.m[idx] == freelist);
+            assert(other.shadow_freelist@.m[idx][n] == node);
+            assert(other.all_blocks.perms@[node] == self.all_blocks.perms@[node]);
+
+            assert(other.all_blocks.contains(node)) by {
+                assert(0 <= n < other.shadow_freelist@.m[idx].len());
+                assert(0 <= other.shadow_freelist@.pi[(idx, n)] < other.all_blocks.ptrs@.len());
+                assert(other.shadow_freelist@.m[idx][n]
+                    == other.all_blocks.ptrs@[other.shadow_freelist@.pi[(idx, n)]]);
+                assert(other.all_blocks.ptrs@.contains(node));
+            };
+
+            assert(other.all_blocks.value_at(node).is_free());
+
+            assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value()
+                == other.all_blocks.perms@[node].free_link_perm.unwrap().value());
+
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr != 0
+                    ==> Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free)
+                        == Self::free_next_of(other.shadow_freelist@.m[idx], n)) by {
+                assert(self.wf_free_node(idx, n));
+                assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr != 0
+                    ==> Some(self.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free)
+                        == Self::free_next_of(self.shadow_freelist@.m[idx], n));
+                assert(Self::free_next_of(other.shadow_freelist@.m[idx], n)
+                    == Self::free_next_of(self.shadow_freelist@.m[idx], n));
+            };
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr == 0
+                    ==> Self::free_next_of(other.shadow_freelist@.m[idx], n) is None) by {
+                assert(self.wf_free_node(idx, n));
+                assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr == 0
+                    ==> Self::free_next_of(self.shadow_freelist@.m[idx], n) is None);
+                assert(Self::free_next_of(other.shadow_freelist@.m[idx], n)
+                    == Self::free_next_of(self.shadow_freelist@.m[idx], n));
+            };
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr != 0
+                    ==> Self::free_prev_of(other.shadow_freelist@.m[idx], n)
+                        == Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free)) by {
+                assert(self.wf_free_node(idx, n));
+                assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr != 0
+                    ==> Self::free_prev_of(self.shadow_freelist@.m[idx], n)
+                        == Some(self.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free));
+                assert(Self::free_prev_of(other.shadow_freelist@.m[idx], n)
+                    == Self::free_prev_of(self.shadow_freelist@.m[idx], n));
+            };
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr == 0
+                    ==> Self::free_prev_of(other.shadow_freelist@.m[idx], n) is None) by {
+                assert(self.wf_free_node(idx, n));
+                assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr == 0
+                    ==> Self::free_prev_of(self.shadow_freelist@.m[idx], n) is None);
+                assert(Self::free_prev_of(other.shadow_freelist@.m[idx], n)
+                    == Self::free_prev_of(self.shadow_freelist@.m[idx], n));
+            };
+        }
+
+        pub(crate) proof fn lemma_wf_free_node_preserve_remove_head(
+            self,
+            other: Self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            n: int,
+        )
+            requires
+                idx.wf(),
+                self.shadow_freelist@.m[idx].len() > 0,
+                0 < n < self.shadow_freelist@.m[idx].len() - 1,
+                self.wf_free_node(idx, n + 1),
+                other.shadow_freelist@.m[idx] == self.shadow_freelist@.m[idx].remove(0),
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n + 1]]
+                    == other.all_blocks.perms@[other.shadow_freelist@.m[idx][n]],
+                other.is_ii(),
+            ensures
+                other.wf_free_node(idx, n)
+        {
+            let ghost old_ls = self.shadow_freelist@.m[idx];
+            let ghost new_ls = other.shadow_freelist@.m[idx];
+            let ghost node = new_ls[n];
+            assert(new_ls == old_ls.remove(0));
+            assert(new_ls[n] == old_ls[n + 1]);
+            assert(other.all_blocks.perms@[node] == self.all_blocks.perms@[old_ls[n + 1]]);
+
+            assert(other.all_blocks.contains(node)) by {
+                assert(0 <= n < new_ls.len());
+                assert(0 <= other.shadow_freelist@.pi[(idx, n)] < other.all_blocks.ptrs@.len());
+                assert(new_ls[n] == other.all_blocks.ptrs@[other.shadow_freelist@.pi[(idx, n)]]);
+                assert(other.all_blocks.ptrs@.contains(node));
+            };
+
+            assert(other.all_blocks.value_at(node).is_free());
+
+            assert(old_ls[n + 1] == node);
+            assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value()
+                == other.all_blocks.perms@[node].free_link_perm.unwrap().value());
+
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr != 0
+                    ==> Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free)
+                        == Self::free_next_of(new_ls, n)) by {
+                assert(self.wf_free_node(idx, n + 1));
+                assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().next_free@.addr != 0
+                    ==> Some(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().next_free)
+                        == Self::free_next_of(old_ls, n + 1));
+                assert(Self::free_next_of(new_ls, n) == Self::free_next_of(old_ls, n + 1));
+            };
+
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr == 0
+                    ==> Self::free_next_of(new_ls, n) is None) by {
+                assert(self.wf_free_node(idx, n + 1));
+                assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().next_free@.addr == 0
+                    ==> Self::free_next_of(old_ls, n + 1) is None);
+                assert(Self::free_next_of(new_ls, n) == Self::free_next_of(old_ls, n + 1));
+            };
+
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr != 0
+                    ==> Self::free_prev_of(new_ls, n)
+                        == Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free)) by {
+                assert(self.wf_free_node(idx, n + 1));
+                assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().prev_free@.addr != 0
+                    ==> Self::free_prev_of(old_ls, n + 1)
+                        == Some(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().prev_free));
+                assert(Self::free_prev_of(new_ls, n) == Self::free_prev_of(old_ls, n + 1));
+            };
+
+            assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr == 0
+                    ==> Self::free_prev_of(new_ls, n) is None) by {
+                assert(self.wf_free_node(idx, n + 1));
+                assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().prev_free@.addr == 0
+                    ==> Self::free_prev_of(old_ls, n + 1) is None);
+                assert(Self::free_prev_of(new_ls, n) == Self::free_prev_of(old_ls, n + 1));
+            };
         }
 
         //#[verifier::external_body] // debug
@@ -629,6 +779,116 @@ verus! {
                 &&& is_identity_injection(new_sfl, all_blocks.ptrs@)
             })
         {
+        }
+
+        pub(crate) proof fn lemma_ii_shift_after_insert_ensures(
+            sfl: ShadowFreelist<FLLEN, SLLEN>,
+            old_ptrs: Seq<*mut BlockHdr>,
+            insert_ai: int,
+            new_ptr: *mut BlockHdr,
+        )
+            requires
+                old_ptrs.no_duplicates(),
+                ghost_pointer_ordered(old_ptrs),
+                sfl.shadow_freelist_has_all_wf_index(),
+                is_identity_injection(sfl, old_ptrs),
+                0 <= insert_ai < old_ptrs.len(),
+                (old_ptrs[insert_ai] as usize as int) < (new_ptr as usize as int),
+                insert_ai + 1 < old_ptrs.len() ==> (new_ptr as usize as int) <= (old_ptrs[insert_ai + 1] as usize as int),
+            ensures
+                is_identity_injection(
+                    ShadowFreelist {
+                        m: sfl.m,
+                        pi: sfl.pi.map_values(|ai: int| if insert_ai + 1 <= ai { ai + 1 } else { ai }),
+                    },
+                    add_ghost_pointer(old_ptrs, new_ptr),
+                )
+        {
+            lemma_add_ghost_pointer_insert_after_index(old_ptrs, new_ptr, insert_ai);
+            let ghost new_ptrs = add_ghost_pointer(old_ptrs, new_ptr);
+            let ghost new_sfl = ShadowFreelist {
+                m: sfl.m,
+                pi: sfl.pi.map_values(|ai: int| if insert_ai + 1 <= ai { ai + 1 } else { ai }),
+            };
+
+            assert(new_sfl.pi.is_injective()) by {
+                assert forall|x: (BlockIndex<FLLEN, SLLEN>, int), y: (BlockIndex<FLLEN, SLLEN>, int)|
+                    x != y && new_sfl.pi.dom().contains(x) && new_sfl.pi.dom().contains(y)
+                        implies new_sfl.pi[x] != new_sfl.pi[y]
+                by {
+                    assert(sfl.pi.dom().contains(x));
+                    assert(sfl.pi.dom().contains(y));
+                    assert(sfl.pi[x] != sfl.pi[y]);
+                    let ax = sfl.pi[x];
+                    let ay = sfl.pi[y];
+                    let fx = if insert_ai + 1 <= ax { ax + 1 } else { ax };
+                    let fy = if insert_ai + 1 <= ay { ay + 1 } else { ay };
+                    assert(new_sfl.pi[x] == fx);
+                    assert(new_sfl.pi[y] == fy);
+                    if ax < insert_ai + 1 {
+                        if ay < insert_ai + 1 {
+                            assert(fx == ax);
+                            assert(fy == ay);
+                        } else {
+                            assert(fx == ax);
+                            assert(fy == ay + 1);
+                            assert(fx < insert_ai + 1);
+                            assert(insert_ai + 1 <= fy);
+                        }
+                    } else {
+                        if ay < insert_ai + 1 {
+                            assert(fx == ax + 1);
+                            assert(fy == ay);
+                            assert(fy < insert_ai + 1);
+                            assert(insert_ai + 1 <= fx);
+                        } else {
+                            assert(fx == ax + 1);
+                            assert(fy == ay + 1);
+                        }
+                    }
+                };
+            };
+
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                new_sfl.pi.contains_key((idx, m)) <==> idx.wf() && 0 <= m < new_sfl.m[idx].len()
+            by {
+                assert(new_sfl.pi.contains_key((idx, m)) == sfl.pi.contains_key((idx, m)));
+                assert(sfl.shadow_freelist_has_all_wf_index());
+                assert(sfl.m.contains_key(idx) <==> idx.wf());
+                assert(new_sfl.m[idx] == sfl.m[idx]);
+                assert(sfl.pi.contains_key((idx, m)) <==> idx.wf() && 0 <= m < sfl.m[idx].len());
+            };
+
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                idx.wf() && 0 <= m < new_sfl.m[idx].len() implies {
+                    &&& 0 <= #[trigger] new_sfl.pi[(idx, m)] < new_ptrs.len()
+                    &&& new_sfl.m[idx][m] == new_ptrs[new_sfl.pi[(idx, m)]]
+                }
+            by {
+                assert(sfl.m.contains_key(idx));
+                assert(new_sfl.m[idx] == sfl.m[idx]);
+                assert(sfl.pi.contains_key((idx, m)));
+                assert(0 <= #[trigger] sfl.pi[(idx, m)] < old_ptrs.len());
+                assert(sfl.m[idx][m] == old_ptrs[sfl.pi[(idx, m)]]);
+                let ai = sfl.pi[(idx, m)];
+                let nai = new_sfl.pi[(idx, m)];
+                assert(nai == if insert_ai + 1 <= ai { ai + 1 } else { ai });
+                if insert_ai + 1 <= ai {
+                    assert(nai == ai + 1);
+                    assert(insert_ai + 1 < nai < new_ptrs.len());
+                    lemma_add_ghost_pointer_index_map(old_ptrs, new_ptr, insert_ai, nai);
+                    assert(new_ptrs[nai] == old_ptrs[nai - 1]);
+                    assert(nai - 1 == ai);
+                    assert(new_ptrs[nai] == old_ptrs[ai]);
+                } else {
+                    assert(nai == ai);
+                    assert(0 <= nai <= insert_ai);
+                    lemma_add_ghost_pointer_index_map(old_ptrs, new_ptr, insert_ai, nai);
+                    assert(new_ptrs[nai] == old_ptrs[nai]);
+                    assert(new_ptrs[nai] == old_ptrs[ai]);
+                }
+                assert(new_sfl.m[idx][m] == new_ptrs[new_sfl.pi[(idx, m)]]);
+            };
         }
 
 

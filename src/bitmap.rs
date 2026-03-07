@@ -161,24 +161,149 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
         ensures self.bitmap_wf(),
             self.all_blocks == old(self).all_blocks,
+            self.first_free == old(self).first_free,
+            self.shadow_freelist == old(self).shadow_freelist,
+            self.used_info == old(self).used_info,
+            self.valid_range == old(self).valid_range,
+            self.root_provenances == old(self).root_provenances,
+            forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                ==> nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                    == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize),
             idx matches BlockIndex(fl, sl)
                 && !nth_bit!(self.sl_bitmap[fl as int], sl)
     {
         let BlockIndex(fl, sl) = idx;
+        proof {
+            assert(fl < FLLEN);
+            assert(sl < SLLEN);
+            Self::plat_basics();
+            if usize::BITS == 64 {
+                assert(Self::granularity_log2_spec() == 5);
+                assert(FLLEN < 64 - 5);
+                assert(FLLEN < usize::BITS as usize);
+            } else {
+                assert(usize::BITS == 32);
+                assert(Self::granularity_log2_spec() == 4);
+                assert(FLLEN < 32 - 4);
+                assert(FLLEN < usize::BITS as usize);
+            }
+            assert(fl < usize::BITS as usize);
+            assert(sl < usize::BITS as usize);
+        }
         self.sl_bitmap[fl] = self.sl_bitmap[fl] & !(1usize << sl);
-        if self.sl_bitmap[fl] == 0 {
+        if self.sl_bitmap[fl] == 0 && fl < usize::BITS as usize {
             self.fl_bitmap = self.fl_bitmap & !(1usize << fl);
+        }
+        proof {
+            assert(old(self).bitmap_wf());
+            let ghost old_fl = old(self).fl_bitmap;
+            let ghost old_row = old(self).sl_bitmap[fl as int];
+            let ghost new_row = self.sl_bitmap[fl as int];
+            let ghost new_fl = self.fl_bitmap;
+
+            assert(new_row == old_row & !(1usize << sl));
+            lemma_bitmap_clear(old_row, sl);
+
+            if new_row == 0 && fl < usize::BITS as usize {
+                assert(new_fl == old_fl & !(1usize << fl));
+                lemma_bitmap_clear(old_fl, fl);
+            } else {
+                assert(new_fl == old_fl);
+            }
+
+            assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
+                implies nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                    == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize)
+            by {
+                let BlockIndex(f, s) = i;
+                if f == fl {
+                    assert(s != sl);
+                    assert(nth_bit!(new_row, s) == nth_bit!(old_row, s));
+                } else {
+                    assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int]);
+                }
+            };
+
+            assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() implies
+                i matches BlockIndex(f, s) &&
+                    (self.sl_bitmap[f as int] == 0 <==> !nth_bit!(self.fl_bitmap, f))
+            by {
+                let BlockIndex(f, s) = i;
+                if f == fl {
+                    assert(self.sl_bitmap[f as int] == new_row);
+                    if new_row == 0 {
+                        if fl < usize::BITS as usize {
+                            assert(new_fl == old_fl & !(1usize << fl));
+                            lemma_bitmap_clear(old_fl, fl);
+                            assert(!nth_bit!(new_fl, fl));
+                        } else {
+                            assert(!nth_bit!(new_fl, fl));
+                        }
+                    } else {
+                        assert(old_row != 0) by {
+                            if old_row == 0 {
+                                assert(new_row == old_row & !(1usize << sl));
+                                assert(0usize & !(1usize << sl) == 0usize) by (bit_vector);
+                                assert(new_row == 0usize & !(1usize << sl));
+                                assert(new_row == 0usize);
+                                assert(false);
+                            }
+                        };
+                        assert(old_row == 0 <==> !nth_bit!(old_fl, fl));
+                        assert(nth_bit!(old_fl, fl));
+                        assert(new_fl == old_fl);
+                        assert(nth_bit!(new_fl, fl));
+                    }
+                } else {
+                    assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int]);
+                    if new_row == 0 && fl < usize::BITS as usize {
+                        assert(f != fl);
+                        lemma_bitmap_clear_preserve(old_fl, fl, f);
+                        assert(nth_bit!(new_fl, f) == nth_bit!(old_fl, f));
+                    } else {
+                        assert(new_fl == old_fl);
+                    }
+                    assert(old(self).sl_bitmap[f as int] == 0 <==> !nth_bit!(old_fl, f));
+                }
+            };
+
+            assert forall|f: usize| f >= FLLEN implies !nth_bit!(self.fl_bitmap, f) by {
+                assert(!nth_bit!(old_fl, f));
+                if new_row == 0 && fl < usize::BITS as usize {
+                    assert(f != fl);
+                    lemma_bitmap_clear_preserve(old_fl, fl, f);
+                    assert(nth_bit!(new_fl, f) == nth_bit!(old_fl, f));
+                } else {
+                    assert(new_fl == old_fl);
+                }
+            };
+
+            assert forall|f: usize, s: usize| f < FLLEN && s >= SLLEN implies !nth_bit!(self.sl_bitmap[f as int], s) by {
+                if f == fl {
+                    assert(s != sl);
+                    assert(!nth_bit!(old_row, s));
+                    lemma_bitmap_clear_preserve(old_row, sl, s);
+                    assert(nth_bit!(new_row, s) == nth_bit!(old_row, s));
+                    assert(!nth_bit!(new_row, s));
+                    assert(!nth_bit!(old_row, s));
+                } else {
+                    assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int]);
+                    assert(!nth_bit!(old(self).sl_bitmap[f as int], s));
+                }
+            };
         }
     }
 
     /// State *inner bitmap consistency*
     ///      fl_bitmap[i] == fold(true, |j,k| fl_bitmap[i][j] || fl_bitmap[i][k])
-    pub open spec fn bitmap_wf(&self) -> bool {
+    pub open spec fn bitmap_wf(&self) -> bool
+        recommends Self::parameter_validity()
+    {
         // TODO: state that self.fl_bitmap[0..GRANULARITY_LOG2] is zero?
         &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==>
             (self.sl_bitmap[idx.0 as int] == 0 <==> !(nth_bit!(self.fl_bitmap, idx.0)))
         &&& forall|f: usize| f >= FLLEN ==> !(nth_bit!(self.fl_bitmap, f))
-        &&& forall|f: usize, s: usize| s >= SLLEN ==> !(nth_bit!(self.sl_bitmap[f as int], s))
+        &&& forall|f: usize, s: usize| f < FLLEN && s >= SLLEN ==> !(nth_bit!(self.sl_bitmap[f as int], s))
     }
 
     /// Bitmap kept sync with shadow segregated free lists.

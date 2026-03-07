@@ -2086,6 +2086,31 @@ pub proof fn lemma_bitmap_clear(b: usize, i: usize)
                 nth_bit!(b & !(1usize << i), j) == nth_bit!(b, j)
 {}
 
+#[verifier::bit_vector]
+pub(crate) proof fn lemma_nth_bit_out_of_range(x: usize, i: usize)
+    requires
+        i >= usize::BITS,
+    ensures
+        !nth_bit!(x, i),
+{}
+
+pub(crate) proof fn lemma_bitmap_clear_preserve(x: usize, cleared: usize, f: usize)
+    requires
+        0 <= cleared < usize::BITS,
+        f != cleared,
+    ensures
+        nth_bit!(x & !(1usize << cleared), f) == nth_bit!(x, f)
+{
+    if f < usize::BITS {
+        lemma_bitmap_clear(x, cleared);
+        assert(nth_bit!(x & !(1usize << cleared), f) == nth_bit!(x, f));
+    } else {
+        lemma_nth_bit_out_of_range(x, f);
+        lemma_nth_bit_out_of_range(x & !(1usize << cleared), f);
+        assert(nth_bit!(x & !(1usize << cleared), f) == nth_bit!(x, f));
+    }
+}
+
 proof fn lemma_round_up_pow2_case_dispatch(x: usize, y: usize, g: usize, n: usize)
     requires
         g == n,
