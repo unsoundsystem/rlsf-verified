@@ -48,101 +48,75 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         proof {
             lemma_pow2_values();
             lemma_log2_values();
+            Self::lemma_size_within_max_is_valid_block_size(size);
         }
-        assert(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64)
-        by {
-            assert(size % GRANULARITY == 0);
-            assert(size >= GRANULARITY);
-            Self::fl_not_underflow(size);
-        };
-        proof {
-            granularity_is_power_of_two();
-        }
-        assert(GRANULARITY < usize::BITS);
-        // subtracting `Self::granularity_log2()` because actual freelist starts from `2^Self::granularity_log2()`
-        let mut fl = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
-        assert(fl == log(2, size as int) - Self::granularity_log2()) by {
-            log2_using_leading_zeros_usize(size);
-            assert(fl == usize::BITS - Self::granularity_log2() - 1 - usize_leading_zeros(size));
-            assert(log(2, size as int) == usize::BITS - usize_leading_zeros(size) - 1);
-        };
-
-        // The shift amount can be negative, and rotation lets us handle both
-        // cases without branching.
-        // negative case can occur when all of following holds
-        // - fl == 0
-        //   - log2(size) == GRANULARITY_LOG2 i.e. size == GRANULARITY
-        // - SLI > GRANULARITY_LOG2 i.e. SLLEN > GRANULARITY
-        //
-        // FIXME: guessing the negative case is for treating this specific case
-        // FIXME(if i wrong):  the negative case occurs only when
-        //                     requested size is GRANULARITY (i.e. fl=0)
-        //      - Supposing 64bit platform, SLI <= 6 and GRANULARITY_LOG2 = 5.
-        //        thus when `SLI > fl + GRANULARITY_LOG2` holds, fl must be 0
-        //      - Supposing 32bit platform, SLI <= 5 and GRANULARITY_LOG2 = 4.
-        //        thus when `SLI > fl + GRANULARITY_LOG2` holds, fl must be 0
-        //      - Generally SLI <= log2(sizeof(usize)*8) = log2(sizeof(usize)) + 3 and
-        //        GRANULARITY_LOG2 = log2(sizeof(usize)*4) = log2(sizeof(usize)) + 2
-        //        thus when `SLI > fl + GRANULARITY_LOG2`
-        //        (i.e. `3 > fl + 2`) holds, fl must be 0
-        //
-        // (NOTE: this *is* unusual case! target usecase configured as SLLEN = 64)
-        let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
-
-        // The most significant one of `size` should be now at `sl[SLI]`
-        // NOTE: this follows from map_floor proof obligations and is not needed for postcondition here.
-
-        // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
-        // be rounded up
-        // NOTE:
-        // - `sl & (SLLEN - 1)` mask with second-level index set (sl[0..=SLI]
-        // - because of rotating, if above underflowed, there bits present in sl[SLI+1..]
-        //   so round up
-        // NOTE: underflowed digits means reminder of dividing size by second-level block size
-        //       thus they must be rounded up to return appropriate index for allocating from
-        proof {
-            assert(Self::parameter_validity());
-            Self::sli_pow2_is_sllen();
-            assert(Self::sli_spec() <= 6) by {
-                if usize::BITS == 64 {
-                    assert(SLLEN <= 64);
-                    vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
-                    assert(log(2, SLLEN as int) == Self::sli_spec());
-                } else {
-                    assert(usize::BITS == 32);
-                    assert(SLLEN <= 32);
-                    vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 32);
-                    assert(log(2, SLLEN as int) == Self::sli_spec());
+        let floor = match Self::map_floor(size) {
+            Some(idx) => idx,
+            None => {
+                proof {
+                    Self::lemma_size_within_max_is_valid_block_size(size);
+                    assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
                 }
+                return None;
+            }
+        };
+        let BlockIndex(fl, sl) = floor;
+        let idx =
+            if sl < SLLEN - 1 {
+                BlockIndex(fl, sl + 1)
+            } else if fl < FLLEN - 1 {
+                BlockIndex(fl + 1, 0)
+            } else {
+                floor
             };
-            assert(Self::sli() + 1 < usize::BITS);
-            mask_higher_bits_leq_mask(sl, SLLEN);
-            assert(bool_to_usize(sl >= (1 << (Self::sli() + 1))) <= 1);
-            assert(SLLEN <= usize::BITS);
-            assert((SLLEN - 1) + 1 <= usize::MAX);
-        }
-        sl = (sl & (SLLEN - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
 
-        // if sl >= SLLEN { fl += 1; sl = 0; }
-        // sl[SLI] <==> sl >= SLLEN
         proof {
-            assert(sl >> Self::sli() <= 1) by {
-                assert(sl <= SLLEN) by {
-                    assert(sl <= (SLLEN - 1) + 1);
-                };
-                assert(SLLEN <= usize::BITS);
-                assert(Self::sli() <= 6);
-            };
-            assert((sl >> Self::sli()) as u32 <= 1);
-            assert(fl + (sl >> Self::sli()) as u32 <= usize::BITS);
-        }
-        fl = fl + (sl >> Self::sli()) as u32;
+            Self::lemma_size_within_max_is_valid_block_size(size);
+            assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
+            assert(floor.wf());
+            assert(floor.block_size_range().contains(size as int));
+            assert(floor.block_size_range().start() <= (size as int));
+            assert((size as int) < floor.block_size_range().end());
 
-        if fl as usize >= FLLEN {
-            return None;
+            if sl < SLLEN - 1 {
+                assert(idx.wf());
+                if floor.fl_zero_cond() {
+                    floor.fl_is_zero();
+                    idx.fl_is_zero();
+                    assert(floor.block_size_range().start() == GRANULARITY as int);
+                    assert(floor.block_size_range().end() == 2 * GRANULARITY as int);
+                    assert(idx.block_size_range().start() == GRANULARITY as int);
+                    assert((size as int) % (GRANULARITY as int) == 0);
+                    assert((size as int) < (2 * (GRANULARITY as int)));
+                    assert((GRANULARITY as int) <= (size as int));
+                    assert((size as int) == (GRANULARITY as int));
+                    assert((size as int) <= idx.block_size_range().start());
+                } else {
+                    floor.fl_non_zero();
+                    idx.fl_non_zero();
+                    assert(floor.block_size_range().end() == idx.block_size_range().start());
+                    assert((size as int) < floor.block_size_range().end());
+                    assert((size as int) <= idx.block_size_range().start());
+                }
+            } else if fl < FLLEN - 1 {
+                assert(floor.wf());
+                assert(idx.wf());
+                assert(floor.block_index_lt(idx));
+                assert(floor.0 == 0 ==> idx.0 != 0);
+                BlockIndex::<FLLEN, SLLEN>::lemma_block_size_range_mono(floor, idx);
+                assert(floor.block_size_range().end() <= idx.block_size_range().start());
+                assert((size as int) < floor.block_size_range().end());
+                assert((size as int) <= idx.block_size_range().start());
+            } else {
+                assert(idx == floor);
+                assert(floor == BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize));
+                Self::lemma_last_index_start_is_max_allocatable();
+                assert(idx.wf());
+                assert(idx.block_size_range().start() == Self::max_allocatable_size());
+                assert((size as int) <= Self::max_allocatable_size());
+                assert((size as int) <= idx.block_size_range().start());
+            }
         }
-
-        let idx = BlockIndex(fl as usize, sl & (SLLEN - 1));
 
         Some(idx)
     }
@@ -956,6 +930,106 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             };
         };
 
+    }
+
+    proof fn lemma_last_index_start_is_max_allocatable()
+        requires
+            Self::parameter_validity(),
+        ensures
+            ({
+                let idx = BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize);
+                &&& idx.wf()
+                &&& idx.block_size_range().start() == Self::max_allocatable_size()
+            })
+    {
+        Self::lemma_parameter_validity_implies_block_index_parameter_validity();
+        assert(BlockIndex::<FLLEN, SLLEN>::parameter_validity());
+        let idx = BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize);
+        assert(0 < FLLEN);
+        assert(0 < SLLEN);
+        assert(((FLLEN - 1) as int) < (FLLEN as int));
+        assert(((SLLEN - 1) as int) < (SLLEN as int));
+        assert(idx.wf());
+
+        let flb = pow2((Self::granularity_log2_spec() + FLLEN as int - 1) as nat) as int;
+        assert(flb == pow2((idx.0 + Self::granularity_log2_spec()) as nat) as int);
+
+        if pow2((idx.0 + Self::granularity_log2_spec()) as nat) < SLLEN {
+            idx.fl_is_zero();
+            idx.fl_zero_iff();
+            assert(idx.0 == 0);
+            Self::granularity_basics();
+            assert(flb == GRANULARITY) by {
+                assert(FLLEN == 1);
+                assert(Self::granularity_log2_spec() + FLLEN as int - 1 == Self::granularity_log2_spec());
+            };
+            assert(flb / SLLEN as int == 0);
+            assert(Self::max_allocatable_size()
+                == flb + (SLLEN as int - 1) * (flb / SLLEN as int));
+            assert(Self::max_allocatable_size() == flb);
+            assert(idx.block_size_range().start() == GRANULARITY);
+            assert(idx.block_size_range().start() == Self::max_allocatable_size());
+        } else {
+            idx.fl_non_zero();
+            assert(idx.block_size_range().start()
+                == flb + (flb / SLLEN as int) * ((SLLEN - 1) as int));
+            assert(Self::max_allocatable_size()
+                == flb + (SLLEN as int - 1) * (flb / SLLEN as int));
+            assert(idx.block_size_range().start() == Self::max_allocatable_size());
+        }
+    }
+
+    proof fn lemma_size_within_max_is_valid_block_size(size: usize)
+        requires
+            size >= GRANULARITY,
+            size % GRANULARITY == 0,
+            Self::parameter_validity(),
+            size as int <= Self::max_allocatable_size(),
+        ensures
+            BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)
+    {
+        Self::granularity_basics();
+        Self::lemma_parameter_validity_implies_block_index_parameter_validity();
+        let g = Self::granularity_log2_spec();
+        let flb = pow2((g + FLLEN as int - 1) as nat) as int;
+        let d = SLLEN as int;
+        let q = flb / d;
+        let r = flb % d;
+        assert(0 < d);
+        vstd::arithmetic::power2::lemma_pow2_pos((g + FLLEN as int - 1) as nat);
+        assert(0 < flb);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(flb, d);
+        assert(flb == q * d + r);
+        assert(0 <= r);
+        assert(r < d);
+        assert(q * d <= flb) by (nonlinear_arith);
+        assert(0 <= q) by (nonlinear_arith);
+        assert((d - 1) * q < flb) by {
+            assert((d - 1) * q <= d * q) by (nonlinear_arith);
+            assert(d * q <= flb) by (nonlinear_arith);
+            if q == 0 {
+                assert((d - 1) * q == 0);
+                assert(0 < flb);
+            } else {
+                assert((d - 1) * q < d * q) by (nonlinear_arith);
+            }
+        };
+        assert(Self::max_allocatable_size() == flb + (d - 1) * q);
+        assert(Self::max_allocatable_size() < flb + flb) by (nonlinear_arith);
+        assert(flb + flb == (pow2(FLLEN as nat) as int) * (GRANULARITY as int)) by {
+            assert(GRANULARITY as int == pow2(g as nat));
+            assert(pow2((g + FLLEN as int) as nat) as int
+                == (pow2(FLLEN as nat) as int) * (pow2(g as nat) as int)) by {
+                vstd::arithmetic::power2::lemma_pow2_adds(FLLEN as nat, g as nat);
+            };
+            assert(pow2((g + FLLEN as int) as nat) as int == flb + flb) by {
+                assert(g + FLLEN as int == g + FLLEN as int - 1 + 1);
+                vstd::arithmetic::power2::lemma_pow2_unfold((g + FLLEN as int) as nat);
+            };
+        };
+        let max_valid = (pow2(FLLEN as nat) as int) * (GRANULARITY as int);
+        assert((size as int) < max_valid) by (nonlinear_arith);
+        assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
     }
 
     proof fn fl_not_underflow(size: usize)

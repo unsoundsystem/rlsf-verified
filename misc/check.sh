@@ -8,7 +8,7 @@ VERUS_SINGULAR_PATH=/usr/bin/Singular
 funcs=(
     "linked_list Tlsf::link_free_block"
     "mapping Tlsf::map_floor"
-    #"mapping Tlsf::map_ceil"
+    "mapping Tlsf::map_ceil"
     "allocate Tlsf::allocate"
     "search_block Tlsf::search_suitable_free_block_list_for_allocation"
 )
