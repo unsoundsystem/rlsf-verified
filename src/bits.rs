@@ -987,76 +987,353 @@ pub proof fn lemma_pow2_value_in_usize(x: usize)
         x == 9223372036854775808
 {
     lemma_pow2_values();
-    if 0 < pow2(0) {
-        assume(false)
-    } else if pow2(0) <= x < pow2(1) { assert(x == 1);
-    } else if pow2(1) <= x < pow2(2) { assert(x == 2);
-    } else if pow2(2) <= x < pow2(3) { assert(x == 4);
-    } else if pow2(3) <= x < pow2(4) { assert(x == 8);
-    } else if pow2(4) <= x < pow2(5) { assert(x == 16);
-    } else if pow2(5) <= x < pow2(6) { assert(x == 32);
-    } else if pow2(6) <= x < pow2(7) { assert(x == 64);
-    } else if pow2(7) <= x < pow2(8) { assert(x == 128);
-    } else if pow2(8) <= x < pow2(9) { assert(x == 256);
-    } else if pow2(9) <= x < pow2(10) { assert(x == 512);
-    } else if pow2(10) <= x < pow2(11) { assert(x == 1024);
-    } else if pow2(11) <= x < pow2(12) { assert(x == 2048);
-    } else if pow2(12) <= x < pow2(13) { assert(x == 4096);
-    } else if pow2(13) <= x < pow2(14) { assert(x == 8192);
-    } else if pow2(14) <= x < pow2(15) { assert(x == 16384);
-    } else if pow2(15) <= x < pow2(16) { assert(x == 32768);
-    } else if pow2(16) <= x < pow2(17) { assert(x == 65536);
-    } else if pow2(17) <= x < pow2(18) { assert(x == 131072);
-    } else if pow2(18) <= x < pow2(19) { assert(x == 262144);
-    } else if pow2(19) <= x < pow2(20) { assert(x == 524288);
-    } else if pow2(20) <= x < pow2(21) { assert(x == 1048576);
-    } else if pow2(21) <= x < pow2(22) { assert(x == 2097152);
-    } else if pow2(22) <= x < pow2(23) { assert(x == 4194304);
-    } else if pow2(23) <= x < pow2(24) { assert(x == 8388608);
-    } else if pow2(24) <= x < pow2(25) { assert(x == 16777216);
-    } else if pow2(25) <= x < pow2(26) { assert(x == 33554432);
-    } else if pow2(26) <= x < pow2(27) { assert(x == 67108864);
-    } else if pow2(27) <= x < pow2(28) { assert(x == 134217728);
-    } else if pow2(28) <= x < pow2(29) { assert(x == 268435456);
-    } else if pow2(29) <= x < pow2(30) { assert(x == 536870912);
-    } else if pow2(30) <= x < pow2(31) { assert(x == 1073741824);
-    } else if pow2(31) <= x < pow2(32) { assert(x == 2147483648);
-    } else if pow2(32) <= x < pow2(33) { assert(x == 4294967296);
-    } else if pow2(33) <= x < pow2(34) { assert(x == 8589934592);
-    } else if pow2(34) <= x < pow2(35) { assert(x == 17179869184);
-    } else if pow2(35) <= x < pow2(36) { assert(x == 34359738368);
-    } else if pow2(36) <= x < pow2(37) { assert(x == 68719476736);
-    } else if pow2(37) <= x < pow2(38) { assert(x == 137438953472);
-    } else if pow2(38) <= x < pow2(39) { assert(x == 274877906944);
-    } else if pow2(39) <= x < pow2(40) { assert(x == 549755813888);
-    } else if pow2(40) <= x < pow2(41) { assert(x == 1099511627776);
-    } else if pow2(41) <= x < pow2(42) { assert(x == 2199023255552);
-    } else if pow2(42) <= x < pow2(43) { assert(x == 4398046511104);
-    } else if pow2(43) <= x < pow2(44) { assert(x == 8796093022208);
-    } else if pow2(44) <= x < pow2(45) { assert(x == 17592186044416);
-    } else if pow2(45) <= x < pow2(46) { assert(x == 35184372088832);
-    } else if pow2(46) <= x < pow2(47) { assert(x == 70368744177664);
-    } else if pow2(47) <= x < pow2(48) { assert(x == 140737488355328);
-    } else if pow2(48) <= x < pow2(49) { assert(x == 281474976710656);
-    } else if pow2(49) <= x < pow2(50) { assert(x == 562949953421312);
-    } else if pow2(50) <= x < pow2(51) { assert(x == 1125899906842624);
-    } else if pow2(51) <= x < pow2(52) { assert(x == 2251799813685248);
-    } else if pow2(52) <= x < pow2(53) { assert(x == 4503599627370496);
-    } else if pow2(53) <= x < pow2(54) { assert(x == 9007199254740992);
-    } else if pow2(54) <= x < pow2(55) { assert(x == 18014398509481984);
-    } else if pow2(55) <= x < pow2(56) { assert(x == 36028797018963968);
-    } else if pow2(56) <= x < pow2(57) { assert(x == 72057594037927936);
-    } else if pow2(57) <= x < pow2(58) { assert(x == 144115188075855872);
-    } else if pow2(58) <= x < pow2(59) { assert(x == 288230376151711744);
-    } else if pow2(59) <= x < pow2(60) { assert(x == 576460752303423488);
-    } else if pow2(60) <= x < pow2(61) { assert(x == 1152921504606846976);
-    } else if pow2(61) <= x < pow2(62) { assert(x == 2305843009213693952);
-    } else if pow2(62) <= x < pow2(63) { assert(x == 4611686018427387904);
-    } else if pow2(63) <= x < pow2(64) { assert(x == 9223372036854775808);
-        assume(false)
+
+    let p = choose|p: nat| x as int == pow2(p);
+    assert(x as int == pow2(p));
+
+    assert(p <= 63) by {
+        if !(p <= 63) {
+            assert(64 <= p);
+            if p == 64 {
+                assert(pow2(64) <= pow2(p));
+            } else {
+                assert(64 < p);
+                vstd::arithmetic::power2::lemma_pow2_strictly_increases(64nat, p);
+                assert(pow2(64) < pow2(p));
+                assert(pow2(64) <= pow2(p));
+            }
+            assert(pow2(p) == x as int);
+            assert((usize::MAX as int) + 1 == pow2(64)) by (compute);
+            assert((usize::MAX as int) < pow2(64));
+            assert(x as int <= usize::MAX as int);
+            assert((x as int) < pow2(64));
+            assert(false);
+        }
+    };
+    if p == 0 {
+        assert(x as int == pow2(0));
+        assert(pow2(0) == 1) by (compute);
+        assert(x == 1) by (bit_vector)
+            requires x as int == 1;
+    } else if p == 1 {
+        assert(x as int == pow2(1));
+        assert(pow2(1) == 2) by (compute);
+        assert(x == 2) by (bit_vector)
+            requires x as int == 2;
+    } else if p == 2 {
+        assert(x as int == pow2(2));
+        assert(pow2(2) == 4) by (compute);
+        assert(x == 4) by (bit_vector)
+            requires x as int == 4;
+    } else if p == 3 {
+        assert(x as int == pow2(3));
+        assert(pow2(3) == 8) by (compute);
+        assert(x == 8) by (bit_vector)
+            requires x as int == 8;
+    } else if p == 4 {
+        assert(x as int == pow2(4));
+        assert(pow2(4) == 16) by (compute);
+        assert(x == 16) by (bit_vector)
+            requires x as int == 16;
+    } else if p == 5 {
+        assert(x as int == pow2(5));
+        assert(pow2(5) == 32) by (compute);
+        assert(x == 32) by (bit_vector)
+            requires x as int == 32;
+    } else if p == 6 {
+        assert(x as int == pow2(6));
+        assert(pow2(6) == 64) by (compute);
+        assert(x == 64) by (bit_vector)
+            requires x as int == 64;
+    } else if p == 7 {
+        assert(x as int == pow2(7));
+        assert(pow2(7) == 128) by (compute);
+        assert(x == 128) by (bit_vector)
+            requires x as int == 128;
+    } else if p == 8 {
+        assert(x as int == pow2(8));
+        assert(pow2(8) == 256) by (compute);
+        assert(x == 256) by (bit_vector)
+            requires x as int == 256;
+    } else if p == 9 {
+        assert(x as int == pow2(9));
+        assert(pow2(9) == 512) by (compute);
+        assert(x == 512) by (bit_vector)
+            requires x as int == 512;
+    } else if p == 10 {
+        assert(x as int == pow2(10));
+        assert(pow2(10) == 1024) by (compute);
+        assert(x == 1024) by (bit_vector)
+            requires x as int == 1024;
+    } else if p == 11 {
+        assert(x as int == pow2(11));
+        assert(pow2(11) == 2048) by (compute);
+        assert(x == 2048) by (bit_vector)
+            requires x as int == 2048;
+    } else if p == 12 {
+        assert(x as int == pow2(12));
+        assert(pow2(12) == 4096) by (compute);
+        assert(x == 4096) by (bit_vector)
+            requires x as int == 4096;
+    } else if p == 13 {
+        assert(x as int == pow2(13));
+        assert(pow2(13) == 8192) by (compute);
+        assert(x == 8192) by (bit_vector)
+            requires x as int == 8192;
+    } else if p == 14 {
+        assert(x as int == pow2(14));
+        assert(pow2(14) == 16384) by (compute);
+        assert(x == 16384) by (bit_vector)
+            requires x as int == 16384;
+    } else if p == 15 {
+        assert(x as int == pow2(15));
+        assert(pow2(15) == 32768) by (compute);
+        assert(x == 32768) by (bit_vector)
+            requires x as int == 32768;
+    } else if p == 16 {
+        assert(x as int == pow2(16));
+        assert(pow2(16) == 65536) by (compute);
+        assert(x == 65536) by (bit_vector)
+            requires x as int == 65536;
+    } else if p == 17 {
+        assert(x as int == pow2(17));
+        assert(pow2(17) == 131072) by (compute);
+        assert(x == 131072) by (bit_vector)
+            requires x as int == 131072;
+    } else if p == 18 {
+        assert(x as int == pow2(18));
+        assert(pow2(18) == 262144) by (compute);
+        assert(x == 262144) by (bit_vector)
+            requires x as int == 262144;
+    } else if p == 19 {
+        assert(x as int == pow2(19));
+        assert(pow2(19) == 524288) by (compute);
+        assert(x == 524288) by (bit_vector)
+            requires x as int == 524288;
+    } else if p == 20 {
+        assert(x as int == pow2(20));
+        assert(pow2(20) == 1048576) by (compute);
+        assert(x == 1048576) by (bit_vector)
+            requires x as int == 1048576;
+    } else if p == 21 {
+        assert(x as int == pow2(21));
+        assert(pow2(21) == 2097152) by (compute);
+        assert(x == 2097152) by (bit_vector)
+            requires x as int == 2097152;
+    } else if p == 22 {
+        assert(x as int == pow2(22));
+        assert(pow2(22) == 4194304) by (compute);
+        assert(x == 4194304) by (bit_vector)
+            requires x as int == 4194304;
+    } else if p == 23 {
+        assert(x as int == pow2(23));
+        assert(pow2(23) == 8388608) by (compute);
+        assert(x == 8388608) by (bit_vector)
+            requires x as int == 8388608;
+    } else if p == 24 {
+        assert(x as int == pow2(24));
+        assert(pow2(24) == 16777216) by (compute);
+        assert(x == 16777216) by (bit_vector)
+            requires x as int == 16777216;
+    } else if p == 25 {
+        assert(x as int == pow2(25));
+        assert(pow2(25) == 33554432) by (compute);
+        assert(x == 33554432) by (bit_vector)
+            requires x as int == 33554432;
+    } else if p == 26 {
+        assert(x as int == pow2(26));
+        assert(pow2(26) == 67108864) by (compute);
+        assert(x == 67108864) by (bit_vector)
+            requires x as int == 67108864;
+    } else if p == 27 {
+        assert(x as int == pow2(27));
+        assert(pow2(27) == 134217728) by (compute);
+        assert(x == 134217728) by (bit_vector)
+            requires x as int == 134217728;
+    } else if p == 28 {
+        assert(x as int == pow2(28));
+        assert(pow2(28) == 268435456) by (compute);
+        assert(x == 268435456) by (bit_vector)
+            requires x as int == 268435456;
+    } else if p == 29 {
+        assert(x as int == pow2(29));
+        assert(pow2(29) == 536870912) by (compute);
+        assert(x == 536870912) by (bit_vector)
+            requires x as int == 536870912;
+    } else if p == 30 {
+        assert(x as int == pow2(30));
+        assert(pow2(30) == 1073741824) by (compute);
+        assert(x == 1073741824) by (bit_vector)
+            requires x as int == 1073741824;
+    } else if p == 31 {
+        assert(x as int == pow2(31));
+        assert(pow2(31) == 2147483648) by (compute);
+        assert(x == 2147483648) by (bit_vector)
+            requires x as int == 2147483648;
+    } else if p == 32 {
+        assert(x as int == pow2(32));
+        assert(pow2(32) == 4294967296) by (compute);
+        assert(x == 4294967296) by (bit_vector)
+            requires x as int == 4294967296;
+    } else if p == 33 {
+        assert(x as int == pow2(33));
+        assert(pow2(33) == 8589934592) by (compute);
+        assert(x == 8589934592) by (bit_vector)
+            requires x as int == 8589934592;
+    } else if p == 34 {
+        assert(x as int == pow2(34));
+        assert(pow2(34) == 17179869184) by (compute);
+        assert(x == 17179869184) by (bit_vector)
+            requires x as int == 17179869184;
+    } else if p == 35 {
+        assert(x as int == pow2(35));
+        assert(pow2(35) == 34359738368) by (compute);
+        assert(x == 34359738368) by (bit_vector)
+            requires x as int == 34359738368;
+    } else if p == 36 {
+        assert(x as int == pow2(36));
+        assert(pow2(36) == 68719476736) by (compute);
+        assert(x == 68719476736) by (bit_vector)
+            requires x as int == 68719476736;
+    } else if p == 37 {
+        assert(x as int == pow2(37));
+        assert(pow2(37) == 137438953472) by (compute);
+        assert(x == 137438953472) by (bit_vector)
+            requires x as int == 137438953472;
+    } else if p == 38 {
+        assert(x as int == pow2(38));
+        assert(pow2(38) == 274877906944) by (compute);
+        assert(x == 274877906944) by (bit_vector)
+            requires x as int == 274877906944;
+    } else if p == 39 {
+        assert(x as int == pow2(39));
+        assert(pow2(39) == 549755813888) by (compute);
+        assert(x == 549755813888) by (bit_vector)
+            requires x as int == 549755813888;
+    } else if p == 40 {
+        assert(x as int == pow2(40));
+        assert(pow2(40) == 1099511627776) by (compute);
+        assert(x == 1099511627776) by (bit_vector)
+            requires x as int == 1099511627776;
+    } else if p == 41 {
+        assert(x as int == pow2(41));
+        assert(pow2(41) == 2199023255552) by (compute);
+        assert(x == 2199023255552) by (bit_vector)
+            requires x as int == 2199023255552;
+    } else if p == 42 {
+        assert(x as int == pow2(42));
+        assert(pow2(42) == 4398046511104) by (compute);
+        assert(x == 4398046511104) by (bit_vector)
+            requires x as int == 4398046511104;
+    } else if p == 43 {
+        assert(x as int == pow2(43));
+        assert(pow2(43) == 8796093022208) by (compute);
+        assert(x == 8796093022208) by (bit_vector)
+            requires x as int == 8796093022208;
+    } else if p == 44 {
+        assert(x as int == pow2(44));
+        assert(pow2(44) == 17592186044416) by (compute);
+        assert(x == 17592186044416) by (bit_vector)
+            requires x as int == 17592186044416;
+    } else if p == 45 {
+        assert(x as int == pow2(45));
+        assert(pow2(45) == 35184372088832) by (compute);
+        assert(x == 35184372088832) by (bit_vector)
+            requires x as int == 35184372088832;
+    } else if p == 46 {
+        assert(x as int == pow2(46));
+        assert(pow2(46) == 70368744177664) by (compute);
+        assert(x == 70368744177664) by (bit_vector)
+            requires x as int == 70368744177664;
+    } else if p == 47 {
+        assert(x as int == pow2(47));
+        assert(pow2(47) == 140737488355328) by (compute);
+        assert(x == 140737488355328) by (bit_vector)
+            requires x as int == 140737488355328;
+    } else if p == 48 {
+        assert(x as int == pow2(48));
+        assert(pow2(48) == 281474976710656) by (compute);
+        assert(x == 281474976710656) by (bit_vector)
+            requires x as int == 281474976710656;
+    } else if p == 49 {
+        assert(x as int == pow2(49));
+        assert(pow2(49) == 562949953421312) by (compute);
+        assert(x == 562949953421312) by (bit_vector)
+            requires x as int == 562949953421312;
+    } else if p == 50 {
+        assert(x as int == pow2(50));
+        assert(pow2(50) == 1125899906842624) by (compute);
+        assert(x == 1125899906842624) by (bit_vector)
+            requires x as int == 1125899906842624;
+    } else if p == 51 {
+        assert(x as int == pow2(51));
+        assert(pow2(51) == 2251799813685248) by (compute);
+        assert(x == 2251799813685248) by (bit_vector)
+            requires x as int == 2251799813685248;
+    } else if p == 52 {
+        assert(x as int == pow2(52));
+        assert(pow2(52) == 4503599627370496) by (compute);
+        assert(x == 4503599627370496) by (bit_vector)
+            requires x as int == 4503599627370496;
+    } else if p == 53 {
+        assert(x as int == pow2(53));
+        assert(pow2(53) == 9007199254740992) by (compute);
+        assert(x == 9007199254740992) by (bit_vector)
+            requires x as int == 9007199254740992;
+    } else if p == 54 {
+        assert(x as int == pow2(54));
+        assert(pow2(54) == 18014398509481984) by (compute);
+        assert(x == 18014398509481984) by (bit_vector)
+            requires x as int == 18014398509481984;
+    } else if p == 55 {
+        assert(x as int == pow2(55));
+        assert(pow2(55) == 36028797018963968) by (compute);
+        assert(x == 36028797018963968) by (bit_vector)
+            requires x as int == 36028797018963968;
+    } else if p == 56 {
+        assert(x as int == pow2(56));
+        assert(pow2(56) == 72057594037927936) by (compute);
+        assert(x == 72057594037927936) by (bit_vector)
+            requires x as int == 72057594037927936;
+    } else if p == 57 {
+        assert(x as int == pow2(57));
+        assert(pow2(57) == 144115188075855872) by (compute);
+        assert(x == 144115188075855872) by (bit_vector)
+            requires x as int == 144115188075855872;
+    } else if p == 58 {
+        assert(x as int == pow2(58));
+        assert(pow2(58) == 288230376151711744) by (compute);
+        assert(x == 288230376151711744) by (bit_vector)
+            requires x as int == 288230376151711744;
+    } else if p == 59 {
+        assert(x as int == pow2(59));
+        assert(pow2(59) == 576460752303423488) by (compute);
+        assert(x == 576460752303423488) by (bit_vector)
+            requires x as int == 576460752303423488;
+    } else if p == 60 {
+        assert(x as int == pow2(60));
+        assert(pow2(60) == 1152921504606846976) by (compute);
+        assert(x == 1152921504606846976) by (bit_vector)
+            requires x as int == 1152921504606846976;
+    } else if p == 61 {
+        assert(x as int == pow2(61));
+        assert(pow2(61) == 2305843009213693952) by (compute);
+        assert(x == 2305843009213693952) by (bit_vector)
+            requires x as int == 2305843009213693952;
+    } else if p == 62 {
+        assert(x as int == pow2(62));
+        assert(pow2(62) == 4611686018427387904) by (compute);
+        assert(x == 4611686018427387904) by (bit_vector)
+            requires x as int == 4611686018427387904;
+    } else if p == 63 {
+        assert(x as int == pow2(63));
+        assert(pow2(63) == 9223372036854775808) by (compute);
+        assert(x == 9223372036854775808) by (bit_vector)
+            requires x as int == 9223372036854775808;
+    } else {
+        assert(false);
     }
 }
-
 #[inline(always)]
 pub fn bit_scan_forward(b: usize, start: u32) -> (r: u32)
     requires 0 <= start < usize::BITS
@@ -2111,6 +2388,20 @@ pub(crate) proof fn lemma_bitmap_clear_preserve(x: usize, cleared: usize, f: usi
     }
 }
 
+pub proof fn lemma_round_up_pow2_monotonic(x: usize, y: usize, g: usize)
+    requires
+        g > 0,
+        is_power_of_two(g as int),
+        0 <= x + (g - 1) <= usize::MAX,
+        0 <= y + (g - 1) <= usize::MAX,
+        x <= y,
+    ensures
+        ((x + (g - 1)) as usize) & !((g - 1) as usize)
+            <= ((y + (g - 1)) as usize) & !((g - 1) as usize)
+{
+    lemma_round_up_pow2_case_dispatch(x, y, g, g);
+}
+
 proof fn lemma_round_up_pow2_case_dispatch(x: usize, y: usize, g: usize, n: usize)
     requires
         g == n,
@@ -2131,50 +2422,5 @@ proof fn lemma_round_up_pow2_case_dispatch(x: usize, y: usize, g: usize, n: usiz
             0 <= x + (g - 1) <= usize::MAX,
             0 <= y + (g - 1) <= usize::MAX;
 }
-
-#[allow(unused_macros)]
-macro_rules! prove_round_up_pow2_monotonic_cases {
-    ($x:expr, $y:expr, $g:expr; $($n:literal),+ $(,)?) => {
-        match $g {
-            $(
-                $n => {
-                    lemma_round_up_pow2_case_dispatch($x, $y, $g, $n);
-                }
-            )+
-            _ => {
-                assert(false);
-            }
-        }
-    };
-}
-
-pub proof fn lemma_round_up_pow2_monotonic(x: usize, y: usize, g: usize)
-    requires
-        is_power_of_two(g as int),
-        g > 0,
-        0 <= x + (g - 1) <= usize::MAX,
-        0 <= y + (g - 1) <= usize::MAX,
-        x <= y,
-    ensures
-        ((x + (g - 1)) as usize) & !((g - 1) as usize)
-            <= ((y + (g - 1)) as usize) & !((g - 1) as usize)
-{
-    lemma_pow2_value_in_usize(g);
-    prove_round_up_pow2_monotonic_cases!(x, y, g;
-        1, 2, 4, 8, 16, 32, 64, 128,
-        256, 512, 1024, 2048, 4096, 8192, 16384, 32768,
-        65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608,
-        16777216, 33554432, 67108864, 134217728, 268435456, 536870912, 1073741824, 2147483648,
-        4294967296, 8589934592, 17179869184, 34359738368, 68719476736, 137438953472, 274877906944, 549755813888,
-        1099511627776, 2199023255552, 4398046511104, 8796093022208, 17592186044416, 35184372088832, 70368744177664, 140737488355328,
-        281474976710656, 562949953421312, 1125899906842624, 2251799813685248, 4503599627370496, 9007199254740992, 18014398509481984, 36028797018963968,
-        72057594037927936, 144115188075855872, 288230376151711744, 576460752303423488, 1152921504606846976, 2305843009213693952, 4611686018427387904, 9223372036854775808
-    );
-}
-
-
-//#[cfg(feature = "release")]
-//include!("external_spec.rs");
-
 
 } // verus!
