@@ -21,6 +21,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             Self::parameter_validity(),
             min_size >= GRANULARITY,
             min_size % GRANULARITY == 0,
+            min_size as int <= Self::max_allocatable_size(),
             self.bitmap_wf(),
             self.bitmap_sync(),
         ensures

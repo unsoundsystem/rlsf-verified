@@ -161,6 +161,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& usize::BITS == 32 ==> GRANULARITY == 16 // 32bit platform
     }
 
+    pub open spec fn max_allocatable_size() -> int
+        recommends Self::parameter_validity()
+    {
+        let flb = pow2((Self::granularity_log2_spec() + FLLEN as int - 1) as nat) as int;
+        flb + (SLLEN as int - 1) * (flb / SLLEN as int)
+    }
+
     pub proof fn lemma_parameter_validity_implies_block_index_parameter_validity()
         requires
             Self::parameter_validity(),

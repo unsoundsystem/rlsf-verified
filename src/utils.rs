@@ -91,7 +91,7 @@ pub open spec fn partial_ordering<T>(r: spec_fn(T, T) -> bool, eq: spec_fn(T, T)
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
-    proof fn lemma_usize_add_le_from_int(x: usize, y: usize)
+    pub(crate) proof fn lemma_usize_add_le_from_int(x: usize, y: usize)
         requires (x as int) <= (usize::MAX - y) as int
         ensures x + y <= usize::MAX
     {
@@ -99,7 +99,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(x + y <= usize::MAX) by (bit_vector);
     }
 
-    proof fn lemma_checked_add_eq(x: usize, y: usize, res: usize)
+    pub(crate) proof fn lemma_checked_add_eq(x: usize, y: usize, res: usize)
         requires x.checked_add(y) == Some(res)
         ensures res == x + y
     {
@@ -108,7 +108,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(res == x + y) by (bit_vector);
     }
 
-    proof fn lemma_usize_add_le_mono(a: usize, b: usize, c: usize)
+    pub(crate) proof fn lemma_usize_add_le_mono(a: usize, b: usize, c: usize)
         requires
             a <= b,
             b + c <= usize::MAX,
@@ -121,21 +121,21 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(a + c <= b + c) by (bit_vector);
     }
 
-    proof fn lemma_usize_le_from_int(x: usize, y: usize)
+    pub(crate) proof fn lemma_usize_le_from_int(x: usize, y: usize)
         requires (x as int) <= (y as int)
         ensures x <= y
     {
         assert(x <= y) by (nonlinear_arith);
     }
 
-    proof fn lemma_int_le_implies_usize_le(x: int, y: usize)
+    pub(crate) proof fn lemma_int_le_implies_usize_le(x: int, y: usize)
         requires 0 <= x, x <= y as int
         ensures (x as usize) <= y
     {
         assert((x as usize) <= y) by (nonlinear_arith);
     }
 
-    proof fn lemma_usize_nonneg(u: usize)
+    pub(crate) proof fn lemma_usize_nonneg(u: usize)
         ensures 0 <= u as int
     {
         assert(0 <= u as int) by (bit_vector);

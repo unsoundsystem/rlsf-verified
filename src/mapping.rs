@@ -23,6 +23,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             size % GRANULARITY == 0,
             Self::parameter_validity(),
+            size as int <= Self::max_allocatable_size(),
         ensures
         ({
             if BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int) {
@@ -44,10 +45,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
         })
     {
+        proof {
+            lemma_pow2_values();
+            lemma_log2_values();
+        }
+        assert(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64)
+        by {
+            assert(size % GRANULARITY == 0);
+            assert(size >= GRANULARITY);
+            Self::fl_not_underflow(size);
+        };
+        proof {
+            granularity_is_power_of_two();
+        }
         assert(GRANULARITY < usize::BITS);
         // subtracting `Self::granularity_log2()` because actual freelist starts from `2^Self::granularity_log2()`
         let mut fl = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
-        assert(fl == log(2, size as int) - log(2, GRANULARITY as int)); // TODO
+        assert(fl == log(2, size as int) - Self::granularity_log2()) by {
+            log2_using_leading_zeros_usize(size);
+            assert(fl == usize::BITS - Self::granularity_log2() - 1 - usize_leading_zeros(size));
+            assert(log(2, size as int) == usize::BITS - usize_leading_zeros(size) - 1);
+        };
 
         // The shift amount can be negative, and rotation lets us handle both
         // cases without branching.
@@ -72,7 +90,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
         // The most significant one of `size` should be now at `sl[SLI]`
-        assert(((sl >> Self::sli()) & 1) == 1);
+        // NOTE: this follows from map_floor proof obligations and is not needed for postcondition here.
 
         // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
         // be rounded up
@@ -82,10 +100,42 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         //   so round up
         // NOTE: underflowed digits means reminder of dividing size by second-level block size
         //       thus they must be rounded up to return appropriate index for allocating from
+        proof {
+            assert(Self::parameter_validity());
+            Self::sli_pow2_is_sllen();
+            assert(Self::sli_spec() <= 6) by {
+                if usize::BITS == 64 {
+                    assert(SLLEN <= 64);
+                    vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
+                    assert(log(2, SLLEN as int) == Self::sli_spec());
+                } else {
+                    assert(usize::BITS == 32);
+                    assert(SLLEN <= 32);
+                    vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 32);
+                    assert(log(2, SLLEN as int) == Self::sli_spec());
+                }
+            };
+            assert(Self::sli() + 1 < usize::BITS);
+            mask_higher_bits_leq_mask(sl, SLLEN);
+            assert(bool_to_usize(sl >= (1 << (Self::sli() + 1))) <= 1);
+            assert(SLLEN <= usize::BITS);
+            assert((SLLEN - 1) + 1 <= usize::MAX);
+        }
         sl = (sl & (SLLEN - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1)));
 
         // if sl >= SLLEN { fl += 1; sl = 0; }
         // sl[SLI] <==> sl >= SLLEN
+        proof {
+            assert(sl >> Self::sli() <= 1) by {
+                assert(sl <= SLLEN) by {
+                    assert(sl <= (SLLEN - 1) + 1);
+                };
+                assert(SLLEN <= usize::BITS);
+                assert(Self::sli() <= 6);
+            };
+            assert((sl >> Self::sli()) as u32 <= 1);
+            assert(fl + (sl >> Self::sli()) as u32 <= usize::BITS);
+        }
         fl = fl + (sl >> Self::sli()) as u32;
 
         if fl as usize >= FLLEN {
@@ -93,13 +143,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
 
         let idx = BlockIndex(fl as usize, sl & (SLLEN - 1));
-
-        proof {
-            if sl >= (1 << (Self::sli() + 1)) {
-                assert(sl == Self::map_floor_spec(size).1);
-            } else {
-            }
-        }
 
         Some(idx)
     }

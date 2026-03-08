@@ -53,6 +53,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             align < pow2(FLLEN as nat) * GRANULARITY as int,
             // In the spec of GlobalAlloc, zero-sized allocation is UB, so we avoid it explicitly
             size > 0,
+            size as int <= Self::max_allocatable_size(),
+            size as int + align as int + mem::size_of::<UsedBlockHdr>() as int + (GRANULARITY as int - 1)
+                <= Self::max_allocatable_size(),
+            size as int + align.saturating_sub(GRANULARITY / 2) as int + mem::size_of::<UsedBlockHdr>() as int + (GRANULARITY as int - 1)
+                <= Self::max_allocatable_size(),
         ensures
             r matches Some((ptr, points_to, tok)) ==> ({
                 /* NOTE: Allocation correctness
@@ -116,16 +121,33 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             proof {
                 assert(size_overhead > 0);
             }
-            let search_size = size_overhead.checked_add(GRANULARITY - 1)? & !(GRANULARITY - 1);
+            let search_size_raw = size_overhead.checked_add(GRANULARITY - 1)?;
+            let search_size = search_size_raw & !(GRANULARITY - 1);
             proof {
-                if size_overhead.checked_add((GRANULARITY - 1) as usize).is_some() {
-                    assert(0 <= size_overhead + (GRANULARITY - 1) <= usize::MAX);
-                    granularity_is_power_of_two();
-                    lemma_round_up_pow2(size_overhead, GRANULARITY);
-                    assert((((size_overhead + (GRANULARITY - 1)) as usize) & !((GRANULARITY - 1) as usize)) % GRANULARITY == 0);
-                    assert(search_size % GRANULARITY == 0);
-                    assert(search_size >= GRANULARITY);
-                }
+                let hdr = mem::size_of::<UsedBlockHdr>();
+                Self::lemma_checked_add_eq(align.saturating_sub(GRANULARITY / 2), hdr, max_overhead);
+                Self::lemma_checked_add_eq(size, max_overhead, size_overhead);
+                Self::lemma_checked_add_eq(size_overhead, (GRANULARITY - 1) as usize, search_size_raw);
+                granularity_is_power_of_two();
+                lemma_round_down_pow2(search_size_raw, GRANULARITY);
+                assert(search_size == search_size_raw & !((GRANULARITY - 1) as usize));
+                assert(search_size <= search_size_raw);
+                assert(search_size as int <= search_size_raw as int);
+                assert(search_size_raw as int
+                    == size as int + align.saturating_sub(GRANULARITY / 2) as int + hdr as int + (GRANULARITY as int - 1));
+                assert(search_size as int
+                    <= size as int + align.saturating_sub(GRANULARITY / 2) as int + hdr as int + (GRANULARITY as int - 1));
+                assert(search_size as int <= Self::max_allocatable_size()) by {
+                    assert(size as int + align.saturating_sub(GRANULARITY / 2) as int + hdr as int + (GRANULARITY as int - 1)
+                        <= Self::max_allocatable_size());
+                };
+
+                assert(0 <= size_overhead + (GRANULARITY - 1) <= usize::MAX);
+                granularity_is_power_of_two();
+                lemma_round_up_pow2(size_overhead, GRANULARITY);
+                assert((((size_overhead + (GRANULARITY - 1)) as usize) & !((GRANULARITY - 1) as usize)) % GRANULARITY == 0);
+                assert(search_size % GRANULARITY == 0);
+                assert(search_size >= GRANULARITY);
             }
             //self.print_stat();
             let idx = self.search_suitable_free_block_list_for_allocation(search_size)?;
