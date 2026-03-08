@@ -78,6 +78,8 @@ verus! {
         pub ptrs: Ghost<Seq<*mut BlockHdr>>,
         // map from block start (i.e. allocated pointer) to the padding
         pub pad_perms: Tracked<Map<*mut u8, PointsTo<UsedBlockPad>>>,
+        // map from allocated pointer to the front overhead region
+        pub overhead_perms: Tracked<Map<*mut u8, PointsToRaw>>,
     }
 
     impl UsedInfo {

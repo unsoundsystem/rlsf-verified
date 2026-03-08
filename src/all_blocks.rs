@@ -178,6 +178,74 @@ verus! {
             ensures self.wf_node(self.get_ptr_internal_index(x))
         {}
 
+        pub(crate) proof fn lemma_all_blocks_wf_after_replace_block_perm(
+            old_ab: AllBlocks<FLLEN, SLLEN>,
+            new_ab: AllBlocks<FLLEN, SLLEN>,
+            block: *mut BlockHdr,
+            new_perm: BlockPerm,
+        )
+            requires
+                old_ab.ptrs@.contains(block),
+                ghost_pointer_ordered(old_ab.ptrs@),
+                ptrs_no_duplicates(old_ab.ptrs@),
+                forall|i: int| 0 <= i < old_ab.ptrs@.len() && old_ab.ptrs@[i] != block ==> old_ab.wf_node(i),
+                new_ab.ptrs@ == old_ab.ptrs@,
+                new_ab.perms@ == old_ab.perms@.insert(block, new_perm),
+                new_perm.points_to.ptr() == block,
+                new_perm.wf(),
+                !new_perm.points_to.value().is_free(),
+                new_ab.wf_node(old_ab.get_ptr_internal_index(block)),
+            ensures
+                new_ab.wf(),
+        {
+            let bi = old_ab.get_ptr_internal_index(block);
+            assert(ghost_pointer_ordered(new_ab.ptrs@));
+            assert forall|i: int| 0 <= i < new_ab.ptrs@.len() implies new_ab.wf_node(i) by {
+                if i == bi {
+                    assert(new_ab.wf_node(i));
+                } else {
+                    assert(0 <= i < old_ab.ptrs@.len());
+                    let ptr = old_ab.ptrs@[i];
+                    assert(ptr == new_ab.ptrs@[i]);
+                    assert(ptr != block) by {
+                        if ptr == block {
+                            assert(old_ab.ptrs@[i] == block);
+                            assert(old_ab.ptrs@[bi] == block);
+                            lemma_ptrs_no_duplicates_eq_index(old_ab.ptrs@, i, bi);
+                            assert(i == bi);
+                        }
+                    };
+                    assert(old_ab.wf_node(i));
+                    assert(new_ab.perms@[ptr] == old_ab.perms@[ptr]);
+                    assert(new_ab.value_at(ptr).is_free() ==> {
+                        let next_ptr = new_ab.phys_next_of(i).unwrap();
+                        !new_ab.value_at(next_ptr).is_free()
+                    }) by {
+                        if new_ab.value_at(ptr).is_free() {
+                            assert(old_ab.wf_node(i));
+                            assert(old_ab.value_at(ptr).is_free());
+                            assert(old_ab.phys_next_of(i) is Some);
+                            let old_next_ptr = old_ab.phys_next_of(i).unwrap();
+                            let next_ptr = new_ab.phys_next_of(i).unwrap();
+                            assert(next_ptr == old_next_ptr);
+                            if next_ptr == block {
+                                assert(!new_ab.value_at(next_ptr).is_free());
+                            } else {
+                                assert(old_ab.value_at(old_next_ptr).is_free() ==> {
+                                    old_ab.phys_next_of(i) matches Some(n)
+                                        && !old_ab.value_at(n).is_free()
+                                });
+                                assert(!old_ab.value_at(old_next_ptr).is_free());
+                                assert(new_ab.value_at(next_ptr) == old_ab.value_at(old_next_ptr));
+                                assert(!new_ab.value_at(next_ptr).is_free());
+                            }
+                        }
+                    };
+                    assert(new_ab.wf_node(i));
+                }
+            };
+        }
+
 
         pub(crate) open spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
             if i == 0 {

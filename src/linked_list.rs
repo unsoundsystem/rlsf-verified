@@ -396,6 +396,7 @@ verus! {
             old(self).bitmap_sync(),
             old(self).bitmap_wf(),
             old(self).wf_shadow(),
+            old(self).size_class_condition(),
             // this can be proved at caller side using pointer order and `phys_next_of` relation
             !old(self).shadow_freelist@.contains(node),
             // we need node is wf in all_blocks
@@ -403,6 +404,7 @@ verus! {
             //get_freelink_ptr_spec(node) == old(node_fl_pt).ptr(),
             // NOTE: not linked to freelist but the flag is marked free & free_link_perm is Some
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
+            idx.block_size_range().contains(old(self).all_blocks.perms@[node].points_to.value().size as int),
         ensures
             self.all_blocks.wf(),
             // preserving pointer set
@@ -420,7 +422,10 @@ verus! {
             self.bitmap_sync(),
             self.bitmap_wf(),
             self.wf_shadow(),
-            self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx])
+            self.size_class_condition(),
+            self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]),
+            forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
         {
             proof {
                 self.all_blocks.lemma_block_wf();
@@ -544,6 +549,11 @@ verus! {
                     assert(self.wf_shadow());
                     assert(self.all_freelist_wf());
                     assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
+                    assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                        implies self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
+                    by {
+                        assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+                    };
                 }
                 // }}}
             } else {
@@ -637,6 +647,11 @@ verus! {
                             }
                         }
                     };
+                    assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                        implies self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
+                    by {
+                        assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+                    };
                 } // }}}
             }
 
@@ -654,6 +669,52 @@ verus! {
                     by {
                         pre.lemma_wf_free_node_preserve_if_not_touched(*self, bi, n);
                     };
+                };
+            };
+            assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                implies self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
+            by {
+                assert(self.shadow_freelist == pre.shadow_freelist);
+                assert(pre.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+            };
+            assert(self.size_class_condition()) by {
+                assert(old(self).size_class_condition());
+                assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
+                    self.shadow_freelist@.m.contains_key(bi)
+                        && 0 <= i < self.shadow_freelist@.m[bi].len()
+                    implies bi.block_size_range().contains(
+                        self.all_blocks.perms@[self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
+                by {
+                    if bi == idx {
+                        assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
+                        if i == 0 {
+                            assert(self.shadow_freelist@.m[idx][0] == node);
+                            assert(self.all_blocks.perms@[node].points_to == old(self).all_blocks.perms@[node].points_to);
+                            assert(idx.block_size_range().contains(
+                                old(self).all_blocks.perms@[node].points_to.value().size as int));
+                        } else {
+                            let prev = i - 1;
+                            let old_node = old(self).shadow_freelist@.m[idx][prev];
+                            assert(self.shadow_freelist@.m[idx][i] == old_node);
+                            assert(0 <= prev < old(self).shadow_freelist@.m[idx].len());
+                            assert(self.all_blocks.perms@[old_node].points_to
+                                == old(self).all_blocks.perms@[old_node].points_to);
+                            assert(old(self).size_class_condition());
+                            assert(old(self).shadow_freelist@.m.contains_key(idx));
+                            assert(idx.block_size_range().contains(
+                                old(self).all_blocks.perms@[old_node].points_to.value().size as int));
+                        }
+                    } else {
+                        assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+                        let old_node = old(self).shadow_freelist@.m[bi][i];
+                        assert(self.shadow_freelist@.m[bi][i] == old_node);
+                        assert(self.all_blocks.perms@[old_node].points_to
+                            == old(self).all_blocks.perms@[old_node].points_to);
+                        assert(old(self).size_class_condition());
+                        assert(old(self).shadow_freelist@.m.contains_key(bi));
+                        assert(bi.block_size_range().contains(
+                            old(self).all_blocks.perms@[old_node].points_to.value().size as int));
+                    }
                 };
             };
         }
