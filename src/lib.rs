@@ -935,11 +935,171 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //// used block being created here
             let overhead = ptr as usize - block as usize;
             assert(overhead <= max_overhead) by {
-                // TODO
-                admit();
-                assert(block as int + 2*GRANULARITY <= usize::MAX) by { admit(); };
-                // ptr = round_up(block + G / 2, align)
-                //assert(unaligned_ptr - ptr < align);
+                let ghost b = block@.addr;
+                let ghost u = unaligned_ptr@.addr;
+                let ghost p = ptr@.addr;
+                assert(old(self).all_blocks.wf_node(block_id));
+                assert(b % GRANULARITY == 0);
+                assert(p >= u);
+                assert(p < u + align);
+
+                if align < GRANULARITY {
+                    if usize::BITS == 64 {
+                        assert(GRANULARITY == 32);
+                        assert(u == b + 16);
+                        assert(align <= 16) by {
+                            lemma_pow2_value_in_usize(align);
+                            assert(align < 32);
+                        };
+                        assert(u % align == 0) by {
+                            assert(align == 1 || align == 2 || align == 4 || align == 8 || align == 16) by {
+                                lemma_pow2_value_in_usize(align);
+                                assert(align <= 16);
+                            };
+                        };
+                        assert(p == u) by {
+                            let ghost pi: int = p as int;
+                            let ghost ui: int = u as int;
+                            let ghost ai: int = align as int;
+                            assert(pi == p);
+                            assert(ui == u);
+                            assert(ai == align);
+                            if p != u {
+                                let ghost d = pi - ui;
+                                assert(pi > ui);
+                                assert(0 < d);
+                                assert(d < ai);
+                                assert(d % ai == 0) by {
+                                    vstd::arithmetic::div_mod::lemma_mod_equivalence(pi, ui, ai);
+                                    assert(pi % ai == ui % ai);
+                                };
+                                assert(d / ai == 0) by {
+                                    vstd::arithmetic::div_mod::lemma_basic_div(d, ai);
+                                };
+                                assert(d == ai * (d / ai) + d % ai) by {
+                                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(d, ai);
+                                };
+                                assert(d == 0);
+                                assert(false);
+                            }
+                        };
+                    } else {
+                        assert(GRANULARITY == 16);
+                        assert(u == b + 8);
+                        assert(align <= 8) by {
+                            lemma_pow2_value_in_usize(align);
+                            assert(align < 16);
+                        };
+                        assert(b % align == 0) by {
+                            assert(align == 1 || align == 2 || align == 4 || align == 8) by {
+                                lemma_pow2_value_in_usize(align);
+                                assert(align <= 8);
+                            };
+                        };
+                        assert(u % align == 0) by {
+                            assert(align == 1 || align == 2 || align == 4 || align == 8) by {
+                                lemma_pow2_value_in_usize(align);
+                                assert(align <= 8);
+                            };
+                        };
+                        assert(p == u) by {
+                            let ghost pi: int = p as int;
+                            let ghost ui: int = u as int;
+                            let ghost ai: int = align as int;
+                            assert(pi == p);
+                            assert(ui == u);
+                            assert(ai == align);
+                            assert(pi % ai == 0) by {
+                                assert(pi == p as int);
+                                assert(ai == align as int);
+                                assert(p % align == 0);
+                            };
+                            assert(ui % ai == 0) by {
+                                assert(ui == u as int);
+                                assert(ai == align as int);
+                                assert(u % align == 0);
+                            };
+                            if p != u {
+                                let ghost d = pi - ui;
+                                assert(pi > ui);
+                                assert(0 < d);
+                                assert(d < ai);
+                                assert(d % ai == 0) by {
+                                    vstd::arithmetic::div_mod::lemma_mod_equivalence(pi, ui, ai);
+                                    assert(pi % ai == ui % ai);
+                                };
+                                assert(d / ai == 0) by {
+                                    vstd::arithmetic::div_mod::lemma_basic_div(d, ai);
+                                };
+                                assert(d == ai * (d / ai) + d % ai) by {
+                                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(d, ai);
+                                };
+                                assert(d == 0);
+                                assert(false);
+                            }
+                        };
+                    }
+                    assert(overhead <= max_overhead);
+                } else {
+                    if usize::BITS == 64 {
+                        assert(GRANULARITY == 32);
+                        assert(align % 32 == 0) by {
+                            lemma_pow2_value_in_usize(align);
+                        };
+                        assert(p % 32 == 0) by (bit_vector)
+                            requires
+                                p % align == 0,
+                                align > 0,
+                                align % 32 == 0;
+                        assert(overhead % 32 == 0) by (bit_vector)
+                            requires
+                                p % 32 == 0,
+                                b % 32 == 0,
+                                overhead == p - b;
+                        assert(overhead <= align) by {
+                            if !(overhead <= align) {
+                                assert(align < overhead);
+                                assert(overhead < align + 16);
+                                assert(overhead % 32 == 0);
+                                assert(false);
+                            }
+                        };
+                        assert(max_overhead == align) by {
+                            assert(GRANULARITY / 2 == 16);
+                            assert(align.saturating_sub(16) == align - 16);
+                            assert(max_overhead == (align - 16) + 16);
+                        };
+                    } else {
+                        assert(GRANULARITY == 16);
+                        assert(align % 16 == 0) by {
+                            lemma_pow2_value_in_usize(align);
+                        };
+                        assert(p % 16 == 0) by (bit_vector)
+                            requires
+                                p % align == 0,
+                                align > 0,
+                                align % 16 == 0;
+                        assert(overhead % 16 == 0) by (bit_vector)
+                            requires
+                                p % 16 == 0,
+                                b % 16 == 0,
+                                overhead == p - b;
+                        assert(overhead <= align) by {
+                            if !(overhead <= align) {
+                                assert(align < overhead);
+                                assert(overhead < align + 8);
+                                assert(overhead % 16 == 0);
+                                assert(false);
+                            }
+                        };
+                        assert(max_overhead == align) by {
+                            assert(GRANULARITY / 2 == 8);
+                            assert(align.saturating_sub(8) == align - 8);
+                            assert(max_overhead == (align - 8) + 8);
+                        };
+                    }
+                    assert(overhead <= max_overhead);
+                }
             };
 
             let new_size = overhead + size;
