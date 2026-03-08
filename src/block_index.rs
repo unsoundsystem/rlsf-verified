@@ -187,7 +187,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
 
-    proof fn lemma_block_size_range_mono(idx1: Self, idx2: Self)
+    pub(crate) proof fn lemma_block_size_range_mono(idx1: Self, idx2: Self)
         by (nonlinear_arith)
         requires idx1.wf(), idx2.wf(),
             idx1.block_index_lt(idx2),
@@ -298,6 +298,48 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             } else if idx1.0 == idx2.0 && idx1.1 < idx2.1 {
                 // trivial
             }
+        }
+    }
+
+    pub(crate) proof fn lemma_block_size_range_start_mono_same_fl(idx1: Self, idx2: Self)
+        requires
+            idx1.wf(),
+            idx2.wf(),
+            Self::parameter_validity(),
+            idx1.0 == idx2.0,
+            idx1.1 <= idx2.1,
+        ensures
+            idx1.block_size_range().start() <= idx2.block_size_range().start()
+    {
+        let BlockIndex(fl1, sl1) = idx1;
+        let BlockIndex(fl2, sl2) = idx2;
+        assert(fl1 == fl2);
+        let fl_block_bytes = pow2((fl1 + Self::granularity_log2_spec()) as nat) as int;
+
+        if fl_block_bytes < SLLEN {
+            idx1.fl_is_zero();
+            assert(idx2.fl_zero_cond()) by {
+                assert(fl1 == fl2);
+            }
+            idx2.fl_is_zero();
+            assert(idx1.block_size_range().start() == GRANULARITY);
+            assert(idx2.block_size_range().start() == GRANULARITY);
+        } else {
+            idx1.fl_non_zero();
+            assert(!idx2.fl_zero_cond()) by {
+                assert(fl1 == fl2);
+            }
+            idx2.fl_non_zero();
+            let sl_block_bytes = fl_block_bytes / SLLEN as int;
+            assert(0 < SLLEN as int);
+            vstd::arithmetic::power2::lemma_pow2_pos((fl1 + Self::granularity_log2_spec()) as nat);
+            assert(0 < fl_block_bytes);
+            vstd::arithmetic::div_mod::lemma_div_pos_is_pos(fl_block_bytes, SLLEN as int);
+            assert(0 < sl_block_bytes);
+            vstd::arithmetic::mul::lemma_mul_inequality(sl1 as int, sl2 as int, sl_block_bytes);
+            assert(sl_block_bytes * (sl1 as int) <= sl_block_bytes * (sl2 as int));
+            assert(idx1.block_size_range().start() == fl_block_bytes + sl_block_bytes * (sl1 as int));
+            assert(idx2.block_size_range().start() == fl_block_bytes + sl_block_bytes * (sl2 as int));
         }
     }
 

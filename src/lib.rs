@@ -10,15 +10,16 @@ mod block_index;
 //mod rational_numbers;
 mod half_open_range;
 mod linked_list;
-mod relation_utils;
 //mod ghost_tlsf;
 mod all_blocks;
+mod allocate;
 mod bitmap;
 mod block;
+mod deallocate;
 mod mapping;
 mod ordered_pointer_list;
-mod allocate;
-mod deallocate;
+mod search_block;
+mod utils;
 pub mod parameters;
 pub mod unverified_api;
 
@@ -47,7 +48,7 @@ use vstd::{seq::*, seq_lib::*, bytes::*};
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::{logarithm::log, power2::pow2, power::pow};
 #[cfg(verus_keep_ghost)]
-use vstd::std_specs::bits::u64_trailing_zeros;
+use vstd::std_specs::bits::{axiom_u64_trailing_zeros, u64_trailing_zeros};
 use core::alloc::Layout;
 use core::mem;
 use crate::bits::*;
@@ -138,56 +139,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& self.bitmap_wf()
         // `sl_bitmap[fl][sl]` is set iff `first_free[fl][sl].is_some()`
         &&& self.bitmap_sync()
-    }
-
-    proof fn lemma_usize_add_le_from_int(x: usize, y: usize)
-        requires (x as int) <= (usize::MAX - y) as int
-        ensures x + y <= usize::MAX
-    {
-        assert(x <= usize::MAX - y) by (nonlinear_arith);
-        assert(x + y <= usize::MAX) by (bit_vector);
-    }
-
-    proof fn lemma_checked_add_eq(x: usize, y: usize, res: usize)
-        requires x.checked_add(y) == Some(res)
-        ensures res == x + y
-    {
-        assert(x + y <= usize::MAX) by (nonlinear_arith);
-        assert(res == (x + y) as usize) by (bit_vector);
-        assert(res == x + y) by (bit_vector);
-    }
-
-    proof fn lemma_usize_add_le_mono(a: usize, b: usize, c: usize)
-        requires
-            a <= b,
-            b + c <= usize::MAX,
-        ensures
-            a + c <= b + c
-    {
-        assert(a as int <= b as int) by (nonlinear_arith);
-        assert(a as int + c as int <= b as int + c as int) by (nonlinear_arith);
-        assert((a + c) as int <= (b + c) as int) by (nonlinear_arith);
-        assert(a + c <= b + c) by (bit_vector);
-    }
-
-    proof fn lemma_usize_le_from_int(x: usize, y: usize)
-        requires (x as int) <= (y as int)
-        ensures x <= y
-    {
-        assert(x <= y) by (nonlinear_arith);
-    }
-
-    proof fn lemma_int_le_implies_usize_le(x: int, y: usize)
-        requires 0 <= x, x <= y as int
-        ensures (x as usize) <= y
-    {
-        assert((x as usize) <= y) by (nonlinear_arith);
-    }
-
-    proof fn lemma_usize_nonneg(u: usize)
-        ensures 0 <= u as int
-    {
-        assert(0 <= u as int) by (bit_vector);
     }
 
     proof fn lemma_mark_used_preserves_size_bits(sz: usize)
@@ -594,85 +545,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // TODO: update gs.root_provenances
     }
 
-
-    /// Search for a non-empty free block list for allocation.
-    //#[verifier::external_body] // debug
-    #[inline(always)]
-    fn search_suitable_free_block_list_for_allocation(
-        &self,
-        min_size: usize,
-    ) -> (r: Option<BlockIndex<FLLEN,SLLEN>>)
-        requires self.wf(),
-            min_size >= GRANULARITY,
-            min_size % GRANULARITY == 0,
-            self.bitmap_wf(),
-            self.bitmap_sync(),
-        ensures
-            self.bitmap_wf(),
-            self.bitmap_sync(),
-            r matches Some(idx) ==> idx.wf() &&
-            {
-                &&& min_size as int <= idx.block_size_range().start()
-                &&& self.shadow_freelist@.m[idx].len() > 0
-            }
-        // None ==> invalid size requested or there no free entry
-    {
-        let idx = Self::map_ceil(min_size)?; // NOTE: return None if invalid size requested
-        let BlockIndex(mut fl, mut sl) = idx;
-
-
-        //#[cfg(feature = "std")]
-        //{
-            //use std::println;
-            //println!("hah? hah? {:?} {:b} {:?}", idx, self.fl_bitmap, self.sl_bitmap);
-            //self.print_stat()
-        //}
-        assert(min_size <= idx.block_size_range().start());
-
-        // Search in range `(fl, sl..SLLEN)`
-        sl = bit_scan_forward(self.sl_bitmap[fl], sl as u32) as usize;
-        assert(idx.1 < sl) by { admit(); };
-        if sl < SLLEN {
-            //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
-            let new_idx = BlockIndex::<FLLEN, SLLEN>(fl, sl);
-            assert(idx.block_index_lt(new_idx)) by { admit(); };
-            assert(idx.block_size_range().start() < new_idx.block_size_range().start()) by { admit(); };
-
-            assert(min_size <= idx.block_size_range().start());
-            return Some(BlockIndex(fl, sl));
-        }
-        // Search in range `(fl + 1.., ..)`
-        fl = bit_scan_forward(self.fl_bitmap, fl as u32 + 1) as usize;
-        assert(idx.0 < fl) by { admit(); };
-        if fl < FLLEN {
-            //debug_assert!(self.fl_bitmap.get_bit(fl as u32));
-
-            sl = self.sl_bitmap[fl].trailing_zeros() as usize;
-            assert(sl < SLLEN) by { admit(); };
-            //#[cfg(feature = "std")]
-            //{
-                //use std::println;
-                //println!("hah? hah? {:b} {:b}", self.fl_bitmap, self.sl_bitmap[fl]);
-                ////if SLLEN <= sl {
-                    ////self.print_stat()
-                ////}
-            //}
-            //if sl >= SLLEN {
-                //debug_assert!(false, "bitmap contradiction");
-                //unreachable!()
-                //unsafe { unreachable_unchecked() };
-            //}
-
-            let new_idx = BlockIndex::<FLLEN, SLLEN>(fl, sl);
-            assert(idx.block_index_lt(new_idx)) by { admit(); };
-            assert(idx.block_size_range().start() < new_idx.block_size_range().start()) by { admit(); };
-            //debug_assert!(self.sl_bitmap[fl].get_bit(sl as u32));
-            assert(min_size <= idx.block_size_range().start());
-            Some(BlockIndex(fl, sl))
-        } else {
-            None
-        }
-    }
 
     pub closed spec fn is_root_provenance<T>(self, ptr: *mut T) -> bool {
         let pv = ptr@.provenance;

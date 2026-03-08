@@ -2,6 +2,7 @@ use vstd::prelude::*;
 
 verus! {
 
+use crate::block_index::BlockIndex;
     use crate::Tlsf;
 use vstd::calc_macro::calc;
 #[cfg(verus_keep_ghost)]
@@ -158,6 +159,29 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             && is_power_of_two(SLLEN as int)
         &&& usize::BITS == 64 ==> GRANULARITY == 32 // 64bit platform
         &&& usize::BITS == 32 ==> GRANULARITY == 16 // 32bit platform
+    }
+
+    pub proof fn lemma_parameter_validity_implies_block_index_parameter_validity()
+        requires
+            Self::parameter_validity(),
+        ensures
+            BlockIndex::<FLLEN, SLLEN>::parameter_validity(),
+    {
+        assert(0 <= Self::granularity_log2_spec()) by {
+            Self::granularity_basics();
+        };
+        assert(0 < FLLEN <= usize::BITS) by {
+            assert(0 < FLLEN < usize::BITS - Self::granularity_log2_spec());
+            assert(usize::BITS - Self::granularity_log2_spec() <= usize::BITS);
+        };
+        assert(0 < SLLEN <= usize::BITS);
+        assert(is_power_of_two(SLLEN as int));
+        if usize::BITS == 64 {
+            assert(GRANULARITY == 32);
+        }
+        if usize::BITS == 32 {
+            assert(GRANULARITY == 16);
+        }
     }
 
 }

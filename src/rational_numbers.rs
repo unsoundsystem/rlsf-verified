@@ -2,7 +2,7 @@ use vstd::prelude::*;
 use vstd::relations::{equivalence_relation, transitive};
 use vstd::arithmetic::mul::{lemma_mul_is_commutative, lemma_mul_strict_inequality, lemma_mul_equality_converse, lemma_mul_nonzero, lemma_mul_is_distributive_add_other_way, group_mul_properties};
 use vstd::calc;
-use crate::relation_utils::{injective, strict_total_ordering, partial_ordering};
+use crate::utils::{injective, strict_total_ordering, partial_ordering};
 use vstd::math::abs;
 
 verus! {

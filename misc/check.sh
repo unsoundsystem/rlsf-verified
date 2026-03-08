@@ -5,7 +5,12 @@ VERUS_PATH=$(realpath $(dirname "$0")/../../verus/source/target-verus/release/ve
 PROJ=$(realpath $(dirname "$0")/..)
 VERUS_SINGULAR_PATH=/usr/bin/Singular
 
-funcs=("linked_list Tlsf::link_free_block" "mapping Tlsf::map_floor")
+funcs=(
+    "linked_list Tlsf::link_free_block"
+    "mapping Tlsf::map_floor"
+    "allocate Tlsf::allocate"
+    "search_block Tlsf::search_suitable_free_block_list_for_allocation"
+)
 
 cd $PROJ
 
@@ -21,7 +26,7 @@ run() {
             --expand-errors \
             --multiple-errors=10 \
             --triggers-mode silent \
-            --log=smt
+            --rlimit=1000
     done
 }
 

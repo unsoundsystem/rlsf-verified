@@ -1339,13 +1339,26 @@ pub fn bit_scan_forward(b: usize, start: u32) -> (r: u32)
     requires 0 <= start < usize::BITS
     ensures
         r <= usize::BITS,
-        start < usize::BITS ==> start <= r,
+        start <= r,
+        r < usize::BITS ==> nth_bit!(b, r as usize),
+        r == usize::BITS ==> forall|i: usize| start as usize <= i < usize::BITS ==> !nth_bit!(b, i),
 {
-    if start >= usize::BITS {
-        usize::BITS
-    } else {
-        usize_high_mask(b, start).trailing_zeros()
+    let mut i = start;
+    while i < usize::BITS
+        invariant
+            start <= i <= usize::BITS,
+            forall|j: usize| start as usize <= j < i ==> !nth_bit!(b, j),
+        decreases (usize::BITS - i) as int
+    {
+        if nth_bit_macro!(b, i as usize) {
+            proof {
+                assert(nth_bit!(b, i as usize));
+            }
+            return i;
+        }
+        i = i + 1;
     }
+    i
 }
 
 // mask with start..usize::BITS bits set
