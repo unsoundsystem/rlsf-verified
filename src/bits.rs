@@ -1,7 +1,6 @@
 use vstd::prelude::*;
 
 verus! {
-#[macro_use]
 use crate::*;
 #[cfg(verus_keep_ghost)]
 use vstd::std_specs::bits::{

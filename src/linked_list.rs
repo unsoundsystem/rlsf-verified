@@ -764,15 +764,11 @@ verus! {
         {
             let first = self.shadow_freelist@.m[idx].first();
             assert(self.shadow_freelist@.m[idx].len() != 0);
-            assert(forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
-                ==> self.wf_free_node(idx, i));
+            assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
+                implies self.wf_free_node(idx, i) by {
+            };
             //assert(self.first_free[idx.0 as int][idx.1 as int] matches Some(first)
                 //&& self.shadow_freelist@.m[idx].first() == first);
-            assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len() implies
-                self.wf_free_node(idx, i)
-                    ==> self.all_blocks.contains(self.shadow_freelist@.m[idx][i])
-            by {
-            };
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
                 implies self.all_blocks.contains(self.shadow_freelist@.m[idx][i]) by {
                 assert(self.wf_free_node(idx, i));

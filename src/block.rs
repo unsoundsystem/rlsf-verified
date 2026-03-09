@@ -10,7 +10,7 @@ use vstd::relations::injective;
 verus! {
     #[repr(C)]
     #[derive(Debug)]
-    pub(crate) struct BlockHdr {
+    pub struct BlockHdr {
         pub(crate) size: usize,
         pub(crate) prev_phys_block: *mut BlockHdr,
     }
@@ -50,7 +50,7 @@ verus! {
         pub(crate) prev_free: *mut BlockHdr,
     }
 
-    pub(crate) struct BlockPerm {
+    pub struct BlockPerm {
         pub(crate) points_to: PointsTo<BlockHdr>,
         pub(crate) free_link_perm: Option<PointsTo<FreeLink>>,
         pub(crate) mem: PointsToRaw,
@@ -74,7 +74,7 @@ verus! {
         }
     }
 
-    pub(crate) struct UsedInfo {
+    pub struct UsedInfo {
         pub ptrs: Ghost<Seq<*mut BlockHdr>>,
         // map from block start (i.e. allocated pointer) to the padding
         pub pad_perms: Tracked<Map<*mut u8, PointsTo<UsedBlockPad>>>,
@@ -113,7 +113,7 @@ verus! {
     pub(crate) type UsedBlockHdr = BlockHdr;
 
     #[repr(C)]
-    pub(crate) struct UsedBlockPad {
+    pub struct UsedBlockPad {
         pub(crate) block_hdr: *mut UsedBlockHdr,
     }
 

@@ -70,7 +70,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                  *      - TODO: resulting size is multiple of GRANULARITY
                  *      - TODO: if GRANULARITY <= align, UsedBlockPad works properly
                  * */
-                &&& self.wf_dealloc(Ghost(tok@))
+                &&& self.wf_dealloc(tok@)
                 &&& ptr@.provenance == points_to@.provenance()
                 //&&& ptr@.metadata == Metadata::Thin
                 &&& {
@@ -2638,7 +2638,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(self.wf());
             }
             proof {
-                assert(self.wf_dealloc(Ghost(DeallocToken)));
+                self.lemma_wf_dealloc_token();
                 assert(ptr.addr() % align == 0);
                 assert(self.is_root_provenance(ptr));
                 assert(ptr@.provenance == ret_mem.provenance()) by {
@@ -2655,6 +2655,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let r = Some((ptr, Tracked(ret_mem), Tracked(DeallocToken)));
             proof {
                 assert(r is Some);
+                assert(r matches Some((_, _, tok)) ==> self.wf_dealloc(tok@)) by {
+                    self.lemma_wf_dealloc_token();
+                };
             }
             r
         }

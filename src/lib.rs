@@ -18,10 +18,10 @@ mod block;
 mod deallocate;
 mod mapping;
 mod ordered_pointer_list;
-mod search_block;
-mod utils;
 pub mod parameters;
+mod search_block;
 pub mod unverified_api;
+mod utils;
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -552,58 +552,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
 
-    //-------------------------------------------
-    //    Allocation & Deallocation interface
-    //-------------------------------------------
-
-
-    // TODO: update ghost_free_list/all_block_headers in deallocate()
-
-    /// Validity of blocks being deallocated
-    ///
-    /// allocated region and headers,
-    /// - Must have same provenance with PointsToRaw that we got when called insert_free_block_ptr*
-    ///
-    ///TODO: Check equlity with `PtrData { ptr: tok.ptr, provenance: /* root provenance */, Thin }`
-    /// TODO: formalize assumptions on the header of blocks being deallocated
-    ///
-    /// Assumption about deallocation
-    ///
-    /// - Given pointer must be previously allocated one
-    ///     - NOTE: In Verus world, it's assured because `deallocate` requires PointsToRaw
-    /// - Header of the previously allocated pointer which going to deallocated, must have same size/flags as when it allocated
-    ///     (NOTE: header integrity is assumed)
-    pub closed spec fn wf_dealloc(&self, tok: Ghost<DeallocToken>) -> bool {
-        true
-    }
-
-
-    //#[verifier::external_body] //debug
-    #[inline]
-    unsafe fn used_block_hdr_for_allocation(
-        &mut self,
-        ptr: *mut u8,
-        align: usize,
-    ) -> *mut UsedBlockHdr
-    {
-        if align >= GRANULARITY {
-            // Read the header pointer
-            //(*UsedBlockPad::get_for_allocation(ptr)).block_hdr
-            //TODO: wf_dealloc(.., token) -->
-            //      token.pad.ptr() == get_for_allocation(PTR_BEEN_DEALLOCATED)
-            //      or in precondition?
-            let tracked mut pad_perm: PointsTo<UsedBlockPad> = self.used_info.pad_perms.borrow_mut().tracked_remove(ptr);
-            let ptr =
-                UsedBlockPad::get_for_allocation(ptr);
-            ptr_ref(ptr, Tracked(&pad_perm)).block_hdr
-        } else {
-            let is_exposed = expose_provenance(ptr);
-            let ptr = ptr as usize - (GRANULARITY / 2);
-            with_exposed_provenance(ptr, is_exposed)
-        }
-    }
-
-
     spec fn plat64_basics() -> bool
     {
         &&& GRANULARITY == 32
@@ -653,11 +601,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 }
 
-//impl !Copy for DeallocToken {}
-
-// NOTE: Consider merging block in deallocate(), it's going to be impossible to
-//        peek usedness and merge if we give permission for hole header to the user
-//        option: use header address as an ID
 //TODO: add pointer to start of the allocated region & size of that block
 //      * wf-ness:
 //          * pointer

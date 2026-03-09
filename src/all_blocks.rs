@@ -13,7 +13,7 @@ use vstd::relations::injective;
 verus! {
 
     /// Tracks global structure of the header linkage and memory states
-    pub(crate) struct AllBlocks<const FLLEN: usize, const SLLEN: usize> {
+    pub struct AllBlocks<const FLLEN: usize, const SLLEN: usize> {
         /// Pointers for all blocks, ordered by address.
         pub ptrs: Ghost<Seq<*mut BlockHdr>>,
         /// Tracked permissions for all blocks, indexed by pointer.
@@ -305,7 +305,7 @@ verus! {
 
     #[verifier::reject_recursive_types(FLLEN)]
     #[verifier::reject_recursive_types(SLLEN)]
-    pub(crate) struct ShadowFreelist<const FLLEN: usize, const SLLEN: usize> {
+    pub struct ShadowFreelist<const FLLEN: usize, const SLLEN: usize> {
         pub(crate) m: Map<BlockIndex<FLLEN, SLLEN>, Seq<*mut BlockHdr>>,
         #[cfg(verus_keep_ghost)]
         /// Keep index in all_blocks for each shadow_freelist nodes.

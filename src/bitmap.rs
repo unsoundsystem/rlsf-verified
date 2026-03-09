@@ -2,7 +2,6 @@ use vstd::prelude::*;
 
 verus! {
 
-#[macro_use]
 use crate::*;
 use crate::{
     Tlsf, GRANULARITY
