@@ -590,15 +590,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    pub(crate) closed spec fn size_class_condition(self) -> bool {
-        forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
-            self.shadow_freelist@.m.contains_key(idx)
-                && 0 <= i < self.shadow_freelist@.m[idx].len() ==>
-                    idx.block_size_range().contains(
-                        self.all_blocks.perms@[
-                            self.shadow_freelist@.m[idx][i]
-                        ].points_to.value().size as int)
-    }
 }
 
 //TODO: add pointer to start of the allocated region & size of that block

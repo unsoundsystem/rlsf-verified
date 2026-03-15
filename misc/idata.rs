@@ -22,6 +22,7 @@ trait GhostList<L: Index, V: Sized, P: Perm<V>> {
     spec fn wf_weak(self, s: GlobalStore<V, P>, exc: Set<L>) -> bool;
     spec fn next_of(self, i: L) -> Option<*mut V>;
     spec fn prev_of(self, i: L) -> Option<*mut V>;
+    spec fn wf_node(self, i: L) -> bool;
     //proof fn lemma_preserve_touch_top(&self, i: L);
 }
 
