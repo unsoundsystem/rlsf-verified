@@ -58,6 +58,7 @@ verus! {
         }
 
 
+        #[verifier::opaque]
         pub(crate) open spec fn shadow_freelist_nodup(self) -> bool {
             forall|i: BlockIndex<FLLEN, SLLEN>,
                    j: BlockIndex<FLLEN, SLLEN>,
@@ -678,6 +679,7 @@ verus! {
                 assert(pre.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
             };
             assert(self.size_class_condition()) by {
+                reveal(Tlsf::size_class_condition);
                 assert(old(self).size_class_condition());
                 assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
                     self.shadow_freelist@.m.contains_key(bi)
@@ -800,6 +802,7 @@ verus! {
             ensures
                 self.shadow_freelist_nodup()
         {
+            reveal(Tlsf::shadow_freelist_nodup);
             self.all_blocks.lemma_wf_nodup();
             assert(self.is_ii());
             assert(self.shadow_freelist@.pi.is_injective());
@@ -844,7 +847,25 @@ verus! {
                 forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
                     ==> !self.shadow_freelist@.m[i].contains(p)
         {
+            reveal(Tlsf::shadow_freelist_nodup);
             self.lemma_shadow_list_no_duplicates();
+        }
+
+        pub(crate) proof fn lemma_nodup_get(
+            self,
+            i: BlockIndex<FLLEN, SLLEN>, k: int,
+            j: BlockIndex<FLLEN, SLLEN>, l: int,
+        )
+            requires
+                self.shadow_freelist_nodup(),
+                (i, k) != (j, l),
+                i.wf(), j.wf(),
+                0 <= k < self.shadow_freelist@.m[i].len(),
+                0 <= l < self.shadow_freelist@.m[j].len(),
+            ensures
+                self.shadow_freelist@.m[i][k] != self.shadow_freelist@.m[j][l]
+        {
+            reveal(Tlsf::shadow_freelist_nodup);
         }
 
         proof fn lemma_ii_push_for_index_ensures(
@@ -1021,6 +1042,54 @@ verus! {
                     assert(new_ptrs[nai] == old_ptrs[ai]);
                 }
                 assert(new_sfl.m[idx][m] == new_ptrs[new_sfl.pi[(idx, m)]]);
+            };
+        }
+
+        /// Frame lemma: if old_self had all_freelist_wf(), and new_self
+        /// only changed the freelist for modified_idx (with wf_shadow preserved),
+        /// then new_self.all_freelist_wf().
+        pub(crate) proof fn lemma_all_freelist_wf_frame(
+            old_self: Self,
+            new_self: Self,
+            modified_idx: BlockIndex<FLLEN, SLLEN>,
+        )
+            requires
+                old_self.all_freelist_wf(),
+                new_self.wf_shadow(),
+                modified_idx.wf(),
+                new_self.freelist_wf(modified_idx),
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != modified_idx
+                    ==> new_self.shadow_freelist@.m[bi] == old_self.shadow_freelist@.m[bi],
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != modified_idx
+                    ==> new_self.first_free[bi.0 as int][bi.1 as int]
+                        == old_self.first_free[bi.0 as int][bi.1 as int],
+                forall|bi: BlockIndex<FLLEN, SLLEN>, n: int|
+                    bi.wf() && bi != modified_idx
+                    && 0 <= n < old_self.shadow_freelist@.m[bi].len()
+                    ==> #[trigger] new_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
+                        == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]],
+            ensures
+                new_self.all_freelist_wf()
+        {
+            assert(new_self.is_ii()) by { assert(new_self.wf_shadow()); };
+            assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() implies new_self.freelist_wf(bi) by {
+                if bi == modified_idx {
+                    // from precondition new_self.freelist_wf(modified_idx)
+                } else {
+                    old_self.wf_index_in_freelist(bi);
+                    assert(old_self.shadow_freelist@.m[bi] == new_self.shadow_freelist@.m[bi]);
+                    assert(old_self.first_free[bi.0 as int][bi.1 as int]
+                        == new_self.first_free[bi.0 as int][bi.1 as int]);
+                    assert forall|n: int| 0 <= n < new_self.shadow_freelist@.m[bi].len()
+                        implies new_self.wf_free_node(bi, n)
+                    by {
+                        assert(0 <= n < old_self.shadow_freelist@.m[bi].len());
+                        assert(old_self.wf_free_node(bi, n));
+                        assert(old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
+                            == new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][n]]);
+                        old_self.lemma_wf_free_node_preserve_if_not_touched(new_self, bi, n);
+                    };
+                }
             };
         }
 

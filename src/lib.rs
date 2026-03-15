@@ -590,7 +590,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    spec fn size_class_condition(self) -> bool {
+    pub(crate) closed spec fn size_class_condition(self) -> bool {
         forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
             self.shadow_freelist@.m.contains_key(idx)
                 && 0 <= i < self.shadow_freelist@.m[idx].len() ==>

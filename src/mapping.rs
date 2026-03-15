@@ -244,29 +244,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         };
                         assert(log(2, GRANULARITY as int) + FLLEN
                             ==  log(2, GRANULARITY * pow2(FLLEN as nat))) by {
-
-                            calc! {
-                                (==)
-                                log(2, GRANULARITY as int * pow2(FLLEN as nat)); {
-                                    assert(GRANULARITY as int * pow2(FLLEN as nat)
-                                        == pow2((Self::granularity_log2() + FLLEN) as nat)) by {
-                                        vstd::arithmetic::power2::lemma_pow2_adds(
-                                            Self::granularity_log2() as nat,
-                                            FLLEN as nat
-                                        );
-                                    }
-                                }
-                                log(2, pow2((Self::granularity_log2() + FLLEN) as nat) as int); {
-                                    vstd::arithmetic::power2::lemma_pow2(
-                                        (Self::granularity_log2() + FLLEN) as nat
-                                    );
-                                    vstd::arithmetic::logarithm::lemma_log_pow(
-                                        2,
-                                        (Self::granularity_log2() + FLLEN) as nat
-                                    );
-                                }
-                                Self::granularity_log2() as int + FLLEN as int;
-                            }
+                            lemma_log2_mul_pow2(FLLEN as nat, GRANULARITY as int);
                         };
                         assert(log(2, size as int) - Self::granularity_log2() < FLLEN);
                     }
@@ -900,29 +878,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         };
                         assert(log(2, GRANULARITY as int) + FLLEN
                             ==  log(2, GRANULARITY * pow2(FLLEN as nat))) by {
-
-                            calc! {
-                                (==)
-                                log(2, GRANULARITY as int * pow2(FLLEN as nat)); {
-                                    assert(GRANULARITY as int * pow2(FLLEN as nat)
-                                        == pow2((Self::granularity_log2() + FLLEN) as nat)) by {
-                                        vstd::arithmetic::power2::lemma_pow2_adds(
-                                            Self::granularity_log2() as nat,
-                                            FLLEN as nat
-                                        );
-                                    }
-                                }
-                                log(2, pow2((Self::granularity_log2() + FLLEN) as nat) as int); {
-                                    vstd::arithmetic::power2::lemma_pow2(
-                                        (Self::granularity_log2() + FLLEN) as nat
-                                    );
-                                    vstd::arithmetic::logarithm::lemma_log_pow(
-                                        2,
-                                        (Self::granularity_log2() + FLLEN) as nat
-                                    );
-                                }
-                                Self::granularity_log2() as int + FLLEN as int;
-                            }
+                            lemma_log2_mul_pow2(FLLEN as nat, GRANULARITY as int);
                         };
                         assert(log(2, size as int) - Self::granularity_log2() < FLLEN);
                     }

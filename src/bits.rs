@@ -1737,6 +1737,30 @@ pub proof fn lemma_log2_distributes(b1: int, b2: int)
     };
 }
 
+pub proof fn lemma_log2_mul_pow2(x: nat, y: int)
+    requires
+        y > 0,
+    ensures
+        x as int + log(2, y) == log(2, pow2(x) as int * y)
+{
+    assert(pow2(x) as int > 0) by {
+        vstd::arithmetic::power2::lemma_pow2_pos(x);
+    };
+    assert(pow2(x) as int * y > 0) by {
+        vstd::arithmetic::mul::lemma_mul_strictly_positive(pow2(x) as int, y);
+    };
+    assert((pow2(x) as int * y) % pow2(x) as int == 0) by {
+        assert(pow2(x) as int * y == y * pow2(x) as int);
+        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(y, pow2(x) as int);
+    };
+    lemma_log2_sn(pow2(x) as int * y, x);
+    assert((pow2(x) as int * y) / pow2(x) as int == y) by {
+        assert(pow2(x) as int * y == y * pow2(x) as int);
+        vstd::arithmetic::div_mod::lemma_div_multiples_vanish(y, pow2(x) as int);
+    };
+    assert(log(2, pow2(x) as int * y) == x as int + log(2, y));
+}
+
 pub proof fn lemma_mask_dup_idemp(x: usize, m: nat, n: nat)
     requires m <= n
     ensures x & low_mask_usize(n) & low_mask_usize(m) == x & low_mask_usize(m)

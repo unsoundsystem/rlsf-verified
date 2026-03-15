@@ -834,9 +834,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     == Some(old(self).shadow_freelist@.m[idx][1]));
                                 assert(next_free_candidate == old(self).shadow_freelist@.m[idx][1]);
                                 old(self).lemma_shadow_list_no_duplicates();
-                                assert(old(self).shadow_freelist_nodup());
-                                assert((idx, 0int) != (idx, 1int));
-                                assert(old(self).shadow_freelist@.m[idx][0] != old(self).shadow_freelist@.m[idx][1]);
+                                old(self).lemma_nodup_get(idx, 0, idx, 1);
                                 assert(block != old(self).shadow_freelist@.m[idx][1]);
                             };
                             assert(next_free_candidate != next_phys_block) by {
@@ -1516,12 +1514,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     } else {
                                         assert(old(self).wf_free_node(bi, n + 1));
                                         let node = self.shadow_freelist@.m[bi][n];
-                                        old(self).lemma_shadow_list_no_duplicates();
                                         old(self).wf_index_in_freelist(idx);
                                         old(self).freelist_nonempty(idx);
                                         assert(old(self).shadow_freelist@.m[idx].first() == block);
                                         assert(old(self).shadow_freelist@.m[idx][0] == block);
-                                        assert((idx, 0int) != (idx, n + 1));
+                                        old(self).lemma_shadow_list_no_duplicates();
+                                        old(self).lemma_nodup_get(idx, 0, idx, n + 1);
                                         assert(node != block);
                                         if next_free_candidate@.addr != 0 {
                                             assert(old(self).shadow_freelist@.m[idx][1] == next_free_candidate) by {
@@ -1534,6 +1532,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                                     == old(self).shadow_freelist@.m[idx][1]);
                                             };
                                             assert((idx, 1int) != (idx, n + 1));
+                                            old(self).lemma_nodup_get(idx, 1, idx, n + 1);
                                             assert(node != next_free_candidate);
                                         }
                                         assert(node != next_phys_block) by {
@@ -1775,6 +1774,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     proof {
                         assert(old(self).size_class_condition());
                         assert(self.size_class_condition()) by {
+                            reveal(Tlsf::size_class_condition);
                             assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
                                 self.shadow_freelist@.m.contains_key(bi)
                                     && 0 <= i < self.shadow_freelist@.m[bi].len()
@@ -1795,13 +1795,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(node == old(self).shadow_freelist@.m[bi][i + 1]);
                                     assert(node != block) by {
                                         if node == block {
-                                            old(self).lemma_shadow_list_no_duplicates();
                                             old(self).wf_index_in_freelist(idx);
                                             old(self).freelist_nonempty(idx);
                                             assert(old(self).shadow_freelist@.m[idx][0] == block);
                                             assert(old(self).shadow_freelist@.m[idx][i + 1] == block);
-                                            assert((idx, 0int) != (idx, i + 1));
-                                            assert(old(self).shadow_freelist_nodup());
+                                            old(self).lemma_shadow_list_no_duplicates();
+                                            old(self).lemma_nodup_get(idx, 0, idx, i + 1);
                                             assert(false);
                                         }
                                     };
@@ -2460,12 +2459,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         let node = self.shadow_freelist@.m[bi][n];
                                         assert(node == old(self).shadow_freelist@.m[bi][n + 1]);
                                         assert(old(self).wf_free_node(bi, n + 1));
-                                        old(self).lemma_shadow_list_no_duplicates();
                                         old(self).wf_index_in_freelist(idx);
                                         old(self).freelist_nonempty(idx);
                                         assert(old(self).shadow_freelist@.m[idx].first() == block);
                                         assert(old(self).shadow_freelist@.m[idx][0] == block);
-                                        assert((idx, 0int) != (idx, n + 1));
+                                        old(self).lemma_shadow_list_no_duplicates();
+                                        old(self).lemma_nodup_get(idx, 0, idx, n + 1);
                                         assert(node != block);
                                         if next_free_candidate@.addr != 0 {
                                             assert(old(self).shadow_freelist@.m[idx][1] == next_free_candidate) by {
@@ -2478,6 +2477,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                                     == old(self).shadow_freelist@.m[idx][1]);
                                             };
                                             assert((idx, 1int) != (idx, n + 1));
+                                            old(self).lemma_nodup_get(idx, 1, idx, n + 1);
                                             assert(node != next_free_candidate);
                                         }
                                         assert(self.all_blocks.perms@[node] == old(self).all_blocks.perms@[node]);
@@ -2541,6 +2541,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(self.shadow_freelist@ == sfl_after_remove);
                     assert(old(self).size_class_condition());
                     assert(self.size_class_condition()) by {
+                        reveal(Tlsf::size_class_condition);
                         assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
                             self.shadow_freelist@.m.contains_key(bi)
                                 && 0 <= i < self.shadow_freelist@.m[bi].len()
@@ -2555,13 +2556,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 assert(node == old(self).shadow_freelist@.m[bi][i + 1]);
                                 assert(node != block) by {
                                     if node == block {
-                                        old(self).lemma_shadow_list_no_duplicates();
                                         old(self).wf_index_in_freelist(idx);
                                         old(self).freelist_nonempty(idx);
                                         assert(old(self).shadow_freelist@.m[idx][0] == block);
                                         assert(old(self).shadow_freelist@.m[idx][i + 1] == block);
-                                        assert((idx, 0int) != (idx, i + 1));
-                                        assert(old(self).shadow_freelist_nodup());
+                                        old(self).lemma_shadow_list_no_duplicates();
+                                        old(self).lemma_nodup_get(idx, 0, idx, i + 1);
                                         assert(false);
                                     }
                                 };
