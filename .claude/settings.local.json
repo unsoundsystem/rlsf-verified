@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(VERUS_SINGULAR_PATH=/usr/bin/Singular ../verus/source/target-verus/release/verus:*)",
-      "Bash(grep:*)",
-      "Bash(cat:*)"
-    ]
-  }
-}

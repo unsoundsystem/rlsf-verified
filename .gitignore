@@ -12,3 +12,4 @@ target
 .verus.log
 results_*
 __pycache__
+/.claude
