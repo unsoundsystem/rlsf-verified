@@ -382,7 +382,7 @@ use crate::*;
             reveal(Tlsf::freelist_wf);
         }
 
-        pub(crate) open spec fn wf_free_node(self, idx: BlockIndex<FLLEN, SLLEN>, i: int) -> bool
+        pub(crate) closed spec fn wf_free_node(self, idx: BlockIndex<FLLEN, SLLEN>, i: int) -> bool
             recommends
                 self.all_blocks.wf(),
                 0 <= i < self.shadow_freelist@.m[idx].len()
@@ -436,6 +436,7 @@ use crate::*;
             ensures
                 other.wf_free_node(idx, n)
         {
+            reveal(Tlsf::wf_free_node);
             let ghost freelist = self.shadow_freelist@.m[idx];
             let ghost node = freelist[n];
             assert(other.shadow_freelist@.m[idx] == freelist);
@@ -515,6 +516,7 @@ use crate::*;
             ensures
                 other.wf_free_node(idx, n)
         {
+            reveal(Tlsf::wf_free_node);
             let ghost old_ls = self.shadow_freelist@.m[idx];
             let ghost new_ls = other.shadow_freelist@.m[idx];
             let ghost node = new_ls[n];
@@ -600,6 +602,7 @@ use crate::*;
             ensures
                 self.wf_free_node(idx, 0)
         {
+            reveal(Tlsf::wf_free_node);
             reveal(AllBlocks::ptr_is_null);
             // free_prev_of(ls, 0) is None by definition (index 0 has no predecessor)
         }
@@ -640,11 +643,23 @@ use crate::*;
                 assert(self.all_blocks.perms@.contains_key(node));
             }
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
-            let tracked link_perm = node_blk.free_link_perm.tracked_unwrap();
             let ghost i = choose|i: int|
                 0 <= i < old(self).shadow_freelist@.m[idx].len()
                 && old(self).shadow_freelist@.m[idx][i] == node;
             proof {
+                reveal(Tlsf::wf_free_node);
+                old(self).lemma_freelist_wf_extract_wf_free_node(idx, i);
+                assert(old(self).wf_free_node(idx, i));
+                assert(old(self).shadow_freelist@.m[idx][i] == node);
+                assert(old(self).all_blocks.value_at(node).is_free());
+                assert(old(self).all_blocks.contains(node));
+                let ghost ci = old(self).all_blocks.get_ptr_internal_index(node);
+                assert(old(self).all_blocks.wf_node(ci));
+                assert(old(self).all_blocks.perms@[node].free_link_perm is Some);
+            }
+            let tracked link_perm = node_blk.free_link_perm.tracked_unwrap();
+            proof {
+                reveal(Tlsf::wf_free_node);
                 assert(old(self).wf_free_node(idx, i));
                 assert(link_perm.ptr() == link) by {
                     assert(link == get_freelink_ptr_spec(node));
@@ -661,14 +676,22 @@ use crate::*;
             if next_free != null_bhdr() {
                 let next_link = get_freelink_ptr(next_free);
                 proof {
+                    reveal(Tlsf::wf_free_node);
                     reveal(AllBlocks::ptr_is_null);
                     assert(old(self).wf_free_node(idx, i));
                     assert(Some(next_free) == Self::free_next_of(old(self).shadow_freelist@.m[idx], i));
                     assert(i < old(self).shadow_freelist@.m[idx].len() - 1);
                     assert(old(self).shadow_freelist@.m[idx][i + 1] == next_free);
+                    old(self).lemma_freelist_wf_extract_wf_free_node(idx, i + 1);
+                    assert(old(self).wf_free_node(idx, i + 1));
                     assert(old(self).all_blocks.contains(next_free));
                     old(self).all_blocks.lemma_contains(next_free);
                     assert(self.all_blocks.perms@.contains_key(next_free));
+                    // for tracked_unwrap below
+                    let ghost ci = old(self).all_blocks.get_ptr_internal_index(next_free);
+                    assert(old(self).all_blocks.wf_node(ci));
+                    assert(old(self).all_blocks.value_at(next_free).is_free());
+                    assert(old(self).all_blocks.perms@[next_free].free_link_perm is Some);
                 }
                 let tracked next_blk = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
                 let tracked next_link_perm = next_blk.free_link_perm.tracked_unwrap();
@@ -691,14 +714,22 @@ use crate::*;
             if prev_free != null_bhdr() {
                 let prev_link = get_freelink_ptr(prev_free);
                 proof {
+                    reveal(Tlsf::wf_free_node);
                     reveal(AllBlocks::ptr_is_null);
                     assert(old(self).wf_free_node(idx, i));
                     assert(Self::free_prev_of(old(self).shadow_freelist@.m[idx], i) == Some(prev_free));
                     assert(0 < i);
                     assert(old(self).shadow_freelist@.m[idx][i - 1] == prev_free);
+                    old(self).lemma_freelist_wf_extract_wf_free_node(idx, i - 1);
+                    assert(old(self).wf_free_node(idx, i - 1));
                     assert(old(self).all_blocks.contains(prev_free));
                     old(self).all_blocks.lemma_contains(prev_free);
                     assert(self.all_blocks.perms@.contains_key(prev_free));
+                    // for tracked_unwrap below
+                    let ghost ci = old(self).all_blocks.get_ptr_internal_index(prev_free);
+                    assert(old(self).all_blocks.wf_node(ci));
+                    assert(old(self).all_blocks.value_at(prev_free).is_free());
+                    assert(old(self).all_blocks.perms@[prev_free].free_link_perm is Some);
                 }
                 let tracked prev_blk = self.all_blocks.perms.borrow_mut().tracked_remove(prev_free);
                 let tracked prev_link_perm = prev_blk.free_link_perm.tracked_unwrap();
@@ -723,6 +754,7 @@ use crate::*;
                     self.clear_bit_for_index(idx);
                 }
             }
+            proof { reveal(Tlsf::wf_free_node); }
         }
 
         pub(crate) fn link_free_block(&mut self,
@@ -856,6 +888,7 @@ use crate::*;
                         implies self.freelist_wf(i)
                     by {
                         reveal(Tlsf::freelist_wf);
+                        reveal(Tlsf::wf_free_node);
                         if i == idx {
                             assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
                                 reveal(AllBlocks::ptr_is_null);
@@ -956,6 +989,7 @@ use crate::*;
                         implies self.freelist_wf(i)
                     by {
                         reveal(Tlsf::freelist_wf);
+                        reveal(Tlsf::wf_free_node);
                         if i == idx {
                             assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
                                 reveal(AllBlocks::ptr_is_null);
@@ -1128,6 +1162,7 @@ use crate::*;
                 self.all_blocks.contains(self.first_free[idx.0 as int][idx.1 as int])
         {
             reveal(Tlsf::freelist_wf);
+            reveal(Tlsf::wf_free_node);
             reveal(AllBlocks::ptr_is_null);
             let first = self.shadow_freelist@.m[idx].first();
             assert(self.shadow_freelist@.m[idx].len() != 0);
@@ -1200,6 +1235,7 @@ use crate::*;
             ensures
                 self.shadow_freelist@.m[idx].len() >= 2
         {
+            reveal(Tlsf::wf_free_node);
             reveal(AllBlocks::ptr_is_null);
         }
 
@@ -1219,7 +1255,56 @@ use crate::*;
                     .free_link_perm.unwrap().value().next_free@.addr == 0
                     ==> Self::free_next_of(self.shadow_freelist@.m[idx], n) is None,
         {
+            reveal(Tlsf::wf_free_node);
             reveal(AllBlocks::ptr_is_null);
+        }
+
+        /// Bridge: wf_free_node(idx, n) → value_at(node).is_free()
+        pub(crate) proof fn lemma_wf_free_node_is_free(
+            self, idx: BlockIndex<FLLEN, SLLEN>, n: int)
+            requires
+                self.wf_free_node(idx, n),
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+            ensures
+                self.all_blocks.value_at(self.shadow_freelist@.m[idx][n]).is_free()
+        {
+            reveal(Tlsf::wf_free_node);
+        }
+
+        /// Bridge: wf_free_node(idx, n) → all_blocks.contains(node)
+        pub(crate) proof fn lemma_wf_free_node_contains(
+            self, idx: BlockIndex<FLLEN, SLLEN>, n: int)
+            requires
+                self.wf_free_node(idx, n),
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+            ensures
+                self.all_blocks.contains(self.shadow_freelist@.m[idx][n])
+        {
+            reveal(Tlsf::wf_free_node);
+        }
+
+        /// Bridge: wf_free_node(idx, n) → free_link_perm is Some + ptr matches
+        pub(crate) proof fn lemma_wf_free_node_free_link_perm(
+            self, idx: BlockIndex<FLLEN, SLLEN>, n: int)
+            requires
+                self.wf_free_node(idx, n),
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+                self.all_blocks.wf(),
+            ensures
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]].free_link_perm is Some,
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]].free_link_perm.unwrap().ptr()
+                    == get_freelink_ptr_spec(self.shadow_freelist@.m[idx][n]),
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]].free_link_perm.unwrap().is_init(),
+        {
+            reveal(Tlsf::wf_free_node);
+            let ghost node = self.shadow_freelist@.m[idx][n];
+            assert(self.all_blocks.contains(node));
+            assert(self.all_blocks.value_at(node).is_free());
+            let ghost ci = self.all_blocks.get_ptr_internal_index(node);
+            assert(self.all_blocks.wf_node(ci));
         }
 
         /// Bridge: freelist_wf(idx) + len == 0 → first_free addr == 0.
@@ -1245,6 +1330,7 @@ use crate::*;
                         ==> self.all_blocks.contains(p)
         {
             reveal(Tlsf::freelist_wf);
+            reveal(Tlsf::wf_free_node);
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
                 implies self.all_blocks.contains(self.shadow_freelist@.m[idx][i]) by {
                 assert(self.wf_free_node(idx, i));
@@ -1659,6 +1745,7 @@ use crate::*;
 
             // --- Step 1: Prove new_self.freelist_wf(idx) ---
             assert(new_self.freelist_wf(idx)) by {
+                reveal(Tlsf::wf_free_node);
                 // Prove wf_free_node for all n in new freelist
                 assert forall|n: int| 0 <= n < new_sfl.len()
                     implies new_self.wf_free_node(idx, n)
