@@ -761,6 +761,7 @@ verus! {
                     };
 
                     let node_ind = self.all_blocks.get_ptr_internal_index(node);
+                    self.all_blocks.lemma_wf_node_ptr(node_ind);
                     self.shadow_freelist@ =
                         self.shadow_freelist@.ii_push_for_index(
                             self.all_blocks,
@@ -854,6 +855,7 @@ verus! {
                             assert(old(self).all_blocks.wf_node(i));
                         }
                     };
+                    self.all_blocks.lemma_wf_node_ptr(node_ind);
 
                     // Update identity injection
                     self.shadow_freelist@ =

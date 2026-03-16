@@ -33,6 +33,40 @@ verus! {
             self.ptrs@.contains(ptr)
         }
 
+        /// Opaque wrapper for pointer address well-formedness facts to avoid raw_ptr trigger explosion.
+        #[verifier::opaque]
+        pub(crate) open spec fn wf_node_ptr(ptr: *mut BlockHdr) -> bool {
+            &&& ptr@.addr != 0
+            &&& 0 <= ptr@.addr
+            &&& (ptr@.addr as int) % (GRANULARITY as int) == 0
+        }
+
+        /// Bridge lemma: constructs wf_node_ptr from explicit addr/alignment facts.
+        pub(crate) proof fn lemma_wf_node_ptr_from_facts(ptr: *mut BlockHdr)
+            requires
+                ptr@.addr != 0,
+                0 <= ptr@.addr,
+                (ptr@.addr as int) % (GRANULARITY as int) == 0,
+            ensures
+                Self::wf_node_ptr(ptr)
+        {
+            reveal(AllBlocks::wf_node_ptr);
+        }
+
+        /// Bridge lemma: derives raw pointer facts from wf_node.
+        pub(crate) proof fn lemma_wf_node_ptr(self, i: int)
+            requires
+                self.wf(),
+                0 <= i < self.ptrs@.len(),
+            ensures
+                self.ptrs@[i]@.addr != 0,
+                0 <= self.ptrs@[i]@.addr,
+                (self.ptrs@[i]@.addr as int) % (GRANULARITY as int) == 0,
+        {
+            assert(self.wf_node(i));
+            reveal(AllBlocks::wf_node_ptr);
+        }
+
         /// States that each block at `self.ptr[i]` is well-formed i.e.
         ///
         /// * Block is properly connected to the global list
@@ -49,10 +83,7 @@ verus! {
         {
             let ptr = self.ptrs@[i];
             // --- Well-formedness for tracked/ghost states
-            &&& ptr@.addr != 0
-            &&& 0 <= ptr@.addr
-            // All blocks are GRANULARITY-aligned.
-            &&& (ptr@.addr as int) % (GRANULARITY as int) == 0
+            &&& Self::wf_node_ptr(ptr)
             &&& self.perms@.contains_key(ptr)
             &&& ptr == self.perms@[ptr].points_to.ptr()
             &&& self.perms@[ptr].wf()

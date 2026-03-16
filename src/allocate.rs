@@ -174,6 +174,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.all_blocks.lemma_contains(block);
                 //assert(self.all_blocks.wf_node(block_id));
                 //assert(self.all_blocks.perms@[block].points_to.is_init());
+                self.all_blocks.lemma_wf_node_ptr(block_id);
             }
             let ghost selected_block_size = self.all_blocks.perms@[block].points_to.value().size;
             assert(block@.addr != 0);
@@ -1204,6 +1205,21 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(i <= block_id + 1);
                                     assert(i == block_id + 1);
                                 };
+                                assert(new_free_block@.addr != 0) by {
+                                    assert(block@.addr != 0);
+                                    assert(new_size > 0);
+                                };
+                                assert(0 <= new_free_block@.addr);
+                                assert((new_free_block@.addr as int) % (GRANULARITY as int) == 0) by {
+                                    assert(block@.addr % GRANULARITY == 0) by {
+                                        old(self).all_blocks.lemma_wf_node_ptr(block_id);
+                                    };
+                                    assert(new_size % GRANULARITY == 0) by {
+                                        granularity_is_power_of_two();
+                                        lemma_round_up_pow2((overhead + size) as usize, GRANULARITY);
+                                    };
+                                };
+                                AllBlocks::<FLLEN, SLLEN>::lemma_wf_node_ptr_from_facts(new_free_block);
                                 assert(self.all_blocks.wf_node(i)) by {
                                     assert(i == block_id + 1);
                                     assert(ptr == new_free_block);
@@ -2263,6 +2279,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     lemma_ptrs_no_duplicates_eq_index(old(self).all_blocks.ptrs@, i, block_id);
                                 };
                                 assert(old(self).all_blocks.wf_node(block_id));
+                                old(self).all_blocks.lemma_wf_node_ptr(block_id);
                                 assert(self.all_blocks.perms@[block] == new_block_perm);
                                 assert(self.all_blocks.perms@[block].points_to.ptr() == block);
                                 assert(self.all_blocks.perms@[block].wf());
