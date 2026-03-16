@@ -214,6 +214,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Unlink the free block. We are not using `unlink_free_block` because
             // we already know `(fl, sl)` and that `block.prev_free` is `None`.
             let block_freelink = get_freelink_ptr(block);
+            proof { old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0); }
             assert(old(self).wf_free_node(idx, 0));
             let tracked block_freelink_perm = old_head_perm.free_link_perm.tracked_unwrap();
             let next_free_candidate = ptr_ref(block_freelink, Tracked(&block_freelink_perm)).next_free;
@@ -245,9 +246,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let next_free = next_free_candidate;
                 proof {
                     assert(old(self).shadow_freelist@.m[idx].len() > 1) by {
+                        old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                         assert(old(self).wf_free_node(idx, 0));
                         old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                     };
+                    old(self).lemma_freelist_wf_extract_wf_free_node(idx, 1);
                     assert(old(self).wf_free_node(idx, 1));
                     assert(old(self).all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(next_free)));
                     new_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
@@ -296,6 +299,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         == old(self).all_blocks.perms@[next_free_candidate].mem
                 )) by {
                     if next_free_candidate@.addr != 0 {
+                        old(self).lemma_freelist_wf_extract_wf_free_node(idx, 1);
                         assert(old(self).wf_free_node(idx, 1));
                         assert(new_head_perm == old(self).all_blocks.perms@[next_free_candidate]);
                         assert(self.all_blocks.perms@[next_free_candidate].points_to == new_head_perm.points_to);
@@ -835,6 +839,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         assert(self.all_blocks.perms@[new_free_block].points_to.value().is_free());
                         if next_free_candidate@.addr != 0 {
                             assert(next_free_candidate != block) by {
+                                old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                                 assert(old(self).wf_free_node(idx, 0));
                                 old(self).lemma_wf_free_node_next_addr(idx, 0);
                                 assert(Some(next_free_candidate) == Self::free_next_of(old(self).shadow_freelist@.m[idx], 0));
@@ -860,6 +865,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             };
                             assert(next_free_candidate != new_free_block) by {
                                 if next_free_candidate == new_free_block {
+                                    old(self).lemma_freelist_wf_extract_wf_free_node(idx, 1);
                                     assert(old(self).wf_free_node(idx, 1));
                                     assert(old(self).all_blocks.contains(next_free_candidate));
                                     assert(old_ptrs.contains(next_free_candidate));
@@ -1303,6 +1309,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(old(self).all_blocks.wf_node(old_i));
                                     assert(old(self).all_blocks.value_at(block).is_free()) by {
                                         old(self).freelist_nonempty(idx);
+                                        old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                                         assert(old(self).wf_free_node(idx, 0));
                                         assert(old(self).shadow_freelist@.m[idx].first()
                                             == old(self).first_free[idx.0 as int][idx.1 as int]);
@@ -1486,6 +1493,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         old(self).shadow_freelist@.m[idx].len() > 1
                         && next_free_candidate == old(self).shadow_freelist@.m[idx][1]) by {
                         if next_free_candidate@.addr != 0 {
+                            old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                             assert(old(self).wf_free_node(idx, 0));
                             old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                             old(self).lemma_wf_free_node_next_addr(idx, 0);
@@ -1504,6 +1512,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         implies #[trigger] old(self).shadow_freelist@.m[bi][k] != next_phys_block
                     by {
                         if old(self).shadow_freelist@.m[bi][k] == next_phys_block {
+                            old(self).wf_index_in_freelist(bi);
+                            old(self).lemma_freelist_wf_extract_wf_free_node(bi, k);
                             assert(old(self).wf_free_node(bi, k));
                             assert(old(self).all_blocks.value_at(old(self).shadow_freelist@.m[bi][k]).is_free());
                             assert(!old(self).all_blocks.value_at(next_phys_block).is_free());
@@ -1617,6 +1627,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             == old(self).all_blocks.perms@[next_free_candidate].free_link_perm.unwrap().value().next_free
                     )) by {
                         if old(self).shadow_freelist@.m[idx].len() > 1 {
+                            old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                             old(self).lemma_wf_free_node_next_addr(idx, 0);
                             assert(Some(next_free_candidate) == Self::free_next_of(old(self).shadow_freelist@.m[idx], 0));
                             assert(next_free_candidate == old(self).shadow_freelist@.m[idx][1]);
@@ -1632,6 +1643,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     // Singleton list → next_free is null
                     assert(old(self).shadow_freelist@.m[idx].len() == 1 ==> next_free_candidate@.addr == 0) by {
                         if next_free_candidate@.addr != 0 {
+                            old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                             old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                         }
                     };
@@ -1734,6 +1746,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         == old(self).all_blocks.perms@[old(self).shadow_freelist@.m[bi][i]].points_to.value().size
                             by {
                                 let node = old(self).shadow_freelist@.m[bi][i];
+                                old(self).wf_index_in_freelist(bi);
+                                old(self).lemma_freelist_wf_extract_wf_free_node(bi, i);
                                 assert(node != next_phys_block) by {
                                     if node == next_phys_block {
                                         assert(old(self).wf_free_node(bi, i));
@@ -2318,6 +2332,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         old(self).shadow_freelist@.m[idx].len() > 1
                         && next_free_candidate == old(self).shadow_freelist@.m[idx][1])) by {
                         if next_free_candidate@.addr != 0 {
+                            old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                             assert(old(self).wf_free_node(idx, 0));
                             old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                             old(self).lemma_wf_free_node_next_addr(idx, 0);
@@ -2386,6 +2401,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             == old(self).all_blocks.perms@[next_free_candidate].free_link_perm.unwrap().value().next_free
                     )) by {
                         if old(self).shadow_freelist@.m[idx].len() > 1 {
+                            old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                             old(self).lemma_wf_free_node_next_addr(idx, 0);
                             assert(Some(next_free_candidate) == Self::free_next_of(old(self).shadow_freelist@.m[idx], 0));
                             assert(next_free_candidate == old(self).shadow_freelist@.m[idx][1]);
@@ -2401,6 +2417,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     // Singleton list -> next_free is null
                     assert(old(self).shadow_freelist@.m[idx].len() == 1 ==> next_free_candidate@.addr == 0) by {
                         if next_free_candidate@.addr != 0 {
+                            old(self).lemma_freelist_wf_extract_wf_free_node(idx, 0);
                             old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                         }
                     };
@@ -2456,29 +2473,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(tlsf_before_final_remove.wf_shadow());
                             Self::lemma_shadow_ptrs_nonnull_frame(tlsf_before_final_remove, *self);
                         };
-                        assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
-                            implies self.freelist_wf(bi)
+                        assert forall|bi: BlockIndex<FLLEN, SLLEN>, n: int|
+                            bi.wf() && 0 <= n < tlsf_before_final_remove.shadow_freelist@.m[bi].len()
+                            implies self.all_blocks.perms@[tlsf_before_final_remove.shadow_freelist@.m[bi][n]]
+                                == tlsf_before_final_remove.all_blocks.perms@[tlsf_before_final_remove.shadow_freelist@.m[bi][n]]
                         by {
-                            assert(self.shadow_freelist@.m[bi] == tlsf_before_final_remove.shadow_freelist@.m[bi]);
-                            assert(self.first_free[bi.0 as int][bi.1 as int]
-                                == tlsf_before_final_remove.first_free[bi.0 as int][bi.1 as int]);
-                            assert forall|n: int| 0 <= n < self.shadow_freelist@.m[bi].len()
-                                implies self.wf_free_node(bi, n)
-                            by {
-                                let node = self.shadow_freelist@.m[bi][n];
-                                assert(node == tlsf_before_final_remove.shadow_freelist@.m[bi][n]);
-                                assert(node != block) by {
-                                    if node == block {
-                                        assert(tlsf_before_final_remove.wf_free_node(bi, n));
-                                        assert(tlsf_before_final_remove.all_blocks.value_at(block).is_free());
-                                        assert(!tlsf_before_final_remove.all_blocks.value_at(block).is_free());
-                                        assert(false);
-                                    }
-                                };
-                                assert(self.all_blocks.perms@[node] == tlsf_before_final_remove.all_blocks.perms@[node]);
-                                tlsf_before_final_remove.lemma_wf_free_node_preserve_if_not_touched(*self, bi, n);
+                            let node = tlsf_before_final_remove.shadow_freelist@.m[bi][n];
+                            assert(node != block) by {
+                                if node == block {
+                                    tlsf_before_final_remove.wf_index_in_freelist(bi);
+                                    tlsf_before_final_remove.lemma_freelist_wf_extract_wf_free_node(bi, n);
+                                    assert(tlsf_before_final_remove.all_blocks.value_at(block).is_free());
+                                    assert(!tlsf_before_final_remove.all_blocks.value_at(block).is_free());
+                                    assert(false);
+                                }
                             };
+                            assert(self.all_blocks.perms@[node] == tlsf_before_final_remove.all_blocks.perms@[node]);
                         };
+                        Self::lemma_all_freelist_wf_perms_frame(tlsf_before_final_remove, *self);
                     };
                     assert(self.size_class_condition()) by {
                         assert(tlsf_before_final_remove.size_class_condition());
@@ -2491,6 +2503,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 let node = tlsf_before_final_remove.shadow_freelist@.m[bi][n];
                                 assert(node == self.shadow_freelist@.m[bi][n]);
                                 if node == block {
+                                    tlsf_before_final_remove.wf_index_in_freelist(bi);
+                                    tlsf_before_final_remove.lemma_freelist_wf_extract_wf_free_node(bi, n);
                                     assert(tlsf_before_final_remove.wf_free_node(bi, n));
                                     assert(tlsf_before_final_remove.all_blocks.value_at(block).is_free());
                                     assert(!tlsf_before_final_remove.all_blocks.value_at(block).is_free());

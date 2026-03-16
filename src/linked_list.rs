@@ -21,7 +21,7 @@ use crate::*;
             &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==> self.freelist_wf(idx)
         }
 
-        pub(crate) open spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
+        pub(crate) closed spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
             let sfle = self.shadow_freelist@.m[idx];
             let first = self.first_free[idx.0 as int][idx.1 as int];
             &&& forall|i: int| 0 <= i < sfle.len() ==> self.wf_free_node(idx, i)
@@ -348,6 +348,38 @@ use crate::*;
                     //self.shadow_freelist@.m[idx],
                     //self.first_free[idx.0 as int][idx.1 as int]),
         {
+        }
+
+        /// Bridge: extract wf_free_node(idx, n) from freelist_wf(idx).
+        pub(crate) proof fn lemma_freelist_wf_extract_wf_free_node(
+            self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            n: int,
+        )
+            requires
+                self.freelist_wf(idx),
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+            ensures
+                self.wf_free_node(idx, n)
+        {
+            reveal(Tlsf::freelist_wf);
+        }
+
+        /// Bridge: extract wf_free_node(idx, n) from all_freelist_wf().
+        pub(crate) proof fn lemma_all_freelist_wf_extract_wf_free_node(
+            self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            n: int,
+        )
+            requires
+                self.all_freelist_wf(),
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+            ensures
+                self.wf_free_node(idx, n)
+        {
+            reveal(Tlsf::freelist_wf);
         }
 
         pub(crate) open spec fn wf_free_node(self, idx: BlockIndex<FLLEN, SLLEN>, i: int) -> bool
@@ -823,6 +855,7 @@ use crate::*;
                     assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
                         implies self.freelist_wf(i)
                     by {
+                        reveal(Tlsf::freelist_wf);
                         if i == idx {
                             assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
                                 reveal(AllBlocks::ptr_is_null);
@@ -922,6 +955,7 @@ use crate::*;
                     assert forall|i: BlockIndex<FLLEN, SLLEN>| i.wf()
                         implies self.freelist_wf(i)
                     by {
+                        reveal(Tlsf::freelist_wf);
                         if i == idx {
                             assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
                                 reveal(AllBlocks::ptr_is_null);
@@ -988,11 +1022,13 @@ use crate::*;
                 assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
                     implies self.freelist_wf(bi)
                 by {
+                    reveal(Tlsf::freelist_wf);
                     pre.wf_index_in_freelist(bi);
                     assert(self.shadow_freelist@.m[bi] == pre.shadow_freelist@.m[bi]);
                     assert forall|n: int| 0 <= n < self.shadow_freelist@.m[bi].len()
                         implies self.wf_free_node(bi, n)
                     by {
+                        pre.lemma_freelist_wf_extract_wf_free_node(bi, n);
                         pre.lemma_wf_free_node_preserve_if_not_touched(*self, bi, n);
                     };
                 };
@@ -1076,6 +1112,7 @@ use crate::*;
             ensures
                 self.first_free[idx.0 as int][idx.1 as int]@.addr == 0
         {
+            reveal(Tlsf::freelist_wf);
             reveal(AllBlocks::ptr_is_null);
         }
 
@@ -1090,6 +1127,7 @@ use crate::*;
                 self.shadow_freelist@.m[idx].first() == self.first_free[idx.0 as int][idx.1 as int],
                 self.all_blocks.contains(self.first_free[idx.0 as int][idx.1 as int])
         {
+            reveal(Tlsf::freelist_wf);
             reveal(AllBlocks::ptr_is_null);
             let first = self.shadow_freelist@.m[idx].first();
             assert(self.shadow_freelist@.m[idx].len() != 0);
@@ -1121,6 +1159,7 @@ use crate::*;
             ensures
                 self.freelist_wf(idx)
         {
+            reveal(Tlsf::freelist_wf);
             reveal(AllBlocks::ptr_is_null);
         }
 
@@ -1133,6 +1172,7 @@ use crate::*;
             ensures
                 self.shadow_freelist@.m[idx].len() == 0
         {
+            reveal(Tlsf::freelist_wf);
             reveal(AllBlocks::ptr_is_null);
         }
 
@@ -1145,6 +1185,7 @@ use crate::*;
             ensures
                 self.shadow_freelist@.m[idx].len() > 0
         {
+            reveal(Tlsf::freelist_wf);
             reveal(AllBlocks::ptr_is_null);
         }
 
@@ -1190,6 +1231,7 @@ use crate::*;
             ensures
                 self.first_free[idx.0 as int][idx.1 as int]@.addr == 0
         {
+            reveal(Tlsf::freelist_wf);
             reveal(AllBlocks::ptr_is_null);
         }
 
@@ -1202,6 +1244,7 @@ use crate::*;
                     self.shadow_freelist@.m[idx].contains(p)
                         ==> self.all_blocks.contains(p)
         {
+            reveal(Tlsf::freelist_wf);
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
                 implies self.all_blocks.contains(self.shadow_freelist@.m[idx][i]) by {
                 assert(self.wf_free_node(idx, i));
@@ -1486,6 +1529,7 @@ use crate::*;
         {
             assert(new_self.is_ii()) by { assert(new_self.wf_shadow()); };
             assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() implies new_self.freelist_wf(bi) by {
+                reveal(Tlsf::freelist_wf);
                 if bi == modified_idx {
                     // from precondition new_self.freelist_wf(modified_idx)
                 } else {
@@ -1497,7 +1541,7 @@ use crate::*;
                         implies new_self.wf_free_node(bi, n)
                     by {
                         assert(0 <= n < old_self.shadow_freelist@.m[bi].len());
-                        assert(old_self.wf_free_node(bi, n));
+                        old_self.lemma_freelist_wf_extract_wf_free_node(bi, n);
                         assert(old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
                             == new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][n]]);
                         old_self.lemma_wf_free_node_preserve_if_not_touched(new_self, bi, n);
@@ -1507,6 +1551,45 @@ use crate::*;
         }
 
 
+
+        /// Frame lemma: if shadow_freelist, first_free, and perms of all free nodes
+        /// are unchanged, then all_freelist_wf is preserved.
+        /// Used from allocate.rs where reveal(Tlsf::freelist_wf) is not available (closed).
+        pub(crate) proof fn lemma_all_freelist_wf_perms_frame(
+            old_self: Self,
+            new_self: Self,
+        )
+            requires
+                old_self.all_freelist_wf(),
+                new_self.wf_shadow(),
+                new_self.shadow_freelist@ == old_self.shadow_freelist@,
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
+                    ==> new_self.first_free[bi.0 as int][bi.1 as int]
+                        == old_self.first_free[bi.0 as int][bi.1 as int],
+                forall|bi: BlockIndex<FLLEN, SLLEN>, n: int|
+                    bi.wf() && 0 <= n < old_self.shadow_freelist@.m[bi].len()
+                    ==> new_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
+                        == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]],
+            ensures
+                new_self.all_freelist_wf()
+        {
+            assert(new_self.is_ii()) by { assert(new_self.wf_shadow()); };
+            assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
+                implies new_self.freelist_wf(bi)
+            by {
+                reveal(Tlsf::freelist_wf);
+                old_self.wf_index_in_freelist(bi);
+                assert(new_self.shadow_freelist@.m[bi] == old_self.shadow_freelist@.m[bi]);
+                assert(new_self.first_free[bi.0 as int][bi.1 as int]
+                    == old_self.first_free[bi.0 as int][bi.1 as int]);
+                assert forall|n: int| 0 <= n < new_self.shadow_freelist@.m[bi].len()
+                    implies new_self.wf_free_node(bi, n)
+                by {
+                    old_self.lemma_freelist_wf_extract_wf_free_node(bi, n);
+                    old_self.lemma_wf_free_node_preserve_if_not_touched(new_self, bi, n);
+                };
+            };
+        }
 
         /// Big-step lemma: after popping the head of freelist[idx], proves
         /// new_self.all_freelist_wf() and new_self.bitmap_sync().
@@ -1589,6 +1672,7 @@ use crate::*;
                         assert(old_sfl.len() != 1);
                         assert(old_sfl.len() > 1);
                         assert(old_sfl[1] == next_free);
+                        old_self.lemma_freelist_wf_extract_wf_free_node(idx, 1);
                         assert(old_self.wf_free_node(idx, 1));
 
                         // all_blocks.contains
@@ -1626,6 +1710,7 @@ use crate::*;
                         new_self.lemma_wf_free_node_head_from_addr_form(idx);
                     } else {
                         // n > 0: corresponds to old position n+1 >= 2
+                        old_self.lemma_freelist_wf_extract_wf_free_node(idx, n + 1);
                         assert(old_self.wf_free_node(idx, n + 1));
                         assert(new_self.all_blocks.perms@[old_sfl[n + 1]]
                             == old_self.all_blocks.perms@[old_sfl[n + 1]]);
