@@ -145,12 +145,12 @@ verus! {
             requires self.wf()
             ensures ptrs_no_duplicates(self.ptrs@)
         {
-            reveal(ptrs_no_duplicates);
             assert forall|i: int| 0 <= i < self.ptrs@.len() - 1
                 implies (#[trigger] self.ptrs@[i] as int) < self.ptrs@[i + 1] as int
                 by {
                     assert(self.wf_node(i));
-                }
+                };
+            lemma_ptrs_no_duplicates_from_ordered(self.ptrs@);
         }
 
         pub(crate) proof fn lemma_phys_next_is_distinct(self, i: int)

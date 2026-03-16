@@ -17,8 +17,7 @@ verus! {
                 (ls[i] as usize as int) <= (ls[j] as usize as int)
     }
 
-    #[verifier::opaque]
-    pub(crate) open spec fn ptrs_no_duplicates(ls: Seq<*mut BlockHdr>) -> bool {
+    pub(crate) closed spec fn ptrs_no_duplicates(ls: Seq<*mut BlockHdr>) -> bool {
         ls.no_duplicates()
     }
 
@@ -72,7 +71,7 @@ verus! {
         assert(0 <= i < ls.len() && 0 <= j < ls.len() && i < j);
     }
 
-    pub(crate) open spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
+    pub(crate) closed spec fn add_ghost_pointer(ls: Seq<*mut BlockHdr>, p: *mut BlockHdr) -> Seq<*mut BlockHdr>
         recommends ghost_pointer_ordered(ls)
         decreases ls.len()
     {
@@ -111,6 +110,7 @@ verus! {
             forall|e: *mut BlockHdr| ls.contains(e) ==> add_ghost_pointer(ls, p).contains(e),
         decreases ls.len()
     {
+        reveal(add_ghost_pointer);
         if ls.len() > 0 {
             lemma_add_ghost_pointer_ensures(ls.drop_first(), p);
             assert(ls.drop_first().len() < ls.len());
@@ -171,6 +171,7 @@ verus! {
                 ==> e == p || ls.contains(e),
         decreases ls.len()
     {
+        reveal(add_ghost_pointer);
         if ls.len() > 0 {
             lemma_add_ghost_pointer_contains_reverse(ls.drop_first(), p);
             if (p as usize as int) <= ls.first() as usize as int {
@@ -247,6 +248,7 @@ verus! {
                 ==> add_ghost_pointer(ls, p)[k] == ls[k - 1],
         decreases ls.len()
     {
+        reveal(add_ghost_pointer);
         if ls.len() == 1 {
             assert(ins == 0);
             assert(add_ghost_pointer(ls, p) == seq![ls[0], p]);
@@ -377,6 +379,85 @@ verus! {
         if e == p {
             assert(false);
         }
+    }
+
+    pub(crate) proof fn lemma_ptrs_no_duplicates_from_ordered(ls: Seq<*mut BlockHdr>)
+        requires
+            forall|i: int|
+                0 <= i < ls.len() - 1
+                ==> (#[trigger] (ls[i] as int)) < (ls[i + 1] as int)
+        ensures
+            ptrs_no_duplicates(ls)
+    {
+        reveal(ptrs_no_duplicates);
+        assert(ls.no_duplicates());
+    }
+
+    pub(crate) proof fn lemma_ptrs_no_duplicates_preserved_by_add_ghost_pointer(
+        ls: Seq<*mut BlockHdr>,
+        p: *mut BlockHdr,
+        ins: int,
+    )
+        requires
+            ptrs_no_duplicates(ls),
+            ghost_pointer_ordered(ls),
+            !ls.contains(p),
+            0 <= ins < ls.len(),
+            (ls[ins] as usize as int) < (p as usize as int),
+            ins + 1 < ls.len() ==> (p as usize as int) <= (ls[ins + 1] as usize as int),
+        ensures
+            ptrs_no_duplicates(add_ghost_pointer(ls, p))
+    {
+        reveal(ptrs_no_duplicates);
+        lemma_add_ghost_pointer_insert_after_index(ls, p, ins);
+        let new_ls = add_ghost_pointer(ls, p);
+        assert(new_ls.no_duplicates()) by {
+            assert forall|i: int, j: int|
+                0 <= i < new_ls.len() && 0 <= j < new_ls.len() && i != j
+                implies new_ls[i] != new_ls[j]
+            by {
+                if i == ins + 1 {
+                    // new_ls[ins+1] == p
+                    assert(new_ls[ins + 1] == p);
+                    // the other element new_ls[j] maps to some ls[k]
+                    if j <= ins {
+                        assert(new_ls[j] == ls[j]);
+                        // ls[j] is in ls, p is not in ls
+                        assert(ls.contains(ls[j]));
+                        assert(new_ls[i] != new_ls[j]);
+                    } else {
+                        // j > ins + 1
+                        assert(j != ins + 1);
+                        assert(ins + 1 < j);
+                        assert(new_ls[j] == ls[j - 1]);
+                        assert(ls.contains(ls[j - 1]));
+                        assert(new_ls[i] != new_ls[j]);
+                    }
+                } else if j == ins + 1 {
+                    // symmetric
+                    assert(new_ls[ins + 1] == p);
+                    if i <= ins {
+                        assert(new_ls[i] == ls[i]);
+                        assert(ls.contains(ls[i]));
+                        assert(new_ls[i] != new_ls[j]);
+                    } else {
+                        assert(ins + 1 < i);
+                        assert(new_ls[i] == ls[i - 1]);
+                        assert(ls.contains(ls[i - 1]));
+                        assert(new_ls[i] != new_ls[j]);
+                    }
+                } else {
+                    // both i and j are not ins+1, map back to ls indices
+                    let mi = if i <= ins { i } else { i - 1 };
+                    let mj = if j <= ins { j } else { j - 1 };
+                    assert(new_ls[i] == ls[mi]);
+                    assert(new_ls[j] == ls[mj]);
+                    assert(mi != mj);
+                    lemma_ptrs_no_duplicates_index_neq(ls, mi, mj);
+                    assert(ls[mi] != ls[mj]);
+                }
+            };
+        };
     }
 
     pub(crate) proof fn lemma_drop_first_elements<T>(x: Seq<T>)
