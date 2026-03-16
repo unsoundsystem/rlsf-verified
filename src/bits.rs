@@ -129,7 +129,17 @@ pub proof fn u64_trailing_zeros_is_log2_when_pow2_given(x: u64, e: nat)
         assert(u64_trailing_zeros(1) == 0) by (compute);
         assert(log(2, 1) == 0) by (compute);
     } else {
-        assume(x / 2 == pow2((e - 1) as nat));
+        assert(x / 2 == pow2((e - 1) as nat)) by {
+            assert(e > 0) by {
+                assert(x != pow2(0));
+                if e == 0 {
+                    assert(pow2(0) == 1) by (compute);
+                    assert(x as int == 1);
+                }
+            };
+            vstd::arithmetic::power2::lemma_pow2_unfold(e);
+            assert(pow2(e) == 2 * pow2((e - 1) as nat));
+        };
         u64_trailing_zeros_is_log2_when_pow2_given(x / 2, (e - 1) as nat);
         assert(u64_trailing_zeros(x / 2) == log(2, x as int / 2));
         assert(x != 0 && x & 1 == 0) by {

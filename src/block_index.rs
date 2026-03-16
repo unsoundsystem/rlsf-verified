@@ -38,8 +38,10 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
         requires is_power_of_two(GRANULARITY as int)
         ensures r == Self::granularity_log2_spec()
     {
-        // TODO: proof this in `crate::bits::usize_trailing_zeros_is_log2_when_pow2_given`
-        assume(forall|x: usize| is_power_of_two(x as int) ==> #[trigger] usize_trailing_zeros(x) == log(2, x as int));
+        proof {
+            let e = choose|p: nat| GRANULARITY as int == pow2(p);
+            crate::bits::usize_trailing_zeros_is_log2_when_pow2_given(GRANULARITY, e);
+        }
         GRANULARITY.trailing_zeros()
     }
 
