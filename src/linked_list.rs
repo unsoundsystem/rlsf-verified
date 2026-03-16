@@ -12,6 +12,8 @@ use vstd::relations::injective;
 
 verus! {
 
+use crate::*;
+
     impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
         pub(crate) open spec fn all_freelist_wf(self) -> bool {
@@ -24,9 +26,9 @@ verus! {
             let first = self.first_free[idx.0 as int][idx.1 as int];
             &&& forall|i: int| 0 <= i < sfle.len() ==> self.wf_free_node(idx, i)
             &&& if sfle.len() == 0 {
-                first@.addr == 0
+                AllBlocks::<FLLEN, SLLEN>::ptr_is_null(first)
             } else {
-                first@.addr != 0 && first == sfle.first()
+                !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(first) && first == sfle.first()
             }
         }
 
@@ -359,13 +361,13 @@ verus! {
             &&& self.all_blocks.contains(freelist[i])
             &&& self.all_blocks.value_at(freelist[i]).is_free()
             // Glue invariants for abstract freelist
-            &&& node_link.next_free@.addr != 0
+            &&& !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node_link.next_free)
                     ==> Some(node_link.next_free) == Self::free_next_of(freelist, i)
-            &&& node_link.next_free@.addr == 0
+            &&& AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node_link.next_free)
                     ==> Self::free_next_of(freelist, i) is None
-            &&& node_link.prev_free@.addr != 0
+            &&& !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node_link.prev_free)
                     ==> Self::free_prev_of(freelist, i) == Some(node_link.prev_free)
-            &&& node_link.prev_free@.addr == 0
+            &&& AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node_link.prev_free)
                     ==> Self::free_prev_of(freelist, i) is None
         }
 
@@ -424,6 +426,7 @@ verus! {
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr != 0
                     ==> Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free)
                         == Self::free_next_of(other.shadow_freelist@.m[idx], n)) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n));
                 assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr != 0
                     ==> Some(self.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free)
@@ -433,6 +436,7 @@ verus! {
             };
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr == 0
                     ==> Self::free_next_of(other.shadow_freelist@.m[idx], n) is None) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n));
                 assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr == 0
                     ==> Self::free_next_of(self.shadow_freelist@.m[idx], n) is None);
@@ -442,6 +446,7 @@ verus! {
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr != 0
                     ==> Self::free_prev_of(other.shadow_freelist@.m[idx], n)
                         == Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free)) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n));
                 assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr != 0
                     ==> Self::free_prev_of(self.shadow_freelist@.m[idx], n)
@@ -451,6 +456,7 @@ verus! {
             };
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr == 0
                     ==> Self::free_prev_of(other.shadow_freelist@.m[idx], n) is None) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n));
                 assert(self.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr == 0
                     ==> Self::free_prev_of(self.shadow_freelist@.m[idx], n) is None);
@@ -500,6 +506,7 @@ verus! {
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr != 0
                     ==> Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free)
                         == Self::free_next_of(new_ls, n)) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n + 1));
                 assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().next_free@.addr != 0
                     ==> Some(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().next_free)
@@ -509,6 +516,7 @@ verus! {
 
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().next_free@.addr == 0
                     ==> Self::free_next_of(new_ls, n) is None) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n + 1));
                 assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().next_free@.addr == 0
                     ==> Self::free_next_of(old_ls, n + 1) is None);
@@ -518,6 +526,7 @@ verus! {
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr != 0
                     ==> Self::free_prev_of(new_ls, n)
                         == Some(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free)) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n + 1));
                 assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().prev_free@.addr != 0
                     ==> Self::free_prev_of(old_ls, n + 1)
@@ -527,11 +536,40 @@ verus! {
 
             assert(other.all_blocks.perms@[node].free_link_perm.unwrap().value().prev_free@.addr == 0
                     ==> Self::free_prev_of(new_ls, n) is None) by {
+                reveal(AllBlocks::ptr_is_null);
                 assert(self.wf_free_node(idx, n + 1));
                 assert(self.all_blocks.perms@[old_ls[n + 1]].free_link_perm.unwrap().value().prev_free@.addr == 0
                     ==> Self::free_prev_of(old_ls, n + 1) is None);
                 assert(Self::free_prev_of(new_ls, n) == Self::free_prev_of(old_ls, n + 1));
             };
+        }
+
+        /// Bridge: given addr-form conditions for position 0, prove wf_free_node(idx, 0).
+        /// Used when the new head after a pop has prev_free set to null explicitly.
+        pub(crate) proof fn lemma_wf_free_node_head_from_addr_form(
+            self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+        )
+            requires
+                idx.wf(),
+                0 < self.shadow_freelist@.m[idx].len(),
+                self.all_blocks.contains(self.shadow_freelist@.m[idx][0]),
+                self.all_blocks.value_at(self.shadow_freelist@.m[idx][0]).is_free(),
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][0]]
+                    .free_link_perm.unwrap().value().next_free@.addr != 0
+                    ==> Some(self.all_blocks.perms@[self.shadow_freelist@.m[idx][0]]
+                            .free_link_perm.unwrap().value().next_free)
+                        == Self::free_next_of(self.shadow_freelist@.m[idx], 0),
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][0]]
+                    .free_link_perm.unwrap().value().next_free@.addr == 0
+                    ==> Self::free_next_of(self.shadow_freelist@.m[idx], 0) is None,
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][0]]
+                    .free_link_perm.unwrap().value().prev_free@.addr == 0,
+            ensures
+                self.wf_free_node(idx, 0)
+        {
+            reveal(AllBlocks::ptr_is_null);
+            // free_prev_of(ls, 0) is None by definition (index 0 has no predecessor)
         }
 
         //#[verifier::external_body] // debug
@@ -591,6 +629,7 @@ verus! {
             if next_free != null_bhdr() {
                 let next_link = get_freelink_ptr(next_free);
                 proof {
+                    reveal(AllBlocks::ptr_is_null);
                     assert(old(self).wf_free_node(idx, i));
                     assert(Some(next_free) == Self::free_next_of(old(self).shadow_freelist@.m[idx], i));
                     assert(i < old(self).shadow_freelist@.m[idx].len() - 1);
@@ -620,6 +659,7 @@ verus! {
             if prev_free != null_bhdr() {
                 let prev_link = get_freelink_ptr(prev_free);
                 proof {
+                    reveal(AllBlocks::ptr_is_null);
                     assert(old(self).wf_free_node(idx, i));
                     assert(Self::free_prev_of(old(self).shadow_freelist@.m[idx], i) == Some(prev_free));
                     assert(0 < i);
@@ -707,6 +747,10 @@ verus! {
             if self.first_free[idx.0][idx.1] != null_bhdr() {
                 let first_free = self.first_free[idx.0][idx.1];
 
+                assert(old(self).shadow_freelist@.m[idx].len() > 0) by {
+                    reveal(AllBlocks::ptr_is_null);
+                    assert(first_free@.addr != 0);
+                };
                 assert(self.all_blocks.perms@.contains_key(first_free)) by {
                     old(self).freelist_nonempty(idx);
                     old(self).all_blocks.lemma_contains(first_free);
@@ -780,10 +824,14 @@ verus! {
                         implies self.freelist_wf(i)
                     by {
                         if i == idx {
+                            assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
+                                reveal(AllBlocks::ptr_is_null);
+                            };
                             assert forall|n: int|
                                     0 <= n < self.shadow_freelist@.m[i].len()
                                 implies self.wf_free_node(i, n)
                             by {
+                                reveal(AllBlocks::ptr_is_null);
                                 if n != 0 {
                                     assert(old(self).wf_free_node(idx, n - 1));
                                 }
@@ -875,6 +923,9 @@ verus! {
                         implies self.freelist_wf(i)
                     by {
                         if i == idx {
+                            assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
+                                reveal(AllBlocks::ptr_is_null);
+                            };
                             old(self).wf_index_in_freelist(idx);
                             assert(old(self).shadow_freelist@.m[idx].len() == 0) by {
                                 if old(self).shadow_freelist@.m[idx].len() != 0 {
@@ -893,6 +944,7 @@ verus! {
                                 assert(self.shadow_freelist@.m[i][n] == node);
                                 assert(self.all_blocks.contains(node));
                                 assert(self.all_blocks.value_at(node).is_free());
+                                reveal(AllBlocks::ptr_is_null);
                                 assert(self.all_blocks.perms@[self.shadow_freelist@.m[i][n]].free_link_perm.unwrap().value().next_free@.addr == 0);
                                 assert(self.all_blocks.perms@[self.shadow_freelist@.m[i][n]].free_link_perm.unwrap().value().prev_free@.addr == 0);
                                 assert(Self::free_next_of(self.shadow_freelist@.m[i], n) is None);
@@ -1024,6 +1076,7 @@ verus! {
             ensures
                 self.first_free[idx.0 as int][idx.1 as int]@.addr == 0
         {
+            reveal(AllBlocks::ptr_is_null);
         }
 
         pub(crate) proof fn freelist_nonempty(self, idx: BlockIndex<FLLEN, SLLEN>)
@@ -1037,6 +1090,7 @@ verus! {
                 self.shadow_freelist@.m[idx].first() == self.first_free[idx.0 as int][idx.1 as int],
                 self.all_blocks.contains(self.first_free[idx.0 as int][idx.1 as int])
         {
+            reveal(AllBlocks::ptr_is_null);
             let first = self.shadow_freelist@.m[idx].first();
             assert(self.shadow_freelist@.m[idx].len() != 0);
             assert forall|i: int| 0 <= i < self.shadow_freelist@.m[idx].len()
@@ -1051,6 +1105,92 @@ verus! {
             assert(self.shadow_freelist@.m[idx].all(|e| self.all_blocks.contains(e)));
             assert(self.shadow_freelist@.m[idx].contains(self.shadow_freelist@.m[idx].first()));
             assert(self.all_blocks.contains(self.shadow_freelist@.m[idx].first()));
+        }
+
+        /// Bridge: freelist_wf(idx) from addr-based conditions (no ptr_is_null needed at call site).
+        pub(crate) proof fn lemma_freelist_wf_from_addr_conditions(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                forall|n: int| 0 <= n < self.shadow_freelist@.m[idx].len() ==> self.wf_free_node(idx, n),
+                self.shadow_freelist@.m[idx].len() == 0
+                    ==> self.first_free[idx.0 as int][idx.1 as int]@.addr == 0,
+                self.shadow_freelist@.m[idx].len() > 0
+                    ==> self.first_free[idx.0 as int][idx.1 as int]@.addr != 0
+                        && self.first_free[idx.0 as int][idx.1 as int]
+                            == self.shadow_freelist@.m[idx].first(),
+            ensures
+                self.freelist_wf(idx)
+        {
+            reveal(AllBlocks::ptr_is_null);
+        }
+
+        /// Bridge: freelist_wf(idx) + null head → len == 0.
+        pub(crate) proof fn lemma_freelist_len_zero_of_null_head(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.first_free[idx.0 as int][idx.1 as int]@.addr == 0,
+            ensures
+                self.shadow_freelist@.m[idx].len() == 0
+        {
+            reveal(AllBlocks::ptr_is_null);
+        }
+
+        /// Bridge: freelist_wf(idx) + nonnull head → len > 0.
+        pub(crate) proof fn lemma_freelist_len_nonzero_of_nonnull_head(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.first_free[idx.0 as int][idx.1 as int]@.addr != 0,
+            ensures
+                self.shadow_freelist@.m[idx].len() > 0
+        {
+            reveal(AllBlocks::ptr_is_null);
+        }
+
+        /// Bridge: wf_free_node(idx, 0) + nonnull next_free → len >= 2.
+        pub(crate) proof fn lemma_freelist_len_gt1_from_nonnull_next(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.shadow_freelist@.m[idx].len() >= 1,
+                self.wf_free_node(idx, 0),
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][0]]
+                    .free_link_perm.unwrap().value().next_free@.addr != 0,
+            ensures
+                self.shadow_freelist@.m[idx].len() >= 2
+        {
+            reveal(AllBlocks::ptr_is_null);
+        }
+
+        /// Bridge: wf_free_node(idx, n) → addr form of next_free/prev_free conditions.
+        pub(crate) proof fn lemma_wf_free_node_next_addr(self, idx: BlockIndex<FLLEN, SLLEN>, n: int)
+            requires
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+                self.wf_free_node(idx, n),
+            ensures
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]]
+                    .free_link_perm.unwrap().value().next_free@.addr != 0
+                    ==> Some(self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]]
+                            .free_link_perm.unwrap().value().next_free)
+                        == Self::free_next_of(self.shadow_freelist@.m[idx], n),
+                self.all_blocks.perms@[self.shadow_freelist@.m[idx][n]]
+                    .free_link_perm.unwrap().value().next_free@.addr == 0
+                    ==> Self::free_next_of(self.shadow_freelist@.m[idx], n) is None,
+        {
+            reveal(AllBlocks::ptr_is_null);
+        }
+
+        /// Bridge: freelist_wf(idx) + len == 0 → first_free addr == 0.
+        pub(crate) proof fn lemma_freelist_addr_zero_if_len_zero(self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.shadow_freelist@.m[idx].len() == 0,
+            ensures
+                self.first_free[idx.0 as int][idx.1 as int]@.addr == 0
+        {
+            reveal(AllBlocks::ptr_is_null);
         }
 
         pub(crate) proof fn lemma_free_block_allblock_contains(self, idx: BlockIndex<FLLEN, SLLEN>)
@@ -1367,6 +1507,185 @@ verus! {
         }
 
 
+
+        /// Big-step lemma: after popping the head of freelist[idx], proves
+        /// new_self.all_freelist_wf() and new_self.bitmap_sync().
+        /// Encapsulates all @.addr-heavy reasoning so allocate.rs call sites
+        /// are free of raw_ptr triggers from forall|bi| loops.
+        pub(crate) proof fn lemma_pop_head_preserves_wf(
+            old_self: Self,
+            new_self: Self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            next_free: *mut BlockHdr,   // = new_self.first_free[idx.0][idx.1]
+        )
+            requires
+                old_self.all_freelist_wf(),
+                old_self.bitmap_sync(),
+                idx.wf(),
+                old_self.shadow_freelist@.m[idx].len() > 0,
+                // Shadow freelist: idx popped, others unchanged
+                new_self.shadow_freelist@.m[idx] == old_self.shadow_freelist@.m[idx].remove(0),
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                    ==> new_self.shadow_freelist@.m[bi] == old_self.shadow_freelist@.m[bi],
+                // first_free: idx → next_free, others unchanged
+                new_self.first_free[idx.0 as int][idx.1 as int] == next_free,
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                    ==> new_self.first_free[bi.0 as int][bi.1 as int]
+                        == old_self.first_free[bi.0 as int][bi.1 as int],
+                // new_self invariants
+                new_self.wf_shadow(),
+                new_self.all_blocks.wf(),
+                // Perm preservation for bi != idx freelist nodes
+                forall|bi: BlockIndex<FLLEN, SLLEN>, n: int|
+                    bi.wf() && bi != idx && 0 <= n < old_self.shadow_freelist@.m[bi].len()
+                    ==> #[trigger] new_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
+                        == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]],
+                // Perm preservation for idx positions >= 2 (positions 0 and 1 handled specially)
+                forall|n: int| 1 < n < old_self.shadow_freelist@.m[idx].len()
+                    ==> new_self.all_blocks.perms@[old_self.shadow_freelist@.m[idx][n]]
+                        == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[idx][n]],
+                // next_free conditions (when list had >= 2 elements → next_free was at old[1])
+                old_self.shadow_freelist@.m[idx].len() > 1 ==> (
+                    old_self.shadow_freelist@.m[idx][1] == next_free
+                    && new_self.all_blocks.perms@[next_free].points_to
+                        == old_self.all_blocks.perms@[next_free].points_to
+                    && new_self.all_blocks.perms@[next_free].mem
+                        == old_self.all_blocks.perms@[next_free].mem
+                    && new_self.all_blocks.perms@[next_free].free_link_perm.unwrap().value().prev_free@.addr == 0
+                    && new_self.all_blocks.perms@[next_free].free_link_perm.unwrap().value().next_free
+                        == old_self.all_blocks.perms@[next_free].free_link_perm.unwrap().value().next_free
+                ),
+                // next_free is null when the old list had exactly 1 element
+                old_self.shadow_freelist@.m[idx].len() == 1 ==> next_free@.addr == 0,
+                // Bitmap conditions
+                next_free@.addr == 0
+                    ==> !nth_bit!(new_self.sl_bitmap[idx.0 as int], idx.1 as usize),
+                next_free@.addr != 0
+                    ==> new_self.sl_bitmap[idx.0 as int] == old_self.sl_bitmap[idx.0 as int],
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+                    ==> nth_bit!(new_self.sl_bitmap[bi.0 as int], bi.1 as usize)
+                        == nth_bit!(old_self.sl_bitmap[bi.0 as int], bi.1 as usize),
+            ensures
+                new_self.all_freelist_wf(),
+                new_self.bitmap_sync(),
+        {
+            let ghost old_sfl = old_self.shadow_freelist@.m[idx];
+            let ghost new_sfl = new_self.shadow_freelist@.m[idx];
+            assert(new_sfl == old_sfl.remove(0));
+            assert(new_self.is_ii()) by { assert(new_self.wf_shadow()); };
+
+            // --- Step 1: Prove new_self.freelist_wf(idx) ---
+            assert(new_self.freelist_wf(idx)) by {
+                // Prove wf_free_node for all n in new freelist
+                assert forall|n: int| 0 <= n < new_sfl.len()
+                    implies new_self.wf_free_node(idx, n)
+                by {
+                    if n == 0 {
+                        // new head = next_free (was at old position 1)
+                        // next_free@.addr != 0 (since new_sfl.len() > 0)
+                        new_self.lemma_shadow_ptr_nonnull_at(idx, 0);
+                        assert(next_free@.addr != 0);
+                        // From precondition: old_len == 1 ==> next_free@.addr == 0. Contrapositive:
+                        assert(old_sfl.len() != 1);
+                        assert(old_sfl.len() > 1);
+                        assert(old_sfl[1] == next_free);
+                        assert(old_self.wf_free_node(idx, 1));
+
+                        // all_blocks.contains
+                        assert(new_self.all_blocks.contains(next_free)) by {
+                            assert(new_sfl[0] == next_free);
+                            assert(0 <= new_self.shadow_freelist@.pi[(idx, 0)] < new_self.all_blocks.ptrs@.len());
+                            assert(new_sfl[0] == new_self.all_blocks.ptrs@[new_self.shadow_freelist@.pi[(idx, 0)]]);
+                        };
+                        // is_free
+                        assert(new_self.all_blocks.value_at(next_free).is_free()) by {
+                            assert(new_self.all_blocks.perms@[next_free].points_to
+                                == old_self.all_blocks.perms@[next_free].points_to);
+                            assert(old_self.all_blocks.value_at(old_sfl[1]).is_free());
+                        };
+                        // prev_free@.addr == 0: from precondition
+                        assert(new_self.all_blocks.perms@[next_free].free_link_perm.unwrap().value().prev_free@.addr == 0);
+                        // next_free addr chain
+                        old_self.lemma_wf_free_node_next_addr(idx, 1);
+                        assert(Self::free_next_of(new_sfl, 0) == Self::free_next_of(old_sfl, 1));
+                        let ghost nxt = new_self.all_blocks.perms@[next_free].free_link_perm.unwrap().value().next_free;
+                        assert(nxt == old_self.all_blocks.perms@[next_free].free_link_perm.unwrap().value().next_free);
+                        assert(nxt@.addr != 0
+                                ==> Some(nxt) == Self::free_next_of(new_sfl, 0)) by {
+                            reveal(AllBlocks::ptr_is_null);
+                            assert(old_self.all_blocks.perms@[old_sfl[1]].free_link_perm.unwrap().value().next_free@.addr != 0
+                                ==> Some(old_self.all_blocks.perms@[old_sfl[1]].free_link_perm.unwrap().value().next_free)
+                                    == Self::free_next_of(old_sfl, 1));
+                        };
+                        assert(nxt@.addr == 0
+                                ==> Self::free_next_of(new_sfl, 0) is None) by {
+                            reveal(AllBlocks::ptr_is_null);
+                            assert(old_self.all_blocks.perms@[old_sfl[1]].free_link_perm.unwrap().value().next_free@.addr == 0
+                                ==> Self::free_next_of(old_sfl, 1) is None);
+                        };
+                        new_self.lemma_wf_free_node_head_from_addr_form(idx);
+                    } else {
+                        // n > 0: corresponds to old position n+1 >= 2
+                        assert(old_self.wf_free_node(idx, n + 1));
+                        assert(new_self.all_blocks.perms@[old_sfl[n + 1]]
+                            == old_self.all_blocks.perms@[old_sfl[n + 1]]);
+                        old_self.lemma_wf_free_node_preserve_remove_head(new_self, idx, n);
+                    }
+                };
+
+                // Prove head address conditions for lemma_freelist_wf_from_addr_conditions
+                assert(new_sfl.len() == 0 ==> new_self.first_free[idx.0 as int][idx.1 as int]@.addr == 0) by {
+                    if new_sfl.len() == 0 {
+                        // old_len == 1, so by precondition next_free@.addr == 0
+                        assert(next_free@.addr == 0);
+                    }
+                };
+                assert(new_sfl.len() > 0 ==> (
+                    new_self.first_free[idx.0 as int][idx.1 as int]@.addr != 0
+                    && new_self.first_free[idx.0 as int][idx.1 as int] == new_sfl.first()
+                )) by {
+                    if new_sfl.len() > 0 {
+                        new_self.lemma_shadow_ptr_nonnull_at(idx, 0);
+                        assert(new_self.first_free[idx.0 as int][idx.1 as int]@.addr != 0);
+                        assert(new_self.first_free[idx.0 as int][idx.1 as int] == new_sfl.first());
+                    }
+                };
+                new_self.lemma_freelist_wf_from_addr_conditions(idx);
+            };
+
+            // --- Step 2: Prove all_freelist_wf() using frame lemma ---
+            Self::lemma_all_freelist_wf_frame(old_self, new_self, idx);
+
+            // --- Step 3: Prove bitmap_sync ---
+            assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() implies
+                (nth_bit!(new_self.sl_bitmap[bi.0 as int], bi.1 as usize)
+                    <==> new_self.shadow_freelist@.m[bi].len() > 0)
+            by {
+                if bi == idx {
+                    if next_free@.addr == 0 {
+                        assert(!nth_bit!(new_self.sl_bitmap[idx.0 as int], idx.1 as usize));
+                        assert(new_self.freelist_wf(idx));
+                        new_self.lemma_freelist_len_zero_of_null_head(idx);
+                    } else {
+                        assert(nth_bit!(new_self.sl_bitmap[idx.0 as int], idx.1 as usize)) by {
+                            assert(new_self.sl_bitmap[idx.0 as int] == old_self.sl_bitmap[idx.0 as int]);
+                            assert(old_self.bitmap_sync());
+                            assert(old_self.shadow_freelist@.m[idx].len() > 0);
+                            assert(nth_bit!(old_self.sl_bitmap[idx.0 as int], idx.1 as usize));
+                        };
+                        assert(new_self.freelist_wf(idx));
+                        new_self.lemma_freelist_len_nonzero_of_nonnull_head(idx);
+                    }
+                } else {
+                    assert(new_self.shadow_freelist@.m[bi] == old_self.shadow_freelist@.m[bi]);
+                    assert(old_self.bitmap_sync());
+                    assert(nth_bit!(old_self.sl_bitmap[bi.0 as int], bi.1 as usize)
+                        <==> old_self.shadow_freelist@.m[bi].len() > 0);
+                    assert(nth_bit!(new_self.sl_bitmap[bi.0 as int], bi.1 as usize)
+                        == nth_bit!(old_self.sl_bitmap[bi.0 as int], bi.1 as usize));
+                }
+            };
+        }
     }
 
 

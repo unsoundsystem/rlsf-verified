@@ -33,6 +33,12 @@ verus! {
             self.ptrs@.contains(ptr)
         }
 
+        /// Opaque null-check predicate to avoid raw_ptr trigger explosion in freelist specs.
+        #[verifier::opaque]
+        pub(crate) open spec fn ptr_is_null<T>(p: *mut T) -> bool {
+            p@.addr == 0
+        }
+
         /// Opaque wrapper for pointer address well-formedness facts to avoid raw_ptr trigger explosion.
         #[verifier::opaque]
         pub(crate) open spec fn wf_node_ptr(ptr: *mut BlockHdr) -> bool {
