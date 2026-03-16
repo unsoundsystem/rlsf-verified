@@ -1381,7 +1381,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                                     assert(next_ptr != block);
                                                     assert(next_ptr != next_phys_block);
                                                     assert(i < block_id);
-                                                    assert(i + 1 <= block_id);
                                                     assert(i + 1 < block_id) by {
                                                         if i + 1 == block_id {
                                                             assert(old_ptrs[block_id] == block);
@@ -1736,7 +1735,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     } else {
                                         lemma_ghost_pointer_ordered_index(old_ptrs_g, block_id + 1, i);
                                     }
-                                    assert(old_ptrs_g[i] == new_free_block);
                                     assert(false);
                                 }
                             };
@@ -1838,25 +1836,28 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let pad_ptr = UsedBlockPad::get_for_allocation(ptr);
                 let pad_addr = pad_ptr as usize;
                 proof {
+                    let ghost ptr_v = ptr@;
+                    let ghost block_v = block@;
+                    let ghost pad_v = pad_ptr@;
                     let ghost mem_start = block as int + size_of::<BlockHdr>() as int;
                     let ghost mem_end = block as int + new_size as int;
                     let ghost pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
-                    assert(ptr@.addr >= pad_size) by {
+                    assert(ptr_v.addr >= pad_size) by {
                         assert(pad_size == 8);
                         assert(size_of::<UsedBlockHdr>() as int >= pad_size);
-                        assert(ptr@.addr >= block@.addr + size_of::<UsedBlockHdr>() as int);
-                        assert(block@.addr != 0);
-                        assert(block@.addr > 0);
+                        assert(ptr_v.addr >= block_v.addr + size_of::<UsedBlockHdr>() as int);
+                        assert(block_v.addr != 0);
+                        assert(block_v.addr > 0);
                     };
-                    assert(ptr@.addr >= pad_size ==> pad_ptr@.addr == ptr@.addr - pad_size);
-                    assert(pad_ptr@.addr + pad_size == ptr@.addr);
-                    assert(pad_addr as int == pad_ptr@.addr);
-                    assert(pad_addr as int + pad_size == ptr@.addr);
+                    assert(ptr_v.addr >= pad_size ==> pad_v.addr == ptr_v.addr - pad_size);
+                    assert(pad_v.addr + pad_size == ptr_v.addr);
+                    assert(pad_addr as int == pad_v.addr);
+                    assert(pad_addr as int + pad_size == ptr_v.addr);
 
-                    assert((ptr@.addr as int) % align as int == 0);
+                    assert((ptr_v.addr as int) % align as int == 0);
                     if usize::BITS == 64 {
-                        let ghost p = ptr@.addr as int;
-                        let ghost b = block@.addr as int;
+                        let ghost p = ptr_v.addr as int;
+                        let ghost b = block_v.addr as int;
                         assert(GRANULARITY == 32);
                         assert(align % 32 == 0) by {
                             lemma_pow2_value_in_usize(align);
@@ -1873,15 +1874,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(b % GRANULARITY as int == 0);
                             assert(GRANULARITY as int == 32);
                         };
-                        assert(ptr@.addr >= block@.addr + 16);
-                        assert(ptr@.addr < block@.addr + 16 + align as int);
-                        assert(ptr@.addr >= block@.addr + 32) by {
-                            if ptr@.addr < block@.addr + 32 {
-                                assert(0 <= ptr@.addr - block@.addr < 32);
+                        assert(ptr_v.addr >= block_v.addr + 16);
+                        assert(ptr_v.addr < block_v.addr + 16 + align as int);
+                        assert(ptr_v.addr >= block_v.addr + 32) by {
+                            if ptr_v.addr < block_v.addr + 32 {
+                                assert(0 <= ptr_v.addr - block_v.addr < 32);
                                 assert((p - b) % 32 == 0) by {
                                     vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish(p, 32);
                                 };
-                                assert(ptr@.addr - block@.addr >= 16);
+                                assert(ptr_v.addr - block_v.addr >= 16);
                                 assert(false);
                             }
                         };
@@ -1889,7 +1890,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             lemma_mod_by_multiple(p, 4, 8);
                         };
                         assert((pad_addr + 8) % 8 == 0) by {
-                            assert(pad_addr as int + 8 == ptr@.addr);
+                            assert(pad_addr as int + 8 == ptr_v.addr);
                         };
                         assert(pad_addr as int % 8 == 0) by {
                             vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish((pad_addr as int) + 8, 8);
@@ -1897,8 +1898,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         };
                         assert((pad_addr as int) % vstd::layout::align_of::<UsedBlockPad>() as int == 0);
                     } else {
-                        let ghost p = ptr@.addr as int;
-                        let ghost b = block@.addr as int;
+                        let ghost p = ptr_v.addr as int;
+                        let ghost b = block_v.addr as int;
                         assert(GRANULARITY == 16);
                         assert(align % 16 == 0) by {
                             lemma_pow2_value_in_usize(align);
@@ -1915,20 +1916,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(b % GRANULARITY as int == 0);
                             assert(GRANULARITY as int == 16);
                         };
-                        assert(ptr@.addr >= block@.addr + 8);
-                        assert(ptr@.addr < block@.addr + 8 + align as int);
-                        assert(ptr@.addr >= block@.addr + 16) by {
-                            if ptr@.addr < block@.addr + 16 {
-                                assert(0 <= ptr@.addr - block@.addr < 16);
+                        assert(ptr_v.addr >= block_v.addr + 8);
+                        assert(ptr_v.addr < block_v.addr + 8 + align as int);
+                        assert(ptr_v.addr >= block_v.addr + 16) by {
+                            if ptr_v.addr < block_v.addr + 16 {
+                                assert(0 <= ptr_v.addr - block_v.addr < 16);
                                 assert((p - b) % 16 == 0) by {
                                     vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish(p, 16);
                                 };
-                                assert(ptr@.addr - block@.addr >= 8);
+                                assert(ptr_v.addr - block_v.addr >= 8);
                                 assert(false);
                             }
                         };
                         assert((pad_addr + 4) % 4 == 0) by {
-                            assert(pad_addr as int + 4 == ptr@.addr);
+                            assert(pad_addr as int + 4 == ptr_v.addr);
                         };
                         assert(pad_addr as int % 4 == 0) by {
                             vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish((pad_addr as int) + 4, 4);
@@ -1942,12 +1943,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         pad_addr as int + pad_size,
                     ).subset_of(new_block_perm.mem.dom())) by {
                         assert(mem_start <= pad_addr as int) by {
-                            assert(pad_addr as int + pad_size == ptr@.addr);
-                            assert(ptr@.addr >= block@.addr + size_of::<UsedBlockHdr>() as int);
+                            assert(pad_addr as int + pad_size == ptr_v.addr);
+                            assert(ptr_v.addr >= block_v.addr + size_of::<UsedBlockHdr>() as int);
                             assert(size_of::<UsedBlockHdr>() as int >= size_of::<BlockHdr>() as int);
                         };
                         assert(pad_addr as int + pad_size <= mem_end) by {
-                            assert(ptr@.addr <= block@.addr + new_size as int);
+                            assert(ptr_v.addr <= block_v.addr + new_size as int);
                         };
                         if new_size == block_size {
                             assert(new_block_perm.mem.is_range(mem_start, mem_end - mem_start));
