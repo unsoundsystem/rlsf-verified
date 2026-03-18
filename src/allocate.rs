@@ -553,17 +553,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     proof {
                         freelink_perm.leak_contents();
                     }
+                    let _ = core::mem::size_of::<FreeLink>();
+                    let _ = core::mem::size_of::<BlockHdr>();
                     proof {
                         assert(freelink == get_freelink_ptr_spec(block));
                         assert(freelink as int == block as int + size_of::<BlockHdr>() as int);
                         assert(freelink_perm.ptr() == freelink);
                         let tracked freelink_raw = freelink_perm.into_raw();
-                        assume(freelink_raw.is_range(freelink as int, size_of::<FreeLink>() as int));
-                        let tracked payload_mem = new_block_perm.mem;
+                        // Contain ptr@ view terms from into_raw ensures in by-block
                         assert(freelink_raw.is_range(
                             block as int + size_of::<BlockHdr>() as int,
                             size_of::<FreeLink>() as int
-                        ));
+                        )) by {
+                            assert(freelink as int == block as int + size_of::<BlockHdr>() as int);
+                            assert(freelink_perm.ptr() == freelink);
+                        };
+                        let tracked payload_mem = new_block_perm.mem;
                         assert(payload_mem.is_range(
                             block as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
                             new_size as int - size_of::<BlockHdr>() as int - size_of::<FreeLink>() as int
