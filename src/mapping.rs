@@ -753,8 +753,13 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(SLLEN <= flb) by {
 
             assert(Self::sli_spec() <= fl + Self::granularity_log2_spec());
-            assume(0 <= fl + Self::granularity_log2_spec());
-            assume(0 <= Self::sli_spec());
+            assert(0 <= fl + Self::granularity_log2_spec()) by {
+                assert(0 <= fl);
+                vstd::arithmetic::logarithm::lemma_log_nonnegative(2, GRANULARITY as int);
+            };
+            assert(0 <= Self::sli_spec()) by {
+                vstd::arithmetic::logarithm::lemma_log_nonnegative(2, SLLEN as int);
+            };
 
             vstd::arithmetic::power2::lemma_pow2((fl + Self::granularity_log2_spec()) as nat);
             vstd::arithmetic::power2::lemma_pow2(Self::sli_spec() as nat);

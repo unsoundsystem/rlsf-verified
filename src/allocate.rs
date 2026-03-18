@@ -1793,9 +1793,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                         }
                     };
-                    // Call big-step lemma: proves all_freelist_wf() + bitmap_sync()
+                    // Call big-step lemma: proves wf_shadow() + freelist_wf + bitmap_sync()
                     proof { Self::lemma_pop_head_preserves_wf(*old(self), *self, idx, next_free_candidate); }
-                    assert(self.all_freelist_wf());
+                    assert(self.wf_shadow());
+                    assert(forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() ==> self.freelist_wf(bi));
                     assert(self.bitmap_wf());
                     assert(self.bitmap_sync());
                     assert(!(self.shadow_freelist.contains(new_free_block))) by {
@@ -1933,6 +1934,98 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         };
                         old(self).lemma_shadow_list_no_duplicates();
                         Self::lemma_size_class_after_pop(*old(self), *self, idx, block);
+                    }
+
+                    // Prove free_blocks_in_freelist_except(set![new_free_block])
+                    // required by link_free_block precondition
+                    proof {
+                        assert(self.free_blocks_in_freelist_except(set![new_free_block])) by {
+                            reveal(Tlsf::free_blocks_in_freelist_except);
+                            let ghost old_ptrs = old(self).all_blocks.ptrs@;
+
+                            // Re-establish: new_free_block was not in old_ptrs
+                            assert(!old_ptrs.contains(new_free_block)) by {
+                                if old_ptrs.contains(new_free_block) {
+                                    let i = choose|i: int| 0 <= i < old_ptrs.len() && old_ptrs[i] == new_free_block;
+                                    assert(ghost_pointer_ordered(old_ptrs));
+                                    assert(0 <= block_id + 1 < old_ptrs.len());
+                                    if i <= block_id {
+                                        lemma_ghost_pointer_ordered_index(old_ptrs, i, block_id);
+                                    } else {
+                                        lemma_ghost_pointer_ordered_index(old_ptrs, block_id + 1, i);
+                                    }
+                                    assert(false);
+                                }
+                            };
+
+                            // block has SIZE_USED → not free
+                            assert(!self.all_blocks.value_at(block).is_free()) by {
+                                assert(self.all_blocks.perms@[block].points_to.value().size == (new_size | SIZE_USED));
+                                assert(((new_size | SIZE_USED) & SIZE_USED) == SIZE_USED) by (bit_vector)
+                                    requires SIZE_USED == 1;
+                                assert((self.all_blocks.perms@[block].points_to.value().size & SIZE_USED) == SIZE_USED);
+                            };
+                            // next_phys_block was used in old(self); size field preserved → still used
+                            assert(!self.all_blocks.value_at(next_phys_block).is_free());
+                            // block is head of freelist at idx
+                            assert(old(self).shadow_freelist@.m[idx][0] == block) by {
+                                old(self).wf_index_in_freelist(idx);
+                                old(self).freelist_nonempty(idx);
+                            };
+
+                            assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
+                                && self.all_blocks.value_at(self.all_blocks.ptrs@[j]).is_free()
+                                && !set![new_free_block].contains(self.all_blocks.ptrs@[j])
+                                implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[j])
+                            by {
+                                let ptr = self.all_blocks.ptrs@[j];
+                                // ptr is in old_ptrs (not new_free_block → in old_ptrs)
+                                assert(self.all_blocks.ptrs@ == add_ghost_pointer(old_ptrs, new_free_block));
+                                lemma_add_ghost_pointer_contains_old(old_ptrs, new_free_block, ptr);
+                                assert(old_ptrs.contains(ptr));
+                                let ghost old_j = choose|oj: int| 0 <= oj < old_ptrs.len() && old_ptrs[oj] == ptr;
+
+                                // ptr is free → ptr != block, ptr != next_phys_block
+                                // So ptr's points_to == old(self)'s
+                                if next_free_candidate@.addr != 0 && ptr == next_free_candidate {
+                                    // nfc: free_link_perm changed but points_to preserved
+                                    assert(self.all_blocks.perms@[next_free_candidate].points_to
+                                        == old(self).all_blocks.perms@[next_free_candidate].points_to) by {
+                                        assert(new_head_perm == old(self).all_blocks.perms@[next_free_candidate]);
+                                        assert(self.all_blocks.perms@[next_free_candidate].points_to
+                                            == new_head_perm.points_to);
+                                    };
+                                } else {
+                                    // ptr != block, != new_free_block, != next_phys_block, != nfc
+                                    // perms unchanged from old(self)
+                                }
+                                assert(self.all_blocks.perms@[ptr].points_to
+                                    == old(self).all_blocks.perms@[ptr].points_to);
+                                assert(old(self).all_blocks.value_at(old(self).all_blocks.ptrs@[old_j]).is_free());
+
+                                // old(self).free_blocks_in_freelist → old(self).shadow_freelist@.contains(ptr)
+                                assert(old(self).free_blocks_in_freelist_except(Set::empty()));
+                                reveal(Tlsf::free_blocks_in_freelist_except);
+                                assert(old(self).shadow_freelist@.contains(ptr));
+
+                                // After pop at idx: ptr != block → ptr still in freelist
+                                let bi = choose|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
+                                    && old(self).shadow_freelist@.m[bi].contains(ptr);
+                                if bi != idx {
+                                    assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+                                    assert(self.shadow_freelist@.m[bi].contains(ptr));
+                                } else {
+                                    let n = choose|n: int| 0 <= n < old(self).shadow_freelist@.m[idx].len()
+                                        && old(self).shadow_freelist@.m[idx][n] == ptr;
+                                    // ptr != block = m[idx][0], so n > 0
+                                    assert(n != 0);
+                                    // Seq::remove(0)[n-1] == seq[n] for n > 0
+                                    assert(self.shadow_freelist@.m[idx] == old(self).shadow_freelist@.m[idx].remove(0));
+                                    assert(self.shadow_freelist@.m[idx][n - 1] == ptr);
+                                    assert(self.shadow_freelist@.m[idx].contains(ptr));
+                                }
+                            };
+                        };
                     }
 
                     self.link_free_block(new_block_idx, new_free_block);
@@ -2652,9 +2745,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             old(self).lemma_freelist_len_gt1_from_nonnull_next(idx);
                         }
                     };
-                    // Call big-step lemma: proves all_freelist_wf() + bitmap_sync()
+                    // Call big-step lemma: proves wf_shadow() + freelist_wf + bitmap_sync()
                     Self::lemma_pop_head_preserves_wf(*old(self), *self, idx, next_free_candidate);
-                    assert(self.all_freelist_wf());
+                    assert(self.wf_shadow());
+                    assert(forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() ==> self.freelist_wf(bi));
                     let ghost sfl_after_remove =
                         old(self).shadow_freelist@.ii_remove_for_index(old(self).all_blocks, idx, 0);
                     Self::lemma_ii_remove_for_index_ensures(old(self).shadow_freelist@, old(self).all_blocks, idx, 0);
@@ -2698,6 +2792,32 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     Self::lemma_size_class_after_pop(*old(self), *self, idx, block);
                 }
                 if new_size < block_size {
+                    // Prove free_blocks_in_freelist() via frame from tlsf_before_final_remove
+                    // link_free_block postcondition gave tlsf_before_final_remove.all_freelist_wf() which includes free_blocks_in_freelist_except(Set::empty())
+                    // Only block's perm was removed/re-inserted, and block is still not free.
+                    // (must be proved before all_freelist_wf since the new definition includes it)
+                    assert(self.free_blocks_in_freelist()) by {
+                        assert(tlsf_before_final_remove.free_blocks_in_freelist_except(Set::empty()));
+                        assert(self.all_blocks.ptrs@ == tlsf_before_final_remove.all_blocks.ptrs@);
+                        assert(self.shadow_freelist@ == tlsf_before_final_remove.shadow_freelist@);
+                        assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                            implies self.all_blocks.perms@[self.all_blocks.ptrs@[i]].points_to
+                                == tlsf_before_final_remove.all_blocks.perms@[tlsf_before_final_remove.all_blocks.ptrs@[i]].points_to
+                        by {
+                            let ptr = self.all_blocks.ptrs@[i];
+                            if ptr == block {
+                                // new_block_perm.points_to was not modified between tracked_remove and tracked_insert
+                                // (only .mem changed)
+                                assert(self.all_blocks.perms@[block].points_to == new_block_perm.points_to);
+                                assert(new_block_perm.points_to == ab_before_final_remove.perms@[block].points_to);
+                            } else {
+                                // ptr != block: perms unchanged from tlsf_before_final_remove
+                                assert(self.all_blocks.perms@[ptr] == tlsf_before_final_remove.all_blocks.perms@[ptr]);
+                            }
+                        };
+                        Self::lemma_free_blocks_in_freelist_except_perms_frame(
+                            tlsf_before_final_remove, *self, Set::empty());
+                    };
                     assert(self.all_freelist_wf()) by {
                         assert(self.shadow_freelist@ == tlsf_before_final_remove.shadow_freelist@);
                         assert(self.wf_shadow()) by {
@@ -2722,6 +2842,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(self.all_blocks.perms@[node] == tlsf_before_final_remove.all_blocks.perms@[node]);
                         };
                         Self::lemma_all_freelist_wf_perms_frame(tlsf_before_final_remove, *self);
+                        // wf_shadow() + freelist_wf from frame lemma; free_blocks_in_freelist_except(Set::empty()) from above
                     };
                     assert(self.size_class_condition()) by {
                         assert(tlsf_before_final_remove.size_class_condition());
@@ -2760,6 +2881,56 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(self.bitmap_sync());
                 } else {
                     assert(new_size == block_size);
+                    // Prove free_blocks_in_freelist() for no-split branch
+                    // block was popped from freelist and marked used; all other blocks unchanged
+                    // (must be proved before all_freelist_wf since the new definition includes it)
+                    assert(self.free_blocks_in_freelist()) by {
+                        reveal(Tlsf::free_blocks_in_freelist_except);
+                        // block is used (SIZE_USED set)
+                        assert(!self.all_blocks.value_at(block).is_free());
+                        // block was head of freelist at idx
+                        assert(old(self).shadow_freelist@.m[idx][0] == block) by {
+                            old(self).wf_index_in_freelist(idx);
+                            old(self).freelist_nonempty(idx);
+                        };
+                        assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
+                            && self.all_blocks.value_at(self.all_blocks.ptrs@[j]).is_free()
+                            && !Set::<*mut BlockHdr>::empty().contains(self.all_blocks.ptrs@[j])
+                            implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[j])
+                        by {
+                            let ptr = self.all_blocks.ptrs@[j];
+                            // ptr is free → ptr != block (block is used)
+                            // ptr's points_to == old(self)'s (only block's points_to changed)
+                            if next_free_candidate@.addr != 0 && ptr == next_free_candidate {
+                                assert(self.all_blocks.perms@[next_free_candidate].points_to
+                                    == old(self).all_blocks.perms@[next_free_candidate].points_to) by {
+                                    assert(new_head_perm == old(self).all_blocks.perms@[next_free_candidate]);
+                                };
+                            }
+                            // In both cases: points_to unchanged for ptr
+                            assert(self.all_blocks.perms@[ptr].points_to
+                                == old(self).all_blocks.perms@[ptr].points_to);
+                            // ptr was free in old(self) → in old(self).shadow_freelist@
+                            assert(old(self).free_blocks_in_freelist_except(Set::empty()));
+                            reveal(Tlsf::free_blocks_in_freelist_except);
+                            assert(old(self).shadow_freelist@.contains(ptr));
+                            // After pop at idx: ptr != block → ptr survived
+                            let bi = choose|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
+                                && old(self).shadow_freelist@.m[bi].contains(ptr);
+                            if bi != idx {
+                                assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+                                assert(self.shadow_freelist@.m[bi].contains(ptr));
+                            } else {
+                                let n = choose|n: int| 0 <= n < old(self).shadow_freelist@.m[idx].len()
+                                    && old(self).shadow_freelist@.m[idx][n] == ptr;
+                                assert(n != 0);
+                                assert(self.shadow_freelist@.m[idx] == old(self).shadow_freelist@.m[idx].remove(0));
+                                assert(self.shadow_freelist@.m[idx][n - 1] == ptr);
+                                assert(self.shadow_freelist@.m[idx].contains(ptr));
+                            }
+                        };
+                    };
+                    // wf_shadow() + freelist_wf from pop lemma; free_blocks_in_freelist from above
                     assert(self.all_freelist_wf());
                     assert(self.size_class_condition()) by {
                         Self::lemma_size_class_after_pop(*old(self), *self, idx, block);

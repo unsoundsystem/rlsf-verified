@@ -74,7 +74,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
             // Unlink `next_phys_block`.
             let idx = Self::map_floor(next_phys_block_size).unwrap();
-            self.unlink_free_block(next_phys_block, idx);
+            self.unlink_free_block(next_phys_block, idx, Ghost(Set::empty()));
         } else {
             new_next_phys_block = next_phys_block;
             proof {
@@ -104,7 +104,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
                 // Unlink `prev_phys_block`.
                 let idx = Self::map_floor(prev_phys_block_size).unwrap();
-                self.unlink_free_block(prev_phys_block, idx);
+                self.unlink_free_block(prev_phys_block, idx, Ghost(Set::empty()));
 
                 // Move `block` to where `prev_phys_block` is located. By doing
                 // this, `block` will implicitly inherit `prev_phys_block.

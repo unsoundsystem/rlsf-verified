@@ -126,6 +126,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// * TODO: blocks stored in the list have proper size as calculated from their index
     pub closed spec fn wf(self) -> bool {
         &&& self.all_blocks.wf()
+        // all_freelist_wf() now includes free_blocks_in_freelist() via all_freelist_wf_weak(Set::empty())
         &&& self.all_freelist_wf()
         &&& self.size_class_condition()
         &&& Self::parameter_validity()

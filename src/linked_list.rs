@@ -16,9 +16,16 @@ use crate::*;
 
     impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
-        pub(crate) open spec fn all_freelist_wf(self) -> bool {
+        /// Primary predicate: wf_shadow + freelist_wf for all indices + free_blocks_in_freelist_except(exceptions).
+        pub(crate) open spec fn all_freelist_wf_weak(self, exceptions: Set<*mut BlockHdr>) -> bool {
             &&& self.wf_shadow()
             &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf() ==> self.freelist_wf(idx)
+            &&& self.free_blocks_in_freelist_except(exceptions)
+        }
+
+        /// all_freelist_wf() = all_freelist_wf_weak(Set::empty()), embedding free_blocks_in_freelist.
+        pub(crate) open spec fn all_freelist_wf(self) -> bool {
+            self.all_freelist_wf_weak(Set::empty())
         }
 
         pub(crate) closed spec fn freelist_wf(self, idx: BlockIndex<FLLEN, SLLEN>) -> bool {
@@ -382,6 +389,39 @@ use crate::*;
             reveal(Tlsf::freelist_wf);
         }
 
+        /// Bridge: extract freelist_wf(idx) from all_freelist_wf_weak(exceptions).
+        pub(crate) proof fn wf_weak_index_in_freelist(
+            self, idx: BlockIndex<FLLEN, SLLEN>, exceptions: Set<*mut BlockHdr>)
+            requires idx.wf(), self.all_freelist_wf_weak(exceptions)
+            ensures self.freelist_wf(idx)
+        {
+        }
+
+        /// Bridge: extract wf_free_node(idx, n) from all_freelist_wf_weak(exceptions).
+        pub(crate) proof fn lemma_all_freelist_wf_weak_extract_wf_free_node(
+            self,
+            idx: BlockIndex<FLLEN, SLLEN>,
+            n: int,
+            exceptions: Set<*mut BlockHdr>,
+        )
+            requires
+                self.all_freelist_wf_weak(exceptions),
+                idx.wf(),
+                0 <= n < self.shadow_freelist@.m[idx].len(),
+            ensures
+                self.wf_free_node(idx, n)
+        {
+            reveal(Tlsf::freelist_wf);
+        }
+
+        /// Bridge: extract wf_shadow() from all_freelist_wf_weak(exceptions).
+        pub(crate) proof fn wf_weak_extract_wf_shadow(
+            self, exceptions: Set<*mut BlockHdr>)
+            requires self.all_freelist_wf_weak(exceptions)
+            ensures self.wf_shadow()
+        {
+        }
+
         pub(crate) open spec fn wf_free_node(self, idx: BlockIndex<FLLEN, SLLEN>, i: int) -> bool
             recommends
                 self.all_blocks.wf(),
@@ -417,6 +457,125 @@ use crate::*;
             } else {
                 Some(ls[i - 1])
             }
+        }
+
+        /// Reverse of wf_free_node with exception set:
+        /// every free block in all_blocks (except those in `exceptions`) is in some shadow_freelist bucket.
+        #[verifier::opaque]
+        pub(crate) open spec fn free_blocks_in_freelist_except(self, exceptions: Set<*mut BlockHdr>) -> bool {
+            forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                && self.all_blocks.value_at(self.all_blocks.ptrs@[i]).is_free()
+                && !exceptions.contains(self.all_blocks.ptrs@[i])
+                ==> self.shadow_freelist@.contains(self.all_blocks.ptrs@[i])
+        }
+
+        /// Full-strength version (no exceptions).
+        pub(crate) open spec fn free_blocks_in_freelist(self) -> bool {
+            self.free_blocks_in_freelist_except(Set::empty())
+        }
+
+        /// Bridge: extract that a specific free block is in the shadow_freelist.
+        pub(crate) proof fn lemma_free_block_in_freelist(self, ptr: *mut BlockHdr)
+            requires
+                self.free_blocks_in_freelist(),
+                self.all_blocks.wf(),
+                self.all_blocks.contains(ptr),
+                self.all_blocks.value_at(ptr).is_free(),
+            ensures
+                self.shadow_freelist@.contains(ptr)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+            let i = self.all_blocks.get_ptr_internal_index(ptr);
+            assert(0 <= i < self.all_blocks.ptrs@.len());
+            assert(self.all_blocks.ptrs@[i] == ptr);
+            assert(!Set::<*mut BlockHdr>::empty().contains(ptr));
+        }
+
+        /// Weakening: free_blocks_in_freelist_except(Set::empty()) implies free_blocks_in_freelist_except(exceptions).
+        pub(crate) proof fn lemma_free_blocks_weaken(self, exceptions: Set<*mut BlockHdr>)
+            requires self.free_blocks_in_freelist()
+            ensures self.free_blocks_in_freelist_except(exceptions)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+        }
+
+        /// Weakening from any subset: if free_blocks_in_freelist_except(s1) and s1 ⊆ s2, then free_blocks_in_freelist_except(s2).
+        pub(crate) proof fn lemma_free_blocks_weaken_exceptions(self, s1: Set<*mut BlockHdr>, s2: Set<*mut BlockHdr>)
+            requires
+                self.free_blocks_in_freelist_except(s1),
+                forall|x: *mut BlockHdr| s1.contains(x) ==> s2.contains(x),
+            ensures self.free_blocks_in_freelist_except(s2)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+        }
+
+        /// After marking a node as used (is_free→false), remove it from exception set.
+        /// If old_self has free_blocks_in_freelist_except(exceptions), and new_self is the same
+        /// except node is no longer free, then new_self has free_blocks_in_freelist_except(exceptions.remove(node)).
+        pub(crate) proof fn lemma_free_blocks_exception_resolved(
+            old_self: Self, new_self: Self,
+            node: *mut BlockHdr, exceptions: Set<*mut BlockHdr>)
+            requires
+                old_self.free_blocks_in_freelist_except(exceptions),
+                old_self.all_blocks.ptrs@ == new_self.all_blocks.ptrs@,
+                !new_self.all_blocks.value_at(node).is_free(),
+                new_self.shadow_freelist@ == old_self.shadow_freelist@,
+                forall|i: int| 0 <= i < old_self.all_blocks.ptrs@.len()
+                    && old_self.all_blocks.ptrs@[i] != node
+                    ==> new_self.all_blocks.value_at(old_self.all_blocks.ptrs@[i])
+                        == old_self.all_blocks.value_at(old_self.all_blocks.ptrs@[i]),
+            ensures
+                new_self.free_blocks_in_freelist_except(exceptions.remove(node))
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+            assert forall|i: int| 0 <= i < new_self.all_blocks.ptrs@.len()
+                && new_self.all_blocks.value_at(new_self.all_blocks.ptrs@[i]).is_free()
+                && !exceptions.remove(node).contains(new_self.all_blocks.ptrs@[i])
+                implies new_self.shadow_freelist@.contains(new_self.all_blocks.ptrs@[i])
+            by {
+                let ptr = new_self.all_blocks.ptrs@[i];
+                if ptr == node {
+                    // contradiction: node is not free in new_self
+                    assert(false);
+                } else {
+                    assert(old_self.all_blocks.ptrs@[i] == ptr);
+                    assert(new_self.all_blocks.value_at(ptr) == old_self.all_blocks.value_at(ptr));
+                    assert(old_self.all_blocks.value_at(ptr).is_free());
+                    assert(!exceptions.contains(ptr));
+                }
+            };
+        }
+
+        /// Frame: if shadow_freelist and all_blocks agree, free_blocks_in_freelist_except is preserved.
+        pub(crate) proof fn lemma_free_blocks_in_freelist_except_frame(
+            old_self: Self, new_self: Self, exceptions: Set<*mut BlockHdr>)
+            requires
+                old_self.free_blocks_in_freelist_except(exceptions),
+                old_self.all_blocks.ptrs@ == new_self.all_blocks.ptrs@,
+                new_self.shadow_freelist@ == old_self.shadow_freelist@,
+                forall|i: int| 0 <= i < old_self.all_blocks.ptrs@.len()
+                    ==> new_self.all_blocks.value_at(old_self.all_blocks.ptrs@[i])
+                        == old_self.all_blocks.value_at(old_self.all_blocks.ptrs@[i]),
+            ensures
+                new_self.free_blocks_in_freelist_except(exceptions)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+        }
+
+        /// Frame: if only perms changed (not values), free_blocks_in_freelist_except is preserved.
+        pub(crate) proof fn lemma_free_blocks_in_freelist_except_perms_frame(
+            old_self: Self, new_self: Self, exceptions: Set<*mut BlockHdr>)
+            requires
+                old_self.free_blocks_in_freelist_except(exceptions),
+                old_self.all_blocks.ptrs@ == new_self.all_blocks.ptrs@,
+                new_self.shadow_freelist@ == old_self.shadow_freelist@,
+                forall|i: int| 0 <= i < old_self.all_blocks.ptrs@.len()
+                    ==> new_self.all_blocks.perms@[old_self.all_blocks.ptrs@[i]].points_to
+                        == old_self.all_blocks.perms@[old_self.all_blocks.ptrs@[i]].points_to,
+            ensures
+                new_self.free_blocks_in_freelist_except(exceptions)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
         }
 
         pub(crate) proof fn lemma_wf_free_node_preserve_if_not_touched(
@@ -607,12 +766,13 @@ use crate::*;
         //#[verifier::external_body] // debug
         pub(crate) fn unlink_free_block(&mut self,
             node: *mut BlockHdr,
-            idx: BlockIndex<FLLEN, SLLEN>)
+            idx: BlockIndex<FLLEN, SLLEN>,
+            Ghost(exceptions): Ghost<Set<*mut BlockHdr>>)
         requires
             idx.wf(),
             Self::parameter_validity(),
             old(self).all_blocks.wf(),
-            old(self).all_freelist_wf(),
+            old(self).all_freelist_wf_weak(exceptions),
             old(self).bitmap_sync(),
             old(self).bitmap_wf(),
             // node is an element of the list
@@ -620,7 +780,7 @@ use crate::*;
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
         ensures
             self.all_blocks.wf(),
-            self.all_freelist_wf(),
+            self.all_freelist_wf_weak(exceptions.insert(node)),
             self.bitmap_sync(),
             self.bitmap_wf(),
             self.wf_shadow(),
@@ -629,11 +789,20 @@ use crate::*;
                     0 <= i < old(self).shadow_freelist@.m[idx].len()
                     && old(self).shadow_freelist@.m[idx][i] == node;
                 self.shadow_freelist@.m[idx] == old(self).shadow_freelist@.m[idx].remove(i)
-            })
+            }),
+            self.all_blocks.ptrs@ == old(self).all_blocks.ptrs@,
+            forall|p: *mut BlockHdr|
+                old(self).all_blocks.perms@.contains_key(p) ==> (
+                    self.all_blocks.perms@.contains_key(p)
+                    && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
+                    && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                ),
+            // After unlinking, node is not in any freelist bucket
+            !self.shadow_freelist@.contains(node),
         {
             let link = get_freelink_ptr(node);
             proof {
-                old(self).wf_index_in_freelist(idx);
+                old(self).wf_weak_index_in_freelist(idx, exceptions);
                 old(self).lemma_free_block_allblock_contains(idx);
                 assert(old(self).all_blocks.contains(node));
                 old(self).all_blocks.lemma_contains(node);
@@ -723,6 +892,40 @@ use crate::*;
                     self.clear_bit_for_index(idx);
                 }
             }
+
+            // Prove free_blocks_in_freelist_except(exceptions.insert(node))
+            proof {
+                assert(self.free_blocks_in_freelist_except(exceptions.insert(node))) by {
+                    reveal(Tlsf::free_blocks_in_freelist_except);
+                    assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
+                        && self.all_blocks.value_at(self.all_blocks.ptrs@[j]).is_free()
+                        && !exceptions.insert(node).contains(self.all_blocks.ptrs@[j])
+                        implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[j])
+                    by {
+                        let ptr = self.all_blocks.ptrs@[j];
+                        // ptr != node (since ptr is not in exceptions.insert(node))
+                        assert(ptr != node);
+                        // ptr is not in exceptions either
+                        assert(!exceptions.contains(ptr));
+                        // perms unchanged for ptr != node
+                        assert(self.all_blocks.perms@[ptr].points_to == old(self).all_blocks.perms@[ptr].points_to);
+                        // ptr was free in old(self) too
+                        assert(old(self).all_blocks.value_at(old(self).all_blocks.ptrs@[j]).is_free());
+                        // from old(self).free_blocks_in_freelist_except(exceptions)
+                        assert(old(self).free_blocks_in_freelist_except(exceptions));
+                        reveal(Tlsf::free_blocks_in_freelist_except);
+                        assert(old(self).shadow_freelist@.contains(ptr));
+                        // node was in shadow_freelist@.m[idx]; we removed it.
+                        // But ptr != node, so ptr is still in shadow_freelist.
+                        // We need: shadow_freelist.contains(ptr) is preserved
+                        // despite removing node from m[idx].
+                        // shadow_freelist@.contains(ptr) means exists some (bi, k) s.t. m[bi][k] == ptr
+                        // The only change is m[idx] lost node at position i.
+                        // If ptr was in m[bi] for bi != idx, it's unchanged.
+                        // If ptr was in m[idx] at position k != i, it's shifted but still there.
+                    };
+                };
+            }
         }
 
         pub(crate) fn link_free_block(&mut self,
@@ -732,10 +935,9 @@ use crate::*;
             idx.wf(),
             Self::parameter_validity(),
             old(self).all_blocks.wf(),
-            old(self).all_freelist_wf(),
+            old(self).all_freelist_wf_weak(set![node]),
             old(self).bitmap_sync(),
             old(self).bitmap_wf(),
-            old(self).wf_shadow(),
             old(self).size_class_condition(),
             // this can be proved at caller side using pointer order and `phys_next_of` relation
             !old(self).shadow_freelist@.contains(node),
@@ -761,7 +963,6 @@ use crate::*;
             self.all_freelist_wf(),
             self.bitmap_sync(),
             self.bitmap_wf(),
-            self.wf_shadow(),
             self.size_class_condition(),
             self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]),
             forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
@@ -926,6 +1127,36 @@ use crate::*;
 
                     Self::lemma_shadow_ptrs_nonnull_after_push(*old(self), *self, idx, node);
                     assert(self.wf_shadow());
+                    // Prove free_blocks_in_freelist_except(Set::empty())
+                    assert(self.free_blocks_in_freelist_except(Set::empty())) by {
+                        reveal(Tlsf::free_blocks_in_freelist_except);
+                        assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
+                            && self.all_blocks.value_at(self.all_blocks.ptrs@[j]).is_free()
+                            && !Set::<*mut BlockHdr>::empty().contains(self.all_blocks.ptrs@[j])
+                            implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[j])
+                        by {
+                            let ptr = self.all_blocks.ptrs@[j];
+                            if ptr == node {
+                                // node was just pushed to shadow_freelist@.m[idx]
+                                assert(self.shadow_freelist@.m[idx][0] == node);
+                                assert(self.shadow_freelist@.m[idx].contains(node));
+                                assert(idx.wf());
+                            } else {
+                                // ptr != node, so perms unchanged
+                                assert(self.all_blocks.perms@[ptr].points_to
+                                    == old(self).all_blocks.perms@[ptr].points_to);
+                                assert(old(self).all_blocks.value_at(old(self).all_blocks.ptrs@[j]).is_free());
+                                // from old(self).free_blocks_in_freelist_except(set![node])
+                                assert(old(self).free_blocks_in_freelist_except(set![node]));
+                                reveal(Tlsf::free_blocks_in_freelist_except);
+                                assert(!set![node].contains(ptr));
+                                assert(old(self).shadow_freelist@.contains(ptr));
+                                // old(self).shadow_freelist and self.shadow_freelist differ only at idx
+                                // where we prepended node. For other indices, they match.
+                                // So if ptr was in old shadow_freelist, it's still in new shadow_freelist.
+                            }
+                        };
+                    };
                     assert(self.all_freelist_wf());
                     assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
                     assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
@@ -1013,7 +1244,7 @@ use crate::*;
                             assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(node)) by {
                                 reveal(AllBlocks::ptr_is_null);
                             };
-                            old(self).wf_index_in_freelist(idx);
+                            old(self).wf_weak_index_in_freelist(idx, set![node]);
                             assert(old(self).shadow_freelist@.m[idx].len() == 0) by {
                                 if old(self).shadow_freelist@.m[idx].len() != 0 {
                                     old(self).freelist_nonempty(idx);
@@ -1064,6 +1295,31 @@ use crate::*;
                     };
                     Self::lemma_shadow_ptrs_nonnull_after_push(*old(self), *self, idx, node);
                     assert(self.wf_shadow());
+                    // Prove free_blocks_in_freelist_except(Set::empty())
+                    assert(self.free_blocks_in_freelist_except(Set::empty())) by {
+                        reveal(Tlsf::free_blocks_in_freelist_except);
+                        assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
+                            && self.all_blocks.value_at(self.all_blocks.ptrs@[j]).is_free()
+                            && !Set::<*mut BlockHdr>::empty().contains(self.all_blocks.ptrs@[j])
+                            implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[j])
+                        by {
+                            let ptr = self.all_blocks.ptrs@[j];
+                            if ptr == node {
+                                assert(self.shadow_freelist@.m[idx][0] == node);
+                                assert(self.shadow_freelist@.m[idx].contains(node));
+                                assert(idx.wf());
+                            } else {
+                                assert(self.all_blocks.perms@[ptr].points_to
+                                    == old(self).all_blocks.perms@[ptr].points_to);
+                                assert(old(self).all_blocks.value_at(old(self).all_blocks.ptrs@[j]).is_free());
+                                assert(old(self).free_blocks_in_freelist_except(set![node]));
+                                reveal(Tlsf::free_blocks_in_freelist_except);
+                                assert(!set![node].contains(ptr));
+                                assert(old(self).shadow_freelist@.contains(ptr));
+                            }
+                        };
+                    };
+                    assert(self.all_freelist_wf());
                 } // }}}
             }
 
@@ -1071,6 +1327,11 @@ use crate::*;
             self.set_bit_for_index(idx);
             // NOTE: this is workaround for discontineuous proof context
             proof { Self::lemma_shadow_ptrs_nonnull_frame(pre, *self); }
+            // free_blocks_in_freelist_except preserved: shadow_freelist and perms unchanged
+            // (must be proved before all_freelist_wf since the new definition includes it)
+            proof {
+                Self::lemma_free_blocks_in_freelist_except_perms_frame(pre, *self, Set::empty());
+            }
             assert(self.all_freelist_wf()) by {
                 assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
                     implies self.freelist_wf(bi)
@@ -1578,7 +1839,8 @@ use crate::*;
                     ==> #[trigger] new_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
                         == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]],
             ensures
-                new_self.all_freelist_wf()
+                new_self.wf_shadow(),
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() ==> new_self.freelist_wf(bi),
         {
             assert(new_self.is_ii()) by { assert(new_self.wf_shadow()); };
             assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() implies new_self.freelist_wf(bi) by {
@@ -1624,7 +1886,8 @@ use crate::*;
                     ==> new_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]]
                         == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi][n]],
             ensures
-                new_self.all_freelist_wf()
+                new_self.wf_shadow(),
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() ==> new_self.freelist_wf(bi),
         {
             assert(new_self.is_ii()) by { assert(new_self.wf_shadow()); };
             assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
@@ -1645,7 +1908,7 @@ use crate::*;
         }
 
         /// Big-step lemma: after popping the head of freelist[idx], proves
-        /// new_self.all_freelist_wf() and new_self.bitmap_sync().
+        /// wf_shadow(), freelist_wf for all indices, and bitmap_sync().
         /// Encapsulates all @.addr-heavy reasoning so allocate.rs call sites
         /// are free of raw_ptr triggers from forall|bi| loops.
         pub(crate) proof fn lemma_pop_head_preserves_wf(
@@ -1702,7 +1965,8 @@ use crate::*;
                     ==> nth_bit!(new_self.sl_bitmap[bi.0 as int], bi.1 as usize)
                         == nth_bit!(old_self.sl_bitmap[bi.0 as int], bi.1 as usize),
             ensures
-                new_self.all_freelist_wf(),
+                new_self.wf_shadow(),
+                forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() ==> new_self.freelist_wf(bi),
                 new_self.bitmap_sync(),
         {
             let ghost old_sfl = old_self.shadow_freelist@.m[idx];
@@ -1791,7 +2055,7 @@ use crate::*;
                 new_self.lemma_freelist_wf_from_addr_conditions(idx);
             };
 
-            // --- Step 2: Prove all_freelist_wf() using frame lemma ---
+            // --- Step 2: Prove wf_shadow() + freelist_wf using frame lemma ---
             Self::lemma_all_freelist_wf_frame(old_self, new_self, idx);
 
             // --- Step 3: Prove bitmap_sync ---
