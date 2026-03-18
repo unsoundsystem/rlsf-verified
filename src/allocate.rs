@@ -182,6 +182,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let Tracked(block_prov_for_root) = block_prov;
 
             proof {
+                self.all_blocks.lemma_wf_extract_node(block_id);
                 assert(self.all_blocks.wf_node(block_id));
                 assert(block == old(self).all_blocks.perms@[block].points_to.ptr());
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
@@ -196,6 +197,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let block_size = size_and_flags;
             //debug_assert_eq!(size, size_and_flags & SIZE_SIZE_MASK);
             proof {
+                old(self).all_blocks.lemma_wf_glue_facts(block_id);
                 assert(block_size == old_head_perm.points_to.value().size);
                 assert(old_head_perm == old(self).all_blocks.perms@[block]);
                 assert(old(self).all_blocks.perms@[block].points_to.value().size == selected_block_size);
@@ -252,7 +254,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     };
                     old(self).lemma_freelist_wf_extract_wf_free_node(idx, 1);
                     assert(old(self).wf_free_node(idx, 1));
-                    assert(old(self).all_blocks.wf_node(self.all_blocks.get_ptr_internal_index(next_free)));
+                    old(self).all_blocks.lemma_node_is_wf(next_free);
+                    assert(old(self).all_blocks.wf_node(old(self).all_blocks.get_ptr_internal_index(next_free)));
                     new_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
                     assert(self.all_blocks.perms@ == perms_after_removing_block.remove(next_free));
                     assert(new_head_perm == old(self).all_blocks.perms@[next_free]);
@@ -716,12 +719,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let ghost next_phys_block_ind = self.all_blocks.get_ptr_internal_index(next_phys_block);
                 let ghost perms_before_split_update = self.all_blocks.perms@;
                 proof {
+                    old(self).all_blocks.lemma_wf_glue_facts(block_id);
+                    old(self).all_blocks.lemma_wf_structural_facts(block_id);
                     old(self).all_blocks.lemma_contains(next_phys_block);
                 }
                 let tracked next_phys_block_perm = self.all_blocks.perms.borrow_mut()
                     .tracked_remove(next_phys_block);
 
                 proof {
+                    old(self).all_blocks.lemma_wf_extract_node(next_phys_block_ind);
                     assert(old(self).all_blocks.wf_node(next_phys_block_ind));
                     assert(next_phys_block_perm.wf());
                 }
@@ -834,8 +840,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_block_perm);
                         let ghost perms_after_insert_next_phys = self.all_blocks.perms@;
                         self.all_blocks.perms.borrow_mut().tracked_insert(new_free_block, new_free_block_perm);
-                        assert(self.all_blocks.perms.dom().contains(block));
-                        assert(self.all_blocks.perms.dom().contains(new_free_block));
+                        assert(self.all_blocks.perms@.dom().contains(block));
+                        assert(self.all_blocks.perms@.dom().contains(new_free_block));
                         assert(self.all_blocks.perms@[new_free_block].points_to.value().is_free());
                         if next_free_candidate@.addr != 0 {
                             assert(next_free_candidate != block) by {
@@ -930,6 +936,19 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         let ghost old_ptrs = old(self).all_blocks.ptrs@;
                         lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, new_free_block);
                         old(self).all_blocks.lemma_wf_nodup();
+                        old(self).all_blocks.lemma_wf_extract_node(block_id);
+                        // Scope glue_facts: export only non-ptr@ facts
+                        // (prev_phys_block@.addr conditions stay inside by-block)
+                        assert({
+                            &&& old(self).all_blocks.phys_next_of(block_id) is Some
+                            &&& !old(self).all_blocks.value_at(block).is_sentinel()
+                            &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(
+                                (old(self).all_blocks.value_at(block).size & SIZE_SIZE_MASK) as int)
+                            &&& (old(self).all_blocks.value_at(block).size as int) + (block as int)
+                                < (usize::MAX as int)
+                        }) by {
+                            old(self).all_blocks.lemma_wf_glue_facts(block_id);
+                        };
                         assert(ptrs_no_duplicates(old_ptrs));
                         assert(0 <= block_id < old_ptrs.len());
                         assert(old_ptrs[block_id] == block);
@@ -939,6 +958,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         };
                         assert(block_id + 1 < old_ptrs.len() ==> (new_free_block as usize as int) <= (old_ptrs[block_id + 1] as usize as int)) by {
                             if block_id + 1 < old_ptrs.len() {
+                                old(self).all_blocks.lemma_wf_structural_facts(block_id);
                                 assert(old(self).all_blocks.wf_node(block_id));
                                 assert(old(self).all_blocks.phys_next_of(block_id) is Some);
                                 assert(old(self).all_blocks.phys_next_of(block_id).unwrap() == old_ptrs[block_id + 1]);
@@ -948,6 +968,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             }
                         };
                         assert(old_ptrs[block_id + 1] == next_phys_block) by {
+                            old(self).all_blocks.lemma_wf_structural_facts(block_id);
                             assert(old(self).all_blocks.wf_node(block_id));
                             assert(old(self).all_blocks.phys_next_of(block_id) is Some);
                             let next_ptr = old(self).all_blocks.phys_next_of(block_id).unwrap();
@@ -1019,6 +1040,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 };
                                 assert(i == block_id);
                                 assert(self.all_blocks.wf_node(i)) by {
+                                    old(self).all_blocks.lemma_wf_glue_facts(block_id);
                                     assert(i == block_id);
                                     assert(ptr == block);
                                     assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(new_size as int));
@@ -1071,6 +1093,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         assert((new_size | SIZE_USED) <= block_size);
                                         assert(((new_size | SIZE_USED) as int) + (block as int) < (usize::MAX as int));
                                     };
+                                    self.all_blocks.lemma_construct_wf_node_glue(i);
+                                    self.all_blocks.lemma_construct_wf_node_structural(i);
                                 };
                             } else if ptr == next_phys_block {
                                 assert(i == next_phys_block_ind + 1) by {
@@ -1110,6 +1134,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(i == block_id + 2);
                                 };
                                 assert(self.all_blocks.wf_node(i)) by {
+                                    old(self).all_blocks.lemma_wf_extract_node(next_phys_block_ind);
+                                    old(self).all_blocks.lemma_wf_glue_facts(next_phys_block_ind);
                                     assert(old(self).all_blocks.wf_node(next_phys_block_ind));
                                     assert(i == block_id + 2);
                                     assert(self.all_blocks.phys_prev_of(i) == Some(new_free_block));
@@ -1132,6 +1158,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             let next_ptr = self.all_blocks.phys_next_of(i).unwrap();
                                             let old_next_ptr = old(self).all_blocks.phys_next_of(next_phys_block_ind).unwrap();
                                             assert(next_ptr == old_next_ptr);
+                                            old(self).all_blocks.lemma_wf_extract_node(next_phys_block_ind);
+                                            old(self).all_blocks.lemma_wf_structural_facts(next_phys_block_ind);
                                             assert(old(self).all_blocks.wf_node(next_phys_block_ind));
                                             assert(old(self).all_blocks.phys_next_of(next_phys_block_ind) matches Some(old_p) ==> {
                                                 &&& old_p@.addr == next_phys_block@.addr
@@ -1156,6 +1184,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         assert(self.all_blocks.value_at(ptr).size
                                             == old(self).all_blocks.value_at(next_phys_block).size);
                                     };
+                                    self.all_blocks.lemma_construct_wf_node_glue(i);
+                                    self.all_blocks.lemma_construct_wf_node_structural(i);
                                 };
                             } else if ptr == new_free_block {
                                 assert(i == block_id + 1) by {
@@ -1216,22 +1246,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert(i <= block_id + 1);
                                     assert(i == block_id + 1);
                                 };
-                                assert(new_free_block@.addr != 0) by {
-                                    assert(block@.addr != 0);
-                                    assert(new_size > 0);
-                                };
-                                assert(0 <= new_free_block@.addr);
-                                assert((new_free_block@.addr as int) % (GRANULARITY as int) == 0) by {
-                                    assert(block@.addr % GRANULARITY == 0) by {
-                                        old(self).all_blocks.lemma_wf_node_ptr(block_id);
-                                    };
-                                    assert(new_size % GRANULARITY == 0) by {
-                                        granularity_is_power_of_two();
-                                        lemma_round_up_pow2((overhead + size) as usize, GRANULARITY);
-                                    };
-                                };
-                                AllBlocks::<FLLEN, SLLEN>::lemma_wf_node_ptr_from_facts(new_free_block);
                                 assert(self.all_blocks.wf_node(i)) by {
+                                    assert(new_free_block@.addr != 0) by {
+                                        assert(block@.addr != 0);
+                                        assert(new_size > 0);
+                                    };
+                                    assert(0 <= new_free_block@.addr);
+                                    assert((new_free_block@.addr as int) % (GRANULARITY as int) == 0) by {
+                                        assert(block@.addr % GRANULARITY == 0) by {
+                                            old(self).all_blocks.lemma_wf_node_ptr(block_id);
+                                        };
+                                        assert(new_size % GRANULARITY == 0) by {
+                                            granularity_is_power_of_two();
+                                            lemma_round_up_pow2((overhead + size) as usize, GRANULARITY);
+                                        };
+                                    };
+                                    AllBlocks::<FLLEN, SLLEN>::lemma_wf_node_ptr_from_facts(new_free_block);
                                     assert(i == block_id + 1);
                                     assert(ptr == new_free_block);
                                     assert(self.all_blocks.perms@[ptr].wf()) by {
@@ -1278,6 +1308,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             assert(!self.all_blocks.value_at(next_ptr).is_free());
                                         }
                                     };
+                                    self.all_blocks.lemma_construct_wf_node_glue(i);
+                                    self.all_blocks.lemma_construct_wf_node_structural(i);
                                 };
                             } else {
                                 assert(old(self).all_blocks.ptrs@.contains(ptr)) by {
@@ -1304,6 +1336,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     }
                                 };
                                 let ghost old_i = old(self).all_blocks.get_ptr_internal_index(ptr);
+                                old(self).all_blocks.lemma_node_is_wf(ptr);
                                 assert(old(self).all_blocks.wf_node(old_i));
                                 assert(self.all_blocks.wf_node(i)) by {
                                     assert(old(self).all_blocks.wf_node(old_i));
@@ -1342,58 +1375,99 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     if i < block_id {
                                         assert(self.all_blocks.ptrs@[i] == old_ptrs[i]);
                                         assert(ptr == old_ptrs[i]);
-                                        assert(old(self).all_blocks.wf_node(i));
-                                        assert(self.all_blocks.value_at(ptr) == old(self).all_blocks.value_at(ptr));
                                         assert(self.all_blocks.phys_prev_of(i) == old(self).all_blocks.phys_prev_of(i));
                                         assert(self.all_blocks.phys_next_of(i) == old(self).all_blocks.phys_next_of(i));
-                                        assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr != 0 ==> (
-                                            self.all_blocks.phys_prev_of(i) matches Some(p)
-                                                && p == self.all_blocks.value_at(ptr).prev_phys_block
-                                        ));
-                                        assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                            &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                                            &&& next_ptr@.provenance == ptr@.provenance
-                                        });
-                                        assert(self.all_blocks.value_at(ptr).is_free() ==> {
-                                            self.all_blocks.phys_next_of(i) matches Some(next_ptr)
-                                                && !self.all_blocks.value_at(next_ptr).is_free()
-                                        }) by {
-                                            if self.all_blocks.value_at(ptr).is_free() {
-                                                assert(old(self).all_blocks.value_at(ptr).is_free());
-                                                assert(old(self).all_blocks.wf_node(i));
-                                                assert(old(self).all_blocks.phys_next_of(i) matches Some(next_ptr)
-                                                    && !old(self).all_blocks.value_at(next_ptr).is_free());
-                                                let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
-                                                assert(self.all_blocks.phys_next_of(i) is Some);
-                                                assert(self.all_blocks.phys_next_of(i).unwrap() == next_ptr);
-                                                if next_ptr == block {
-                                                    assert(!old(self).all_blocks.value_at(next_ptr).is_free());
-                                                    assert(old(self).all_blocks.value_at(block).is_free());
-                                                    assert(false);
-                                                } else if next_ptr == next_phys_block {
-                                                    assert(self.all_blocks.value_at(next_ptr).size
-                                                        == old(self).all_blocks.value_at(next_ptr).size);
-                                                } else {
-                                                    assert(next_ptr == old_ptrs[i + 1]);
-                                                    assert(i + 1 < old_ptrs.len());
-                                                    assert(old(self).all_blocks.wf_node(i + 1));
-                                                    assert(self.all_blocks.ptrs@[i + 1] == old_ptrs[i + 1]);
-                                                    assert(next_ptr != block);
-                                                    assert(next_ptr != next_phys_block);
-                                                    assert(i < block_id);
-                                                    assert(i + 1 < block_id) by {
-                                                        if i + 1 == block_id {
-                                                            assert(old_ptrs[block_id] == block);
-                                                            assert(next_ptr == old_ptrs[block_id]);
-                                                            assert(next_ptr == block);
-                                                        }
-                                                    };
-                                                    assert(ghost_pointer_ordered(old_ptrs));
-                                                    assert(0 <= i + 1 < old_ptrs.len());
-                                                    assert(0 <= block_id < old_ptrs.len());
+                                        if next_free_candidate@.addr != 0 && ptr == next_free_candidate {
+                                            // free_link_perm changed; use construct approach
+                                            // (ptr@ contained in this by-block)
+                                            old(self).all_blocks.lemma_wf_glue_facts(i);
+                                            old(self).all_blocks.lemma_wf_structural_facts(i);
+                                            assert(self.all_blocks.value_at(ptr) == old(self).all_blocks.value_at(ptr));
+                                            assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr != 0 ==> (
+                                                self.all_blocks.phys_prev_of(i) matches Some(p)
+                                                    && p == self.all_blocks.value_at(ptr).prev_phys_block
+                                            ));
+                                            assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
+                                                ==> self.all_blocks.phys_prev_of(i) is None);
+                                            assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
+                                                &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
+                                                &&& next_ptr@.provenance == ptr@.provenance
+                                            });
+                                            assert(self.all_blocks.value_at(ptr).is_free() ==> {
+                                                self.all_blocks.phys_next_of(i) matches Some(next_ptr)
+                                                    && !self.all_blocks.value_at(next_ptr).is_free()
+                                            }) by {
+                                                if self.all_blocks.value_at(ptr).is_free() {
+                                                    let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
+                                                    if next_ptr == block {
+                                                        assert(!old(self).all_blocks.value_at(next_ptr).is_free());
+                                                        assert(old(self).all_blocks.value_at(block).is_free());
+                                                        assert(false);
+                                                    } else if next_ptr == next_phys_block {
+                                                        assert(self.all_blocks.value_at(next_ptr).size
+                                                            == old(self).all_blocks.value_at(next_ptr).size);
+                                                    } else {
+                                                        assert(next_ptr == old_ptrs[i + 1]);
+                                                        assert(i + 1 < block_id) by {
+                                                            if i + 1 == block_id {
+                                                                assert(old_ptrs[block_id] == block);
+                                                                assert(next_ptr == block);
+                                                            }
+                                                        };
+                                                        lemma_ghost_pointer_ordered_index(old_ptrs, i + 1, block_id);
+                                                        assert(next_ptr != new_free_block) by {
+                                                            if next_ptr == new_free_block {
+                                                                assert((new_free_block as usize as int) <= (block as usize as int));
+                                                                assert((block as usize as int) < (new_free_block as usize as int));
+                                                                assert(false);
+                                                            }
+                                                        };
+                                                    }
+                                                    assert(!self.all_blocks.value_at(next_ptr).is_free());
+                                                }
+                                            };
+                                            // free_link_perm still has correct ptr (only value changed)
+                                            assert(self.all_blocks.value_at(ptr).is_free() ==> (
+                                                self.all_blocks.perms@[ptr].free_link_perm matches Some(p)
+                                                    && p.ptr() == get_freelink_ptr_spec(ptr)
+                                            ));
+                                            self.all_blocks.lemma_construct_wf_node_glue(i);
+                                            self.all_blocks.lemma_construct_wf_node_structural(i);
+                                        } else {
+                                            // Full perms equality: ptr != all modified pointers
+                                            assert(ptr != next_phys_block) by {
+                                                if ptr == next_phys_block {
+                                                    assert(ptr == old_ptrs[block_id + 1]);
+                                                    assert(ptr == old_ptrs[i]);
+                                                    lemma_ptrs_no_duplicates_eq_index(old_ptrs, i, block_id + 1);
+                                                }
+                                            };
+                                            assert(ptr != new_free_block) by {
+                                                if ptr == new_free_block {
+                                                    lemma_ghost_pointer_ordered_index(old_ptrs, i, block_id);
+                                                }
+                                            };
+                                            assert(self.all_blocks.perms@[ptr] == old(self).all_blocks.perms@[ptr]);
+                                            // Free-next value_at equality for transfer precondition
+                                            assert((old(self).all_blocks.value_at(ptr).is_free()
+                                                && old(self).all_blocks.phys_next_of(i) is Some)
+                                                ==> old(self).all_blocks.value_at(
+                                                        old(self).all_blocks.phys_next_of(i).unwrap())
+                                                    == self.all_blocks.value_at(
+                                                        self.all_blocks.phys_next_of(i).unwrap())) by {
+                                                if old(self).all_blocks.value_at(ptr).is_free()
+                                                    && old(self).all_blocks.phys_next_of(i) is Some {
+                                                    let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
+                                                    old(self).all_blocks.lemma_wf_extract_node(i);
+                                                    old(self).all_blocks.lemma_wf_structural_facts(i);
+                                                    assert(i + 1 <= block_id);
+                                                    if next_ptr == block {
+                                                        assert(!old(self).all_blocks.value_at(next_ptr).is_free());
+                                                        assert(old(self).all_blocks.value_at(block).is_free());
+                                                        assert(false);
+                                                    }
+                                                    assert(i + 1 < block_id);
                                                     lemma_ghost_pointer_ordered_index(old_ptrs, i + 1, block_id);
-                                                    assert((next_ptr as usize as int) <= (block as usize as int));
-                                                    assert((block as usize as int) < (new_free_block as usize as int));
                                                     assert(next_ptr != new_free_block) by {
                                                         if next_ptr == new_free_block {
                                                             assert((new_free_block as usize as int) <= (block as usize as int));
@@ -1401,12 +1475,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                                             assert(false);
                                                         }
                                                     };
-                                                    assert(self.all_blocks.perms@[next_ptr]
-                                                        == old(self).all_blocks.perms@[next_ptr]);
                                                 }
-                                                assert(!self.all_blocks.value_at(next_ptr).is_free());
-                                            }
-                                        };
+                                            };
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_transfer_wf_node(
+                                                &old(self).all_blocks, &self.all_blocks, i, i);
+                                        }
                                     } else {
                                         assert(block_id + 1 < i);
                                         assert(i != block_id + 2) by {
@@ -1418,54 +1491,97 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         assert(block_id + 2 < i);
                                         assert(self.all_blocks.ptrs@[i] == old_ptrs[i - 1]);
                                         assert(ptr == old_ptrs[i - 1]);
-                                        assert(old(self).all_blocks.wf_node(i - 1));
-                                        assert(self.all_blocks.value_at(ptr) == old(self).all_blocks.value_at(ptr));
                                         assert(self.all_blocks.phys_prev_of(i) == old(self).all_blocks.phys_prev_of(i - 1));
                                         assert(self.all_blocks.phys_next_of(i) == old(self).all_blocks.phys_next_of(i - 1));
-                                        assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr != 0 ==> (
-                                            self.all_blocks.phys_prev_of(i) matches Some(p)
-                                                && p == self.all_blocks.value_at(ptr).prev_phys_block
-                                        ));
-                                        assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                            &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                                            &&& next_ptr@.provenance == ptr@.provenance
-                                        });
-                                        assert(self.all_blocks.value_at(ptr).is_free() ==> {
-                                            self.all_blocks.phys_next_of(i) matches Some(next_ptr)
-                                                && !self.all_blocks.value_at(next_ptr).is_free()
-                                        }) by {
-                                            if self.all_blocks.value_at(ptr).is_free() {
-                                                assert(old(self).all_blocks.value_at(ptr).is_free());
-                                                assert(old(self).all_blocks.wf_node(i - 1));
-                                                assert(old(self).all_blocks.phys_next_of(i - 1) matches Some(next_ptr)
-                                                    && !old(self).all_blocks.value_at(next_ptr).is_free());
-                                                let next_ptr = old(self).all_blocks.phys_next_of(i - 1).unwrap();
-                                                assert(self.all_blocks.phys_next_of(i) is Some);
-                                                assert(self.all_blocks.phys_next_of(i).unwrap() == next_ptr);
-                                                if next_ptr == block {
-                                                    assert(!old(self).all_blocks.value_at(next_ptr).is_free());
-                                                    assert(old(self).all_blocks.value_at(block).is_free());
-                                                    assert(false);
-                                                } else if next_ptr == next_phys_block {
-                                                    assert(self.all_blocks.value_at(next_ptr).size
-                                                        == old(self).all_blocks.value_at(next_ptr).size);
-                                                } else {
-                                                    assert(next_ptr == old_ptrs[i]);
-                                                    assert(i < old_ptrs.len());
-                                                    assert(old(self).all_blocks.wf_node(i));
-                                                    assert(self.all_blocks.ptrs@[i + 1] == old_ptrs[i]);
-                                                    assert(next_ptr != block);
-                                                    assert(next_ptr != next_phys_block);
-                                                    assert(ghost_pointer_ordered(old_ptrs));
-                                                    assert(0 <= block_id + 1 < old_ptrs.len());
-                                                    assert(0 <= i < old_ptrs.len());
-                                                    lemma_ghost_pointer_ordered_index(old_ptrs, block_id + 1, i);
-                                                    assert((next_phys_block as usize as int) <= (next_ptr as usize as int));
-                                                    assert((new_free_block as usize as int) < (next_phys_block as usize as int)) by {
-                                                        assert(new_free_block as int == block as int + new_size as int);
-                                                        assert(next_phys_block as int == block as int + block_size as int);
-                                                        assert(new_size < block_size);
+                                        if next_free_candidate@.addr != 0 && ptr == next_free_candidate {
+                                            // free_link_perm changed; use construct approach
+                                            old(self).all_blocks.lemma_wf_glue_facts(i - 1);
+                                            old(self).all_blocks.lemma_wf_structural_facts(i - 1);
+                                            assert(self.all_blocks.value_at(ptr) == old(self).all_blocks.value_at(ptr));
+                                            assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr != 0 ==> (
+                                                self.all_blocks.phys_prev_of(i) matches Some(p)
+                                                    && p == self.all_blocks.value_at(ptr).prev_phys_block
+                                            ));
+                                            assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
+                                                ==> self.all_blocks.phys_prev_of(i) is None);
+                                            assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
+                                                &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
+                                                &&& next_ptr@.provenance == ptr@.provenance
+                                            });
+                                            assert(self.all_blocks.value_at(ptr).is_free() ==> {
+                                                self.all_blocks.phys_next_of(i) matches Some(next_ptr)
+                                                    && !self.all_blocks.value_at(next_ptr).is_free()
+                                            }) by {
+                                                if self.all_blocks.value_at(ptr).is_free() {
+                                                    let next_ptr = old(self).all_blocks.phys_next_of(i - 1).unwrap();
+                                                    if next_ptr == block {
+                                                        assert(!old(self).all_blocks.value_at(next_ptr).is_free());
+                                                        assert(old(self).all_blocks.value_at(block).is_free());
+                                                        assert(false);
+                                                    } else if next_ptr == next_phys_block {
+                                                        assert(self.all_blocks.value_at(next_ptr).size
+                                                            == old(self).all_blocks.value_at(next_ptr).size);
+                                                    } else {
+                                                        assert(next_ptr == old_ptrs[i]);
+                                                        lemma_ghost_pointer_ordered_index(old_ptrs, block_id + 1, i);
+                                                        assert(next_ptr != new_free_block) by {
+                                                            if next_ptr == new_free_block {
+                                                                assert((next_phys_block as usize as int) <= (new_free_block as usize as int));
+                                                                assert((new_free_block as usize as int) < (next_phys_block as usize as int));
+                                                                assert(false);
+                                                            }
+                                                        };
+                                                    }
+                                                    assert(!self.all_blocks.value_at(next_ptr).is_free());
+                                                }
+                                            };
+                                            assert(self.all_blocks.value_at(ptr).is_free() ==> (
+                                                self.all_blocks.perms@[ptr].free_link_perm matches Some(p)
+                                                    && p.ptr() == get_freelink_ptr_spec(ptr)
+                                            ));
+                                            self.all_blocks.lemma_construct_wf_node_glue(i);
+                                            self.all_blocks.lemma_construct_wf_node_structural(i);
+                                        } else {
+                                            // Full perms equality: ptr != all modified pointers
+                                            assert(ptr != next_phys_block) by {
+                                                if ptr == next_phys_block {
+                                                    assert(ptr == old_ptrs[block_id + 1]);
+                                                    assert(ptr == old_ptrs[i - 1]);
+                                                    lemma_ptrs_no_duplicates_eq_index(old_ptrs, i - 1, block_id + 1);
+                                                }
+                                            };
+                                            assert(ptr != new_free_block) by {
+                                                if ptr == new_free_block {
+                                                    lemma_ghost_pointer_ordered_index(old_ptrs, block_id + 1, i - 1);
+                                                }
+                                            };
+                                            assert(self.all_blocks.perms@[ptr] == old(self).all_blocks.perms@[ptr]);
+                                            // Free-next value_at equality for transfer precondition
+                                            assert((old(self).all_blocks.value_at(ptr).is_free()
+                                                && old(self).all_blocks.phys_next_of(i - 1) is Some)
+                                                ==> old(self).all_blocks.value_at(
+                                                        old(self).all_blocks.phys_next_of(i - 1).unwrap())
+                                                    == self.all_blocks.value_at(
+                                                        self.all_blocks.phys_next_of(i).unwrap())) by {
+                                                if old(self).all_blocks.value_at(ptr).is_free()
+                                                    && old(self).all_blocks.phys_next_of(i - 1) is Some {
+                                                    let next_ptr = old(self).all_blocks.phys_next_of(i - 1).unwrap();
+                                                    old(self).all_blocks.lemma_wf_extract_node(i - 1);
+                                                    old(self).all_blocks.lemma_wf_structural_facts(i - 1);
+                                                    if next_ptr == block {
+                                                        assert(!old(self).all_blocks.value_at(next_ptr).is_free());
+                                                        assert(old(self).all_blocks.value_at(block).is_free());
+                                                        assert(false);
+                                                    }
+                                                    // next_ptr = old_ptrs[i], i > block_id+2 > block_id+1
+                                                    assert(next_ptr != next_phys_block) by {
+                                                        if next_ptr == next_phys_block {
+                                                            assert(next_ptr == old_ptrs[i]);
+                                                            assert(next_phys_block == old_ptrs[block_id + 1]);
+                                                            lemma_ptrs_no_duplicates_eq_index(old_ptrs, i, block_id + 1);
+                                                        }
                                                     };
+                                                    lemma_ghost_pointer_ordered_index(old_ptrs, block_id + 1, i);
                                                     assert(next_ptr != new_free_block) by {
                                                         if next_ptr == new_free_block {
                                                             assert((next_phys_block as usize as int) <= (new_free_block as usize as int));
@@ -1473,18 +1589,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                                             assert(false);
                                                         }
                                                     };
-                                                    assert(self.all_blocks.perms@[next_ptr]
-                                                        == old(self).all_blocks.perms@[next_ptr]);
                                                 }
-                                                assert(!self.all_blocks.value_at(next_ptr).is_free());
-                                            }
-                                        };
+                                            };
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_transfer_wf_node(
+                                                &old(self).all_blocks, &self.all_blocks, i - 1, i);
+                                        }
                                     }
                                 };
                             }
                             // }}}
                         };
                         // }}}
+                        self.all_blocks.lemma_wf_from_nodes();
                     };
                     // --- Prove all_freelist_wf + bitmap_sync via big-step lemma ---
                     // Pre-establish facts used by both perm-equality foralls below (called ONCE).
@@ -2161,13 +2277,37 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert(self.all_blocks.wf_node(bi)) by {
                         let ptr = self.all_blocks.ptrs@[bi];
                         assert(ab_before_final_remove.wf());
-                        assert(ab_before_final_remove.wf_node(bi));
+                        ab_before_final_remove.lemma_wf_extract_node(bi);
+                        ab_before_final_remove.lemma_wf_glue_facts(bi);
+                        ab_before_final_remove.lemma_wf_structural_facts(bi);
                         assert(ptr == ab_before_final_remove.ptrs@[bi]);
                         assert(ptr == block);
                         assert(self.all_blocks.perms@[ptr] == new_block_perm);
                         assert(new_block_perm.points_to == ab_before_final_remove.perms@[ptr].points_to);
                         assert(self.all_blocks.value_at(ptr) == ab_before_final_remove.value_at(ptr));
-                        assert(self.all_blocks.wf_node(bi));
+                        assert(self.all_blocks.phys_prev_of(bi) == ab_before_final_remove.phys_prev_of(bi));
+                        assert(self.all_blocks.phys_next_of(bi) == ab_before_final_remove.phys_next_of(bi));
+                        // block is not free → glue/structural free branches vacuously true
+                        assert(!self.all_blocks.value_at(ptr).is_free());
+                        // glue preconditions from ab_before_final_remove
+                        assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr != 0 ==> (
+                            self.all_blocks.phys_prev_of(bi) matches Some(p)
+                                && p == self.all_blocks.value_at(ptr).prev_phys_block
+                        ));
+                        assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
+                            ==> self.all_blocks.phys_prev_of(bi) is None);
+                        // structural preconditions
+                        assert(self.all_blocks.phys_next_of(bi) matches Some(next_ptr) ==> {
+                            &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
+                            &&& next_ptr@.provenance == ptr@.provenance
+                        });
+                        self.all_blocks.lemma_construct_wf_node_glue(bi);
+                        self.all_blocks.lemma_construct_wf_node_structural(bi);
+                    };
+                    assert forall|i: int| 0 <= i < ab_before_final_remove.ptrs@.len()
+                        && ab_before_final_remove.ptrs@[i] != block
+                        implies ab_before_final_remove.wf_node(i) by {
+                        ab_before_final_remove.lemma_wf_extract_node(i);
                     };
                     AllBlocks::<FLLEN, SLLEN>::lemma_all_blocks_wf_after_replace_block_perm(
                         ab_before_final_remove,
@@ -2194,6 +2334,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     old(self).all_blocks.lemma_wf_nodup();
                                     lemma_ptrs_no_duplicates_eq_index(old(self).all_blocks.ptrs@, i, block_id);
                                 };
+                                assert(self.all_blocks.wf_node(i)) by {
+                                old(self).all_blocks.lemma_wf_extract_node(block_id);
+                                old(self).all_blocks.lemma_wf_glue_facts(block_id);
                                 assert(old(self).all_blocks.wf_node(block_id));
                                 old(self).all_blocks.lemma_wf_node_ptr(block_id);
                                 assert(self.all_blocks.perms@[block] == new_block_perm);
@@ -2231,6 +2374,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     assert((old(self).all_blocks.value_at(block).size & SIZE_SIZE_MASK) == block_size);
                                 };
                                 assert(self.all_blocks.phys_next_of(i) == old(self).all_blocks.phys_next_of(block_id));
+                                old(self).all_blocks.lemma_wf_structural_facts(block_id);
                                 assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
                                     &&& next_ptr@.addr == block@.addr + (self.all_blocks.value_at(block).size & SIZE_SIZE_MASK)
                                     &&& next_ptr@.provenance == block@.provenance
@@ -2274,6 +2418,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             let next_i = block_id + 1;
                                             assert(0 <= next_i < old(self).all_blocks.ptrs@.len());
                                             assert(old(self).all_blocks.ptrs@[next_i] == next_ptr);
+                                            old(self).all_blocks.lemma_wf_extract_node(next_i);
                                             assert(old(self).all_blocks.wf_node(next_i));
                                             assert((next_ptr@.addr as int) % (GRANULARITY as int) == 0);
                                             if usize::BITS == 64 {
@@ -2300,21 +2445,79 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 ));
                                 assert(self.all_blocks.value_at(block).prev_phys_block@.addr == 0
                                     ==> self.all_blocks.phys_prev_of(i) is None);
-                                assert(self.all_blocks.wf_node(i));
+                                self.all_blocks.lemma_construct_wf_node_glue(i);
+                                self.all_blocks.lemma_construct_wf_node_structural(i);
+                                };
                             } else {
+                                old(self).all_blocks.lemma_wf_extract_node(i);
                                 assert(old(self).all_blocks.wf_node(i));
                                 assert(self.all_blocks.value_at(ptr) == old(self).all_blocks.value_at(ptr));
                                 if next_free_candidate@.addr != 0 && ptr == next_free_candidate {
-                                    assert(self.all_blocks.perms@[ptr].points_to
-                                        == old(self).all_blocks.perms@[ptr].points_to);
-                                    assert(self.all_blocks.perms@[ptr].mem
-                                        == old(self).all_blocks.perms@[ptr].mem);
+                                    // free_link_perm changed; use construct approach
+                                    old(self).all_blocks.lemma_wf_glue_facts(i);
+                                    old(self).all_blocks.lemma_wf_structural_facts(i);
+                                    assert(self.all_blocks.phys_prev_of(i) == old(self).all_blocks.phys_prev_of(i));
+                                    assert(self.all_blocks.phys_next_of(i) == old(self).all_blocks.phys_next_of(i));
+                                    assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr != 0 ==> (
+                                        self.all_blocks.phys_prev_of(i) matches Some(p)
+                                            && p == self.all_blocks.value_at(ptr).prev_phys_block
+                                    ));
+                                    assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
+                                        ==> self.all_blocks.phys_prev_of(i) is None);
+                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
+                                        &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
+                                        &&& next_ptr@.provenance == ptr@.provenance
+                                    });
+                                    assert(self.all_blocks.value_at(ptr).is_free() ==> {
+                                        self.all_blocks.phys_next_of(i) matches Some(next_ptr)
+                                            && !self.all_blocks.value_at(next_ptr).is_free()
+                                    }) by {
+                                        if self.all_blocks.value_at(ptr).is_free() {
+                                            let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
+                                            // In no-split, only block's perms changed (besides nfc free_link)
+                                            // next_ptr != block (wf_node(i): free → next not free, block was free)
+                                            if next_ptr == block {
+                                                assert(!old(self).all_blocks.value_at(next_ptr).is_free());
+                                                assert(old(self).all_blocks.value_at(block).is_free());
+                                                assert(false);
+                                            }
+                                            assert(!self.all_blocks.value_at(next_ptr).is_free());
+                                        }
+                                    };
+                                    assert(self.all_blocks.value_at(ptr).is_free() ==> (
+                                        self.all_blocks.perms@[ptr].free_link_perm matches Some(p)
+                                            && p.ptr() == get_freelink_ptr_spec(ptr)
+                                    ));
+                                    self.all_blocks.lemma_construct_wf_node_glue(i);
+                                    self.all_blocks.lemma_construct_wf_node_structural(i);
                                 } else {
                                     assert(self.all_blocks.perms@[ptr] == old(self).all_blocks.perms@[ptr]);
+                                    // Free-next value_at equality for transfer
+                                    assert((old(self).all_blocks.value_at(ptr).is_free()
+                                        && old(self).all_blocks.phys_next_of(i) is Some)
+                                        ==> old(self).all_blocks.value_at(
+                                                old(self).all_blocks.phys_next_of(i).unwrap())
+                                            == self.all_blocks.value_at(
+                                                self.all_blocks.phys_next_of(i).unwrap())) by {
+                                        if old(self).all_blocks.value_at(ptr).is_free()
+                                            && old(self).all_blocks.phys_next_of(i) is Some {
+                                            let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
+                                            old(self).all_blocks.lemma_wf_structural_facts(i);
+                                            if next_ptr == block {
+                                                assert(!old(self).all_blocks.value_at(next_ptr).is_free());
+                                                assert(old(self).all_blocks.value_at(block).is_free());
+                                                assert(false);
+                                            }
+                                            // next_ptr != block: points_to unchanged, value_at same
+                                        }
+                                    };
+                                    AllBlocks::<FLLEN, SLLEN>::lemma_transfer_wf_node(
+                                        &old(self).all_blocks, &self.all_blocks, i, i);
                                 }
                                 assert(self.all_blocks.wf_node(i));
                             }
                         };
+                        self.all_blocks.lemma_wf_from_nodes();
                     };
                 }
             }

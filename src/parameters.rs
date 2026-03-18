@@ -110,12 +110,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             lemma_log2_values();
             if GRANULARITY == 32 {
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                // reveal(u64_trailing_zeros); // closed in newer vstd
                 assert(log(2, GRANULARITY as int) == 5);
                 assert(usize_trailing_zeros(32) == 5) by (compute);
             } else if GRANULARITY == 16 {
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                // reveal(u64_trailing_zeros); // closed in newer vstd
                 assert(log(2, GRANULARITY as int) == 4);
                 assert(usize_trailing_zeros(16) == 4) by (compute);
             }

@@ -68,69 +68,65 @@ verus! {
                 self.ptrs@[i]@.addr != 0,
                 0 <= self.ptrs@[i]@.addr,
                 (self.ptrs@[i]@.addr as int) % (GRANULARITY as int) == 0,
+                Self::wf_node_ptr(self.ptrs@[i]),
         {
             assert(self.wf_node(i));
             reveal(AllBlocks::wf_node_ptr);
         }
 
-        /// States that each block at `self.ptr[i]` is well-formed i.e.
-        ///
-        /// * Block is properly connected to the global list
-        ///     * Ghost state `self.ptrs` properly reflecting physical state;
-        ///       for each p: `self.ptrs[i]`,
-        ///         * self.perms[p] is defined, `Init` and pointer matches p
-        ///         * `self.ptrs` reflects the order of linked list;
-        ///           let pr = self.perms[i],
-        ///              * 0 < i <= self.ptrs.len():
-        ///                  pr.value().prev_phys_block is Some(p') ==> p' == self.ptr[i-1]
-        ///              * i == 0: pr.value().prev_phys_block is None
-        pub(crate) open spec fn wf_node(self, i: int) -> bool
+        /// Group B: Glue invariants between physical state & tracked/ghost state.
+        /// No ptr@ terms — uses value_at(ptr) only.
+        pub(crate) closed spec fn wf_node_glue(self, i: int) -> bool
             recommends 0 <= i < self.ptrs@.len()
         {
             let ptr = self.ptrs@[i];
-            // --- Well-formedness for tracked/ghost states
-            &&& Self::wf_node_ptr(ptr)
-            &&& self.perms@.contains_key(ptr)
-            &&& ptr == self.perms@[ptr].points_to.ptr()
-            &&& self.perms@[ptr].wf()
-
-            // --- Glue invariants between physical state & tracked/ghost state
-            // prev_phys_block invariant
             &&& self.value_at(ptr).prev_phys_block@.addr != 0 ==> (self.phys_prev_of(i)
-                    matches Some(p) &&
-                    p == self.value_at(ptr).prev_phys_block)
+                    matches Some(p) && p == self.value_at(ptr).prev_phys_block)
             &&& self.value_at(ptr).prev_phys_block@.addr == 0 ==> self.phys_prev_of(i) is None
-
-            // if sentinel flag is present then ...
             &&& if self.value_at(ptr).is_sentinel() {
-                // it's last element in ptrs
                 &&& i == self.ptrs@.len() - 1
-                // sentinel block has size of 0
                 &&& self.value_at(ptr).size == 0
             } else {
-                // there no zero-sized block except sentinel block
                 &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size((self.value_at(ptr).size & SIZE_SIZE_MASK) as int)
                 &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
                 &&& self.phys_next_of(i) is Some
             }
-            // if used flag is not present then it connected to freelist
             &&& if self.value_at(ptr).is_free() {
                 self.perms@[ptr].free_link_perm matches Some(p)
                     && p.ptr() == get_freelink_ptr_spec(ptr)
             } else { true }
+        }
 
-            // --- Invariants on tracked/ghost states
-            // Next block address
+        /// Group C: Structural invariants involving ptr@ terms.
+        /// Primary source of ptr@ trigger explosion — kept closed.
+        pub(crate) closed spec fn wf_node_structural(self, i: int) -> bool
+            recommends 0 <= i < self.ptrs@.len()
+        {
+            let ptr = self.ptrs@[i];
             &&& self.phys_next_of(i) matches Some(next_ptr) ==> {
                 &&& next_ptr@.addr == ptr@.addr + (self.value_at(ptr).size & SIZE_SIZE_MASK)
                 &&& next_ptr@.provenance == ptr@.provenance
             }
-            // No adjacent free blocks
             &&& if self.value_at(ptr).is_free() {
                 self.phys_next_of(i) matches Some(next_ptr)
                     && !self.value_at(next_ptr).is_free()
             } else { true }
+        }
 
+        /// States that each block at `self.ptr[i]` is well-formed.
+        /// Composed of Group A (inline) + Group B (opaque) + Group C (opaque).
+        pub(crate) open spec fn wf_node(self, i: int) -> bool
+            recommends 0 <= i < self.ptrs@.len()
+        {
+            let ptr = self.ptrs@[i];
+            // Group A (inline — no ptr@ terms)
+            &&& Self::wf_node_ptr(ptr)
+            &&& self.perms@.contains_key(ptr)
+            &&& ptr == self.perms@[ptr].points_to.ptr()
+            &&& self.perms@[ptr].wf()
+            // Group B+C (opaque atoms)
+            &&& self.wf_node_glue(i)
+            &&& self.wf_node_structural(i)
         }
 
         pub(crate) open spec fn phys_next_of(self, i: int) -> Option<*mut BlockHdr> {
@@ -207,13 +203,18 @@ verus! {
             ensures forall|i: int| 0 <= i < self.ptrs@.len()
                 ==> self.perms@[self.ptrs@[i]].wf()
         {
-
+            assert forall|i: int| 0 <= i < self.ptrs@.len()
+                implies self.perms@[self.ptrs@[i]].wf()
+            by {
+                assert(self.wf_node(i));
+            };
         }
 
         pub(crate) proof fn lemma_node_is_wf(self, x: *mut BlockHdr)
             requires self.wf(), self.contains(x)
             ensures self.wf_node(self.get_ptr_internal_index(x))
-        {}
+        {
+        }
 
         pub(crate) proof fn lemma_all_blocks_wf_after_replace_block_perm(
             old_ab: AllBlocks<FLLEN, SLLEN>,
@@ -283,6 +284,72 @@ verus! {
             };
         }
 
+        /// Generalized version of lemma_all_blocks_wf_after_replace_block_perm.
+        /// Instead of requiring perms@ == old.insert(block, new_perm), requires
+        /// only that non-block nodes have preserved points_to, mem, and wf().
+        /// This handles cases where next_free_candidate's free_link_perm also changes.
+        pub(crate) proof fn lemma_replace_one_preserve_rest_wf(
+            old_ab: AllBlocks<FLLEN, SLLEN>,
+            new_ab: AllBlocks<FLLEN, SLLEN>,
+            block: *mut BlockHdr,
+        )
+            requires
+                old_ab.wf(),
+                old_ab.ptrs@.contains(block),
+                new_ab.ptrs@ == old_ab.ptrs@,
+                !new_ab.value_at(block).is_free(),
+                new_ab.wf_node(old_ab.get_ptr_internal_index(block)),
+                forall|i: int| 0 <= i < old_ab.ptrs@.len() && old_ab.ptrs@[i] != block ==> ({
+                    let p = old_ab.ptrs@[i];
+                    &&& new_ab.perms@.contains_key(p)
+                    &&& new_ab.perms@[p].points_to == old_ab.perms@[p].points_to
+                    &&& new_ab.perms@[p].mem == old_ab.perms@[p].mem
+                    &&& new_ab.perms@[p].wf()
+                }),
+            ensures
+                new_ab.wf(),
+        {
+            let bi = old_ab.get_ptr_internal_index(block);
+            old_ab.lemma_wf_nodup();
+            assert(ghost_pointer_ordered(new_ab.ptrs@));
+            assert forall|i: int| 0 <= i < new_ab.ptrs@.len() implies new_ab.wf_node(i) by {
+                if i == bi {
+                    assert(new_ab.wf_node(i));
+                } else {
+                    let ptr = new_ab.ptrs@[i];
+                    assert(ptr != block) by {
+                        if ptr == block {
+                            assert(old_ab.ptrs@[i] == block);
+                            assert(old_ab.ptrs@[bi] == block);
+                            lemma_ptrs_no_duplicates_eq_index(old_ab.ptrs@, i, bi);
+                        }
+                    };
+                    assert(old_ab.wf_node(i));
+                    assert(new_ab.value_at(ptr) == old_ab.value_at(ptr));
+                    assert(new_ab.value_at(ptr).is_free() ==> {
+                        let next_ptr = new_ab.phys_next_of(i).unwrap();
+                        !new_ab.value_at(next_ptr).is_free()
+                    }) by {
+                        if new_ab.value_at(ptr).is_free() {
+                            assert(old_ab.value_at(ptr).is_free());
+                            assert(old_ab.phys_next_of(i) is Some);
+                            let old_next_ptr = old_ab.phys_next_of(i).unwrap();
+                            let next_ptr = new_ab.phys_next_of(i).unwrap();
+                            assert(next_ptr == old_next_ptr);
+                            if next_ptr == block {
+                                assert(!new_ab.value_at(next_ptr).is_free());
+                            } else {
+                                assert(new_ab.perms@[next_ptr].points_to == old_ab.perms@[next_ptr].points_to);
+                                assert(!old_ab.value_at(old_next_ptr).is_free());
+                                assert(new_ab.value_at(next_ptr) == old_ab.value_at(old_next_ptr));
+                            }
+                        }
+                    };
+                    assert(new_ab.wf_node(i));
+                }
+            };
+        }
+
 
         pub(crate) open spec fn phys_prev_of(self, i: int) -> Option<*mut BlockHdr> {
             if i == 0 {
@@ -298,11 +365,211 @@ verus! {
             self.value_at(ptr).is_sentinel()
         }
 
+        /// Hides the forall over wf_node from the external SMT context.
+        pub(crate) closed spec fn all_nodes_wf(self) -> bool {
+            forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
+        }
+
         /// Well-formedness for the global list structure.
         pub(crate) open spec fn wf(self) -> bool {
-            // Each block at ptrs[i] is well-formed.
-            &&& forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
+            &&& self.all_nodes_wf()
             &&& ghost_pointer_ordered(self.ptrs@)
+        }
+
+        /// Extract: wf() → wf_node(i), with reveal scoped to lemma body.
+        pub(crate) proof fn lemma_wf_extract_node(&self, i: int)
+            requires self.wf(), 0 <= i < self.ptrs@.len()
+            ensures self.wf_node(i)
+        {
+        }
+
+        /// Opaque atom extraction: provides wf_node_glue(i) without individual facts.
+        pub(crate) proof fn lemma_wf_glue_atom(&self, i: int)
+            requires self.wf(), 0 <= i < self.ptrs@.len()
+            ensures self.wf_node_glue(i)
+        {
+            assert(self.wf_node(i));
+        }
+
+        /// Opaque atom extraction: provides wf_node_structural(i) without individual facts.
+        /// No ptr@ terms leak to caller scope.
+        pub(crate) proof fn lemma_wf_structural_atom(&self, i: int)
+            requires self.wf(), 0 <= i < self.ptrs@.len()
+            ensures self.wf_node_structural(i)
+        {
+            assert(self.wf_node(i));
+        }
+
+        /// Group A bridge: extracts perms contains + ptr match + perm.wf()
+        /// without exposing ptr@ terms (no ptrs_mut_eq trigger).
+        pub(crate) proof fn lemma_wf_perm_wf(&self, i: int)
+            requires self.wf(), 0 <= i < self.ptrs@.len()
+            ensures
+                self.perms@.contains_key(self.ptrs@[i]),
+                self.ptrs@[i] == self.perms@[self.ptrs@[i]].points_to.ptr(),
+                self.perms@[self.ptrs@[i]].wf(),
+        {
+            assert(self.wf_node(i));
+        }
+
+        /// Group B extraction: wf() → individual glue facts + opaque atom.
+        pub(crate) proof fn lemma_wf_glue_facts(&self, i: int)
+            requires self.wf(), 0 <= i < self.ptrs@.len()
+            ensures
+                self.value_at(self.ptrs@[i]).prev_phys_block@.addr != 0
+                    ==> (self.phys_prev_of(i) matches Some(p)
+                        && p == self.value_at(self.ptrs@[i]).prev_phys_block),
+                self.value_at(self.ptrs@[i]).prev_phys_block@.addr == 0
+                    ==> self.phys_prev_of(i) is None,
+                !self.value_at(self.ptrs@[i]).is_sentinel() ==> {
+                    &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(
+                        (self.value_at(self.ptrs@[i]).size & SIZE_SIZE_MASK) as int)
+                    &&& (self.value_at(self.ptrs@[i]).size as int) + (self.ptrs@[i] as int) < usize::MAX
+                    &&& self.phys_next_of(i) is Some
+                },
+                self.value_at(self.ptrs@[i]).is_sentinel() ==> {
+                    &&& i == self.ptrs@.len() - 1
+                    &&& self.value_at(self.ptrs@[i]).size == 0
+                },
+                self.value_at(self.ptrs@[i]).is_free() ==> (
+                    self.perms@[self.ptrs@[i]].free_link_perm matches Some(p)
+                        && p.ptr() == get_freelink_ptr_spec(self.ptrs@[i])
+                ),
+                self.wf_node_glue(i),
+        {
+            assert(self.wf_node(i));
+        }
+
+        /// Group C extraction: wf() → individual structural facts + opaque atom.
+        pub(crate) proof fn lemma_wf_structural_facts(&self, i: int)
+            requires self.wf(), 0 <= i < self.ptrs@.len()
+            ensures
+                self.phys_next_of(i) matches Some(next_ptr) ==> {
+                    &&& next_ptr@.addr == self.ptrs@[i]@.addr
+                        + (self.value_at(self.ptrs@[i]).size & SIZE_SIZE_MASK)
+                    &&& next_ptr@.provenance == self.ptrs@[i]@.provenance
+                },
+                self.value_at(self.ptrs@[i]).is_free() ==> (
+                    self.phys_next_of(i) matches Some(next_ptr)
+                        && !self.value_at(next_ptr).is_free()
+                ),
+                self.wf_node_structural(i),
+        {
+            assert(self.wf_node(i));
+        }
+
+        /// Group B construction: individual facts → opaque atom.
+        pub(crate) proof fn lemma_construct_wf_node_glue(&self, i: int)
+            requires
+                0 <= i < self.ptrs@.len(),
+                self.perms@.contains_key(self.ptrs@[i]),
+                self.perms@[self.ptrs@[i]].points_to.is_init(),
+                ({
+                    let ptr = self.ptrs@[i];
+                    &&& self.value_at(ptr).prev_phys_block@.addr != 0 ==> (self.phys_prev_of(i)
+                            matches Some(p) && p == self.value_at(ptr).prev_phys_block)
+                    &&& self.value_at(ptr).prev_phys_block@.addr == 0 ==> self.phys_prev_of(i) is None
+                    &&& if self.value_at(ptr).is_sentinel() {
+                        &&& i == self.ptrs@.len() - 1
+                        &&& self.value_at(ptr).size == 0
+                    } else {
+                        &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(
+                            (self.value_at(ptr).size & SIZE_SIZE_MASK) as int)
+                        &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
+                        &&& self.phys_next_of(i) is Some
+                    }
+                    &&& if self.value_at(ptr).is_free() {
+                        self.perms@[ptr].free_link_perm matches Some(p)
+                            && p.ptr() == get_freelink_ptr_spec(ptr)
+                    } else { true }
+                }),
+            ensures self.wf_node_glue(i)
+        {
+        }
+
+        /// Group C construction: individual facts → opaque atom.
+        pub(crate) proof fn lemma_construct_wf_node_structural(&self, i: int)
+            requires
+                0 <= i < self.ptrs@.len(),
+                self.perms@.contains_key(self.ptrs@[i]),
+                self.perms@[self.ptrs@[i]].points_to.is_init(),
+                ({
+                    let ptr = self.ptrs@[i];
+                    &&& self.phys_next_of(i) matches Some(next_ptr) ==> {
+                        &&& next_ptr@.addr == ptr@.addr + (self.value_at(ptr).size & SIZE_SIZE_MASK)
+                        &&& next_ptr@.provenance == ptr@.provenance
+                    }
+                    &&& if self.value_at(ptr).is_free() {
+                        self.phys_next_of(i) matches Some(next_ptr)
+                            && !self.value_at(next_ptr).is_free()
+                    } else { true }
+                }),
+            ensures self.wf_node_structural(i)
+        {
+        }
+
+        /// Transfer lemma: derives wf_node components for new_ab from old_ab
+        /// without leaking ptr@ terms to the caller scope.
+        /// The value_at(next_ptr) precondition is only required when the node
+        /// is free, since wf_node_structural's free-next check is the only consumer.
+        pub(crate) proof fn lemma_transfer_wf_node(
+            old_ab: &Self, new_ab: &Self, old_i: int, new_i: int
+        )
+            requires
+                old_ab.wf(),
+                0 <= old_i < old_ab.ptrs@.len(),
+                0 <= new_i < new_ab.ptrs@.len(),
+                old_ab.ptrs@[old_i] == new_ab.ptrs@[new_i],
+                new_ab.perms@.contains_key(new_ab.ptrs@[new_i]),
+                old_ab.perms@[old_ab.ptrs@[old_i]] == new_ab.perms@[new_ab.ptrs@[new_i]],
+                old_ab.phys_prev_of(old_i) == new_ab.phys_prev_of(new_i),
+                old_ab.phys_next_of(old_i) == new_ab.phys_next_of(new_i),
+                (old_ab.value_at(old_ab.ptrs@[old_i]).is_free()
+                    && old_ab.phys_next_of(old_i) is Some)
+                    ==> old_ab.value_at(old_ab.phys_next_of(old_i).unwrap())
+                        == new_ab.value_at(new_ab.phys_next_of(new_i).unwrap()),
+            ensures
+                new_ab.wf_node_glue(new_i),
+                new_ab.wf_node_structural(new_i),
+                Self::wf_node_ptr(new_ab.ptrs@[new_i]),
+                new_ab.ptrs@[new_i] == new_ab.perms@[new_ab.ptrs@[new_i]].points_to.ptr(),
+                new_ab.perms@[new_ab.ptrs@[new_i]].wf(),
+        {
+            assert(old_ab.wf_node(old_i));
+        }
+
+        /// Wrapper: derives new_ab.wf() from old_ab.wf() after block perm replacement.
+        /// Caller does not need reveal(AllBlocks::all_nodes_wf).
+        pub(crate) proof fn lemma_replace_block_perm_from_wf(
+            old_ab: AllBlocks<FLLEN, SLLEN>,
+            new_ab: AllBlocks<FLLEN, SLLEN>,
+            block: *mut BlockHdr,
+            new_perm: BlockPerm,
+        )
+            requires
+                old_ab.wf(),
+                old_ab.ptrs@.contains(block),
+                new_ab.ptrs@ == old_ab.ptrs@,
+                new_ab.perms@ == old_ab.perms@.insert(block, new_perm),
+                new_perm.points_to.ptr() == block,
+                new_perm.wf(),
+                !new_perm.points_to.value().is_free(),
+                new_ab.wf_node(old_ab.get_ptr_internal_index(block)),
+            ensures
+                new_ab.wf(),
+        {
+            old_ab.lemma_wf_nodup();
+            Self::lemma_all_blocks_wf_after_replace_block_perm(
+                old_ab, new_ab, block, new_perm);
+        }
+
+        /// Reconstruct: parts → wf(), with reveal scoped to lemma body.
+        pub(crate) proof fn lemma_wf_from_nodes(&self)
+            requires
+                forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i),
+                ghost_pointer_ordered(self.ptrs@),
+            ensures self.wf()
+        {
         }
 
 
@@ -447,11 +714,22 @@ verus! {
             ensures
                 !self.pi.values().contains(all_blocks.get_ptr_internal_index(node))
         {
-            // not exists (ind, n), self.m[ind][n] == node
-            // i.e. forall (ind, n), self.m[ind][n] != node
-            // forall x in pi.values(), 0 <= x < self.all_blocks.ptrs@.len()
-            //
-            // follows from ii cond
+            all_blocks.lemma_wf_nodup();
+            let k = all_blocks.get_ptr_internal_index(node);
+            // Contrapositive: assume pi.values().contains(k) and derive contradiction
+            if self.pi.values().contains(k) {
+                let key = choose|key: (BlockIndex<FLLEN, SLLEN>, int)|
+                    self.pi.dom().contains(key) && self.pi[key] == k;
+                let (idx, m) = key;
+                // is_identity_injection totality: pi.contains_key <==> idx.wf() && valid range
+                assert(idx.wf() && 0 <= m < self.m[idx].len());
+                // is_identity_injection correctness: m[idx][m] == ptrs@[pi[(idx,m)]]
+                assert(self.m[idx][m] == all_blocks.ptrs@[k]);
+                assert(all_blocks.ptrs@[k] == node);
+                // Therefore node is in freelist bucket → self.contains(node) → contradiction
+                assert(self.m[idx].contains(node));
+                assert(self.contains(node));
+            }
         }
 
     }

@@ -796,7 +796,10 @@ use crate::*;
 
                 // update link
                 let first_free_link = get_freelink_ptr(first_free);
-                assert(old(self).all_blocks.wf_node(old(self).all_blocks.get_ptr_internal_index(first_free)));
+                assert(old(self).all_blocks.wf_node(old(self).all_blocks.get_ptr_internal_index(first_free))) by {
+                    old(self).all_blocks.lemma_wf_extract_node(
+                        old(self).all_blocks.get_ptr_internal_index(first_free));
+                };
                 assert(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
                 {
                     let n = ptr_ref(first_free_link, Tracked(&first_free_fl_pt)).next_free;
@@ -831,9 +834,34 @@ use crate::*;
                     assert(self.all_blocks.wf()) by {
                         assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                             implies self.all_blocks.wf_node(i)
-                            by {
-                                assert(old(self).all_blocks.wf_node(i));
+                        by {
+                            let ptr = self.all_blocks.ptrs@[i];
+                            if ptr == node || ptr == first_free {
+                                old(self).all_blocks.lemma_wf_extract_node(i);
+                                old(self).all_blocks.lemma_wf_glue_facts(i);
+                                old(self).all_blocks.lemma_wf_structural_facts(i);
+                                old(self).all_blocks.lemma_wf_perm_wf(i);
+                                assert(self.all_blocks.perms@[ptr].points_to
+                                    == old(self).all_blocks.perms@[ptr].points_to);
+                                assert(self.all_blocks.perms@[ptr].mem
+                                    == old(self).all_blocks.perms@[ptr].mem);
+                                self.all_blocks.lemma_construct_wf_node_glue(i);
+                                self.all_blocks.lemma_construct_wf_node_structural(i);
+                            } else {
+                                old(self).all_blocks.lemma_wf_extract_node(i);
+                                assert(self.all_blocks.perms@[ptr]
+                                    == old(self).all_blocks.perms@[ptr]);
+                                if old(self).all_blocks.value_at(ptr).is_free()
+                                    && old(self).all_blocks.phys_next_of(i) is Some {
+                                    let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
+                                    assert(self.all_blocks.perms@[next_ptr].points_to
+                                        == old(self).all_blocks.perms@[next_ptr].points_to);
+                                }
+                                AllBlocks::<FLLEN, SLLEN>::lemma_transfer_wf_node(
+                                    &old(self).all_blocks, &self.all_blocks, i, i);
                             }
+                        }
+                        self.all_blocks.lemma_wf_from_nodes();
                     };
 
                     let node_ind = self.all_blocks.get_ptr_internal_index(node);
@@ -933,8 +961,33 @@ use crate::*;
                         assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
                             implies self.all_blocks.wf_node(i)
                         by {
-                            assert(old(self).all_blocks.wf_node(i));
+                            let ptr = self.all_blocks.ptrs@[i];
+                            if ptr == node {
+                                old(self).all_blocks.lemma_wf_extract_node(i);
+                                old(self).all_blocks.lemma_wf_glue_facts(i);
+                                old(self).all_blocks.lemma_wf_structural_facts(i);
+                                old(self).all_blocks.lemma_wf_perm_wf(i);
+                                assert(self.all_blocks.perms@[ptr].points_to
+                                    == old(self).all_blocks.perms@[ptr].points_to);
+                                assert(self.all_blocks.perms@[ptr].mem
+                                    == old(self).all_blocks.perms@[ptr].mem);
+                                self.all_blocks.lemma_construct_wf_node_glue(i);
+                                self.all_blocks.lemma_construct_wf_node_structural(i);
+                            } else {
+                                old(self).all_blocks.lemma_wf_extract_node(i);
+                                assert(self.all_blocks.perms@[ptr]
+                                    == old(self).all_blocks.perms@[ptr]);
+                                if old(self).all_blocks.value_at(ptr).is_free()
+                                    && old(self).all_blocks.phys_next_of(i) is Some {
+                                    let next_ptr = old(self).all_blocks.phys_next_of(i).unwrap();
+                                    assert(self.all_blocks.perms@[next_ptr].points_to
+                                        == old(self).all_blocks.perms@[next_ptr].points_to);
+                                }
+                                AllBlocks::<FLLEN, SLLEN>::lemma_transfer_wf_node(
+                                    &old(self).all_blocks, &self.all_blocks, i, i);
+                            }
                         }
+                        self.all_blocks.lemma_wf_from_nodes();
                     };
                     self.all_blocks.lemma_wf_node_ptr(node_ind);
 

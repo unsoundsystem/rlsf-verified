@@ -154,7 +154,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(sz as int % 32 == 0);
         assert(SIZE_USED == 1);
         reveal(usize_trailing_zeros);
-        reveal(u64_trailing_zeros);
+        // reveal(u64_trailing_zeros); // closed in newer vstd
         assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
         assert((sz & !31usize) == sz) by (bit_vector)
             requires sz as int % 32 == 0;
