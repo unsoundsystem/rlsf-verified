@@ -721,6 +721,16 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 proof {
                     old(self).all_blocks.lemma_wf_glue_facts(block_id);
                     old(self).all_blocks.lemma_wf_structural_facts(block_id);
+                    // Establish next_phys_block == ptrs@[block_id+1] via elim
+                    // (scoped to avoid leaking ptr@ terms)
+                    assert(old(self).all_blocks.phys_next_of(block_id) is Some);
+                    assert(old(self).all_blocks.contains(next_phys_block)
+                        && old(self).all_blocks.phys_next_of(block_id).unwrap()
+                            == next_phys_block) by {
+                        let phys_next = old(self).all_blocks.phys_next_of(block_id).unwrap();
+                        AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
+                            phys_next, block, old(self).all_blocks.value_at(block).size);
+                    };
                     old(self).all_blocks.lemma_contains(next_phys_block);
                 }
                 let tracked next_phys_block_perm = self.all_blocks.perms.borrow_mut()
@@ -961,7 +971,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 old(self).all_blocks.lemma_wf_structural_facts(block_id);
                                 assert(old(self).all_blocks.wf_node(block_id));
                                 assert(old(self).all_blocks.phys_next_of(block_id) is Some);
-                                assert(old(self).all_blocks.phys_next_of(block_id).unwrap() == old_ptrs[block_id + 1]);
+                                let next_ptr = old(self).all_blocks.phys_next_of(block_id).unwrap();
+                                AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
+                                    next_ptr, block, old(self).all_blocks.value_at(block).size);
+                                assert(next_ptr == old_ptrs[block_id + 1]);
                                 assert((old_ptrs[block_id + 1] as usize as int) == (block as usize as int) + block_size as int);
                                 assert((new_free_block as usize as int) == (block as usize as int) + new_size as int);
                                 assert(new_size <= block_size);
@@ -972,6 +985,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             assert(old(self).all_blocks.wf_node(block_id));
                             assert(old(self).all_blocks.phys_next_of(block_id) is Some);
                             let next_ptr = old(self).all_blocks.phys_next_of(block_id).unwrap();
+                            AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
+                                next_ptr, block, old(self).all_blocks.value_at(block).size);
                             assert(next_ptr == old_ptrs[block_id + 1]);
                             assert(next_ptr@.addr == block@.addr + (old(self).all_blocks.value_at(block).size & SIZE_SIZE_MASK));
                             assert(next_ptr@.provenance == block@.provenance);
@@ -1093,6 +1108,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         assert((new_size | SIZE_USED) <= block_size);
                                         assert(((new_size | SIZE_USED) as int) + (block as int) < (usize::MAX as int));
                                     };
+                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                        AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                            next_ptr, ptr, self.all_blocks.value_at(ptr).size)) by {
+                                        if self.all_blocks.phys_next_of(i) matches Some(next_ptr) {
+                                            let next_ptr = self.all_blocks.phys_next_of(i).unwrap();
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_intro(
+                                                next_ptr, ptr, self.all_blocks.value_at(ptr).size);
+                                        }
+                                    };
                                     self.all_blocks.lemma_construct_wf_node_glue(i);
                                     self.all_blocks.lemma_construct_wf_node_structural(i);
                                 };
@@ -1150,33 +1174,25 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                                 && p == self.all_blocks.value_at(ptr).prev_phys_block);
                                         }
                                     };
-                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                        &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                                        &&& next_ptr@.provenance == ptr@.provenance
-                                    }) by {
+                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                        AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                            next_ptr, ptr, self.all_blocks.value_at(ptr).size)) by {
                                         if self.all_blocks.phys_next_of(i) matches Some(next_ptr) {
                                             let next_ptr = self.all_blocks.phys_next_of(i).unwrap();
                                             let old_next_ptr = old(self).all_blocks.phys_next_of(next_phys_block_ind).unwrap();
                                             assert(next_ptr == old_next_ptr);
                                             old(self).all_blocks.lemma_wf_extract_node(next_phys_block_ind);
                                             old(self).all_blocks.lemma_wf_structural_facts(next_phys_block_ind);
-                                            assert(old(self).all_blocks.wf_node(next_phys_block_ind));
-                                            assert(old(self).all_blocks.phys_next_of(next_phys_block_ind) matches Some(old_p) ==> {
-                                                &&& old_p@.addr == next_phys_block@.addr
-                                                    + (old(self).all_blocks.value_at(next_phys_block).size & SIZE_SIZE_MASK)
-                                                &&& old_p@.provenance == next_phys_block@.provenance
-                                            });
-                                            assert(old_next_ptr@.addr == next_phys_block@.addr
-                                                + (old(self).all_blocks.value_at(next_phys_block).size & SIZE_SIZE_MASK));
-                                            assert(old_next_ptr@.provenance == next_phys_block@.provenance);
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
+                                                old_next_ptr, next_phys_block,
+                                                old(self).all_blocks.value_at(next_phys_block).size);
                                             assert(ptr == next_phys_block);
                                             assert(self.all_blocks.value_at(ptr).size
                                                 == old(self).all_blocks.value_at(next_phys_block).size);
                                             assert((self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
                                                 == (old(self).all_blocks.value_at(next_phys_block).size & SIZE_SIZE_MASK));
-                                            assert(next_ptr@.addr == ptr@.addr
-                                                + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK));
-                                            assert(next_ptr@.provenance == ptr@.provenance);
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_intro(
+                                                next_ptr, ptr, self.all_blocks.value_at(ptr).size);
                                         }
                                     };
                                     assert(!self.all_blocks.value_at(ptr).is_free()) by {
@@ -1308,6 +1324,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             assert(!self.all_blocks.value_at(next_ptr).is_free());
                                         }
                                     };
+                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                        AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                            next_ptr, ptr, self.all_blocks.value_at(ptr).size)) by {
+                                        if self.all_blocks.phys_next_of(i) matches Some(next_ptr) {
+                                            let next_ptr = self.all_blocks.phys_next_of(i).unwrap();
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_intro(
+                                                next_ptr, ptr, self.all_blocks.value_at(ptr).size);
+                                        }
+                                    };
                                     self.all_blocks.lemma_construct_wf_node_glue(i);
                                     self.all_blocks.lemma_construct_wf_node_structural(i);
                                 };
@@ -1379,7 +1404,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                         assert(self.all_blocks.phys_next_of(i) == old(self).all_blocks.phys_next_of(i));
                                         if next_free_candidate@.addr != 0 && ptr == next_free_candidate {
                                             // free_link_perm changed; use construct approach
-                                            // (ptr@ contained in this by-block)
                                             old(self).all_blocks.lemma_wf_glue_facts(i);
                                             old(self).all_blocks.lemma_wf_structural_facts(i);
                                             assert(self.all_blocks.value_at(ptr) == old(self).all_blocks.value_at(ptr));
@@ -1389,10 +1413,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             ));
                                             assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
                                                 ==> self.all_blocks.phys_prev_of(i) is None);
-                                            assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                                &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                                                &&& next_ptr@.provenance == ptr@.provenance
-                                            });
+                                            // phys_next_matches transfers from old_ab by congruence
+                                            // (ptrs@[i], phys_next_of(i), value_at(ptr).size all equal)
+                                            assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                                AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                                    next_ptr, ptr, self.all_blocks.value_at(ptr).size));
                                             assert(self.all_blocks.value_at(ptr).is_free() ==> {
                                                 self.all_blocks.phys_next_of(i) matches Some(next_ptr)
                                                     && !self.all_blocks.value_at(next_ptr).is_free()
@@ -1504,10 +1529,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             ));
                                             assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
                                                 ==> self.all_blocks.phys_prev_of(i) is None);
-                                            assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                                &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                                                &&& next_ptr@.provenance == ptr@.provenance
-                                            });
+                                            // phys_next_matches transfers from old_ab by congruence
+                                            // (ptrs@[i-1], phys_next_of(i-1), value_at(ptr).size all equal)
+                                            assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                                AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                                    next_ptr, ptr, self.all_blocks.value_at(ptr).size));
                                             assert(self.all_blocks.value_at(ptr).is_free() ==> {
                                                 self.all_blocks.phys_next_of(i) matches Some(next_ptr)
                                                     && !self.all_blocks.value_at(next_ptr).is_free()
@@ -2296,11 +2322,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         ));
                         assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
                             ==> self.all_blocks.phys_prev_of(bi) is None);
-                        // structural preconditions
-                        assert(self.all_blocks.phys_next_of(bi) matches Some(next_ptr) ==> {
-                            &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                            &&& next_ptr@.provenance == ptr@.provenance
-                        });
+                        // structural preconditions: phys_next_matches transfers from ab_before_final_remove
+                        assert(self.all_blocks.phys_next_of(bi) matches Some(next_ptr) ==>
+                            AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                next_ptr, ptr, self.all_blocks.value_at(ptr).size));
                         self.all_blocks.lemma_construct_wf_node_glue(bi);
                         self.all_blocks.lemma_construct_wf_node_structural(bi);
                     };
@@ -2375,22 +2400,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 };
                                 assert(self.all_blocks.phys_next_of(i) == old(self).all_blocks.phys_next_of(block_id));
                                 old(self).all_blocks.lemma_wf_structural_facts(block_id);
-                                assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                    &&& next_ptr@.addr == block@.addr + (self.all_blocks.value_at(block).size & SIZE_SIZE_MASK)
-                                    &&& next_ptr@.provenance == block@.provenance
-                                }) by {
+                                // size field changed (used bit) but SIZE_SIZE_MASK bits are same
+                                // → elim old atom, intro new atom with new size
+                                assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                    AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                        next_ptr, block, self.all_blocks.value_at(block).size)) by {
                                     if self.all_blocks.phys_next_of(i) matches Some(next_ptr) {
                                         let next_ptr = self.all_blocks.phys_next_of(i).unwrap();
-                                        assert(old(self).all_blocks.phys_next_of(block_id) matches Some(old_next_ptr));
-                                        let old_next_ptr = old(self).all_blocks.phys_next_of(block_id).unwrap();
-                                        assert(next_ptr == old_next_ptr);
-                                        assert(old(self).all_blocks.wf_node(block_id));
-                                        assert(old(self).all_blocks.phys_next_of(block_id) matches Some(p) ==> {
-                                            &&& p@.addr == block@.addr + (old(self).all_blocks.value_at(block).size & SIZE_SIZE_MASK)
-                                            &&& p@.provenance == block@.provenance
-                                        });
-                                        assert(next_ptr@.addr == block@.addr + (self.all_blocks.value_at(block).size & SIZE_SIZE_MASK));
-                                        assert(next_ptr@.provenance == block@.provenance);
+                                        AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
+                                            next_ptr, block, old(self).all_blocks.value_at(block).size);
+                                        AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_intro(
+                                            next_ptr, block, self.all_blocks.value_at(block).size);
                                     }
                                 };
                                 assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(
@@ -2411,9 +2431,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                             assert((block_size as int) + (block as int) < usize::MAX as int);
                                         };
                                         assert((block_size as int) + (block as int) != (usize::MAX as int) - 1) by {
-                                            assert((block_size as int) + (block as int) == old(self).all_blocks.phys_next_of(block_id).unwrap()@.addr);
                                             assert(old(self).all_blocks.phys_next_of(block_id) is Some);
                                             let next_ptr = old(self).all_blocks.phys_next_of(block_id).unwrap();
+                                            AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
+                                                next_ptr, block, old(self).all_blocks.value_at(block).size);
+                                            assert((block_size as int) + (block as int) == next_ptr@.addr);
                                             assert(old(self).all_blocks.wf());
                                             let next_i = block_id + 1;
                                             assert(0 <= next_i < old(self).all_blocks.ptrs@.len());
@@ -2464,10 +2486,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                     ));
                                     assert(self.all_blocks.value_at(ptr).prev_phys_block@.addr == 0
                                         ==> self.all_blocks.phys_prev_of(i) is None);
-                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==> {
-                                        &&& next_ptr@.addr == ptr@.addr + (self.all_blocks.value_at(ptr).size & SIZE_SIZE_MASK)
-                                        &&& next_ptr@.provenance == ptr@.provenance
-                                    });
+                                    // phys_next_matches transfers from old_ab by congruence
+                                    assert(self.all_blocks.phys_next_of(i) matches Some(next_ptr) ==>
+                                        AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                                            next_ptr, ptr, self.all_blocks.value_at(ptr).size));
                                     assert(self.all_blocks.value_at(ptr).is_free() ==> {
                                         self.all_blocks.phys_next_of(i) matches Some(next_ptr)
                                             && !self.all_blocks.value_at(next_ptr).is_free()

@@ -47,6 +47,44 @@ verus! {
             &&& (ptr@.addr as int) % (GRANULARITY as int) == 0
         }
 
+        /// Closed wrapper: physical next pointer has expected address and provenance.
+        /// Prevents ptr@ terms from leaking into caller SMT context.
+        pub(crate) closed spec fn phys_next_matches(
+            next_ptr: *mut BlockHdr,
+            cur_ptr: *mut BlockHdr,
+            size: usize,
+        ) -> bool {
+            &&& next_ptr@.addr == cur_ptr@.addr + (size & SIZE_SIZE_MASK)
+            &&& next_ptr@.provenance == cur_ptr@.provenance
+        }
+
+        /// Intro: raw addr/provenance facts → phys_next_matches atom.
+        pub(crate) proof fn lemma_phys_next_matches_intro(
+            next_ptr: *mut BlockHdr,
+            cur_ptr: *mut BlockHdr,
+            size: usize,
+        )
+            requires
+                next_ptr@.addr == cur_ptr@.addr + (size & SIZE_SIZE_MASK),
+                next_ptr@.provenance == cur_ptr@.provenance,
+            ensures
+                Self::phys_next_matches(next_ptr, cur_ptr, size),
+        { }
+
+        /// Elim: phys_next_matches atom → raw addr/provenance facts.
+        /// Call inside `assert(...) by { ... }` to scope ptr@ term exposure.
+        pub(crate) proof fn lemma_phys_next_matches_elim(
+            next_ptr: *mut BlockHdr,
+            cur_ptr: *mut BlockHdr,
+            size: usize,
+        )
+            requires
+                Self::phys_next_matches(next_ptr, cur_ptr, size),
+            ensures
+                next_ptr@.addr == cur_ptr@.addr + (size & SIZE_SIZE_MASK),
+                next_ptr@.provenance == cur_ptr@.provenance,
+        { }
+
         /// Bridge lemma: constructs wf_node_ptr from explicit addr/alignment facts.
         pub(crate) proof fn lemma_wf_node_ptr_from_facts(ptr: *mut BlockHdr)
             requires
@@ -441,14 +479,14 @@ verus! {
         }
 
         /// Group C extraction: wf() → individual structural facts + opaque atom.
+        /// Returns phys_next_matches atom instead of raw ptr@ terms to prevent
+        /// ptrs_mut_eq broadcast trigger cascade in callers.
         pub(crate) proof fn lemma_wf_structural_facts(&self, i: int)
             requires self.wf(), 0 <= i < self.ptrs@.len()
             ensures
-                self.phys_next_of(i) matches Some(next_ptr) ==> {
-                    &&& next_ptr@.addr == self.ptrs@[i]@.addr
-                        + (self.value_at(self.ptrs@[i]).size & SIZE_SIZE_MASK)
-                    &&& next_ptr@.provenance == self.ptrs@[i]@.provenance
-                },
+                self.phys_next_of(i) matches Some(next_ptr) ==>
+                    Self::phys_next_matches(
+                        next_ptr, self.ptrs@[i], self.value_at(self.ptrs@[i]).size),
                 self.value_at(self.ptrs@[i]).is_free() ==> (
                     self.phys_next_of(i) matches Some(next_ptr)
                         && !self.value_at(next_ptr).is_free()
@@ -495,10 +533,8 @@ verus! {
                 self.perms@[self.ptrs@[i]].points_to.is_init(),
                 ({
                     let ptr = self.ptrs@[i];
-                    &&& self.phys_next_of(i) matches Some(next_ptr) ==> {
-                        &&& next_ptr@.addr == ptr@.addr + (self.value_at(ptr).size & SIZE_SIZE_MASK)
-                        &&& next_ptr@.provenance == ptr@.provenance
-                    }
+                    &&& self.phys_next_of(i) matches Some(next_ptr) ==>
+                        Self::phys_next_matches(next_ptr, ptr, self.value_at(ptr).size)
                     &&& if self.value_at(ptr).is_free() {
                         self.phys_next_of(i) matches Some(next_ptr)
                             && !self.value_at(next_ptr).is_free()
