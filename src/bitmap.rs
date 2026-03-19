@@ -120,7 +120,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         ensures self.bitmap_wf(),
             idx matches BlockIndex(fl, sl)
                 && !nth_bit!(self.sl_bitmap[fl as int], sl)
-                && !nth_bit!(self.fl_bitmap, fl)
+                && !nth_bit!(self.fl_bitmap, fl),
     {
         let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap & !(1usize << fl);

@@ -809,6 +809,14 @@ use crate::*;
                 assert(self.all_blocks.perms@.contains_key(node));
             }
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
+            proof {
+                // node is free → free_link_perm is Some (from BlockPerm::wf)
+                let ghost node_ai = old(self).all_blocks.get_ptr_internal_index(node);
+                old(self).all_blocks.lemma_wf_perm_wf(node_ai);
+                assert(old(self).all_blocks.perms@[node].wf());
+                assert(old(self).all_blocks.perms@[node].points_to.value().is_free());
+                assert(node_blk.free_link_perm is Some);
+            }
             let tracked link_perm = node_blk.free_link_perm.tracked_unwrap();
             let ghost i = choose|i: int|
                 0 <= i < old(self).shadow_freelist@.m[idx].len()
@@ -817,11 +825,9 @@ use crate::*;
                 assert(old(self).wf_free_node(idx, i));
                 assert(link_perm.ptr() == link) by {
                     assert(link == get_freelink_ptr_spec(node));
-                    assert(node_blk.free_link_perm.unwrap().ptr()
-                        == old(self).all_blocks.perms@[node].free_link_perm.unwrap().ptr());
-                    assert(old(self).all_blocks.perms@[node].free_link_perm.unwrap().ptr()
-                        == get_freelink_ptr_spec(node));
                 };
+                // link_perm.is_init() from BlockPerm::wf()
+                assert(link_perm.is_init());
             }
 
             let next_free = ptr_ref(link, Tracked(&link_perm)).next_free;
@@ -835,12 +841,31 @@ use crate::*;
                     assert(Some(next_free) == Self::free_next_of(old(self).shadow_freelist@.m[idx], i));
                     assert(i < old(self).shadow_freelist@.m[idx].len() - 1);
                     assert(old(self).shadow_freelist@.m[idx][i + 1] == next_free);
+                    // next_free != node (positions i+1 vs i in no-dup list)
+                    old(self).lemma_shadow_list_no_duplicates();
+                    old(self).lemma_nodup_get(idx, i + 1, idx, i);
+                    assert(next_free != node);
                     assert(old(self).all_blocks.contains(next_free));
                     old(self).all_blocks.lemma_contains(next_free);
                     assert(self.all_blocks.perms@.contains_key(next_free));
                 }
                 let tracked next_blk = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
+                proof {
+                    // next_free is free → free_link_perm is Some
+                    let ghost nf_ai = old(self).all_blocks.get_ptr_internal_index(next_free);
+                    old(self).all_blocks.lemma_wf_perm_wf(nf_ai);
+                    assert(old(self).all_blocks.perms@[next_free].wf());
+                    assert(old(self).wf_free_node(idx, i + 1));
+                    assert(old(self).all_blocks.value_at(next_free).is_free());
+                    assert(next_blk.free_link_perm is Some);
+                }
                 let tracked next_link_perm = next_blk.free_link_perm.tracked_unwrap();
+                proof {
+                    assert(next_link_perm.ptr() == next_link) by {
+                        assert(next_link == get_freelink_ptr_spec(next_free));
+                    };
+                    assert(next_link_perm.is_init());
+                }
                 {
                     let n = ptr_ref(next_link, Tracked(&next_link_perm)).next_free;
                     ptr_mut_write(next_link, Tracked(&mut next_link_perm), FreeLink {
@@ -867,10 +892,29 @@ use crate::*;
                     assert(old(self).shadow_freelist@.m[idx][i - 1] == prev_free);
                     assert(old(self).all_blocks.contains(prev_free));
                     old(self).all_blocks.lemma_contains(prev_free);
+                    // prev_free != node (positions i-1 vs i in no-dup list)
+                    old(self).lemma_shadow_list_no_duplicates();
+                    old(self).lemma_nodup_get(idx, i - 1, idx, i);
+                    assert(prev_free != node);
                     assert(self.all_blocks.perms@.contains_key(prev_free));
                 }
                 let tracked prev_blk = self.all_blocks.perms.borrow_mut().tracked_remove(prev_free);
+                proof {
+                    // prev_free is free → free_link_perm is Some
+                    let ghost pf_ai = old(self).all_blocks.get_ptr_internal_index(prev_free);
+                    old(self).all_blocks.lemma_wf_perm_wf(pf_ai);
+                    assert(old(self).all_blocks.perms@[prev_free].wf());
+                    assert(old(self).wf_free_node(idx, i - 1));
+                    assert(old(self).all_blocks.value_at(prev_free).is_free());
+                    assert(prev_blk.free_link_perm is Some);
+                }
                 let tracked prev_link_perm = prev_blk.free_link_perm.tracked_unwrap();
+                proof {
+                    assert(prev_link_perm.ptr() == prev_link) by {
+                        assert(prev_link == get_freelink_ptr_spec(prev_free));
+                    };
+                    assert(prev_link_perm.is_init());
+                }
                 {
                     let p = ptr_ref(prev_link, Tracked(&prev_link_perm)).prev_free;
                     ptr_mut_write(prev_link, Tracked(&mut prev_link_perm), FreeLink {
@@ -888,13 +932,89 @@ use crate::*;
             } else {
                 self.set_freelist(idx, next_free);
 
-                if next_free != null_bhdr() {
-                    self.clear_bit_for_index(idx);
+                if next_free == null_bhdr() {
+                    self.clear_bit_for_sl(idx);
                 }
+            }
+
+            // Re-insert node's perm (points_to and mem preserved, free_link_perm same as before)
+            proof {
+                self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
+                    points_to: node_blk.points_to,
+                    free_link_perm: Some(link_perm),
+                    mem: node_blk.mem,
+                });
+            }
+
+            // Shadow freelist ghost assignment
+            proof {
+                old(self).all_blocks.lemma_wf_nodup();
+                Self::lemma_ii_remove_for_index_ensures(
+                    old(self).shadow_freelist@,
+                    old(self).all_blocks,
+                    idx,
+                    i);
+                self.shadow_freelist@ =
+                    old(self).shadow_freelist@.ii_remove_for_index(
+                        old(self).all_blocks, idx, i);
+            }
+
+            // Prove all_blocks.wf()
+            proof {
+                reveal(AllBlocks::ptr_is_null);
+
+                // Establish perms@ frame: for all ptrs, points_to and mem preserved
+                assert forall|p: *mut BlockHdr|
+                    old(self).all_blocks.perms@.contains_key(p)
+                    implies self.all_blocks.perms@.contains_key(p)
+                        && self.all_blocks.perms@[p].points_to
+                            == old(self).all_blocks.perms@[p].points_to
+                        && self.all_blocks.perms@[p].mem
+                            == old(self).all_blocks.perms@[p].mem
+                by {};
+
+                assert(self.all_blocks.wf()) by {
+                    assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
+                        implies self.all_blocks.wf_node(j)
+                    by {
+                        let ptr = self.all_blocks.ptrs@[j];
+                        assert(old(self).all_blocks.perms@.contains_key(ptr)) by {
+                            old(self).all_blocks.lemma_wf_extract_node(j);
+                        };
+                        assert(self.all_blocks.perms@.contains_key(ptr));
+                        if (next_free@.addr != 0 && ptr == next_free)
+                            || (prev_free@.addr != 0 && ptr == prev_free) {
+                            // These nodes had free_link_perm modified
+                            old(self).all_blocks.lemma_wf_extract_node(j);
+                            old(self).all_blocks.lemma_wf_glue_facts(j);
+                            old(self).all_blocks.lemma_wf_structural_facts(j);
+                            old(self).all_blocks.lemma_wf_perm_wf(j);
+                            self.all_blocks.lemma_construct_wf_node_glue(j);
+                            self.all_blocks.lemma_construct_wf_node_structural(j);
+                        } else {
+                            // node and all other nodes: perm unchanged
+                            old(self).all_blocks.lemma_wf_extract_node(j);
+                            assert(self.all_blocks.perms@[ptr]
+                                == old(self).all_blocks.perms@[ptr]);
+                            if old(self).all_blocks.value_at(ptr).is_free()
+                                && old(self).all_blocks.phys_next_of(j) is Some {
+                                let next_ptr = old(self).all_blocks.phys_next_of(j).unwrap();
+                                assert(self.all_blocks.perms@[next_ptr].points_to
+                                    == old(self).all_blocks.perms@[next_ptr].points_to);
+                            }
+                            AllBlocks::<FLLEN, SLLEN>::lemma_transfer_wf_node(
+                                &old(self).all_blocks, &self.all_blocks, j, j);
+                        }
+                    }
+                    self.all_blocks.lemma_wf_from_nodes();
+                };
             }
 
             // Prove free_blocks_in_freelist_except(exceptions.insert(node))
             proof {
+                // node is not in any other bucket
+                old(self).lemma_shadow_list_contains_unique(idx, node);
+
                 assert(self.free_blocks_in_freelist_except(exceptions.insert(node))) by {
                     reveal(Tlsf::free_blocks_in_freelist_except);
                     assert forall|j: int| 0 <= j < self.all_blocks.ptrs@.len()
@@ -903,26 +1023,250 @@ use crate::*;
                         implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[j])
                     by {
                         let ptr = self.all_blocks.ptrs@[j];
-                        // ptr != node (since ptr is not in exceptions.insert(node))
                         assert(ptr != node);
-                        // ptr is not in exceptions either
                         assert(!exceptions.contains(ptr));
-                        // perms unchanged for ptr != node
-                        assert(self.all_blocks.perms@[ptr].points_to == old(self).all_blocks.perms@[ptr].points_to);
-                        // ptr was free in old(self) too
+                        // perms unchanged for all ptrs
+                        assert(self.all_blocks.perms@[ptr].points_to
+                            == old(self).all_blocks.perms@[ptr].points_to);
                         assert(old(self).all_blocks.value_at(old(self).all_blocks.ptrs@[j]).is_free());
-                        // from old(self).free_blocks_in_freelist_except(exceptions)
                         assert(old(self).free_blocks_in_freelist_except(exceptions));
                         reveal(Tlsf::free_blocks_in_freelist_except);
                         assert(old(self).shadow_freelist@.contains(ptr));
-                        // node was in shadow_freelist@.m[idx]; we removed it.
-                        // But ptr != node, so ptr is still in shadow_freelist.
-                        // We need: shadow_freelist.contains(ptr) is preserved
-                        // despite removing node from m[idx].
-                        // shadow_freelist@.contains(ptr) means exists some (bi, k) s.t. m[bi][k] == ptr
-                        // The only change is m[idx] lost node at position i.
-                        // If ptr was in m[bi] for bi != idx, it's unchanged.
-                        // If ptr was in m[idx] at position k != i, it's shifted but still there.
+                        // ptr was in old shadow_freelist at some (bi, k).
+                        // If bi != idx: m[bi] unchanged, so still contains ptr.
+                        // If bi == idx: ptr != node, so ptr is still in m[idx].remove(i).
+                        let bi = choose|bi: BlockIndex<FLLEN, SLLEN>|
+                            bi.wf() && old(self).shadow_freelist@.m[bi].contains(ptr);
+                        if bi != idx {
+                            assert(self.shadow_freelist@.m[bi].contains(ptr));
+                        } else {
+                            // ptr is in old m[idx] at some position k != i
+                            let k = choose|k: int|
+                                0 <= k < old(self).shadow_freelist@.m[idx].len()
+                                && old(self).shadow_freelist@.m[idx][k] == ptr;
+                            old(self).lemma_shadow_list_no_duplicates();
+                            old(self).lemma_nodup_get(idx, k, idx, i);
+                            assert(k != i);
+                            // After remove(i), ptr is still in the list
+                            if k < i {
+                                assert(self.shadow_freelist@.m[idx][k] == ptr);
+                            } else {
+                                assert(self.shadow_freelist@.m[idx][k - 1] == ptr);
+                            }
+                            assert(self.shadow_freelist@.m[idx].contains(ptr));
+                        }
+                        assert(self.shadow_freelist@.contains(ptr));
+                    };
+                };
+            }
+
+            // Prove freelist_wf for all indices
+            proof {
+                assert forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf()
+                    implies self.freelist_wf(bi)
+                by {
+                    reveal(Tlsf::freelist_wf);
+                    if bi != idx {
+                        // m[bi] unchanged, first_free[bi] unchanged, perms preserved
+                        assert forall|k: int| 0 <= k < self.shadow_freelist@.m[bi].len()
+                            implies self.wf_free_node(bi, k)
+                        by {
+                            assert(old(self).wf_free_node(bi, k));
+                        };
+                    } else {
+                        // m[idx] = old_m.remove(i)
+                        let old_m = old(self).shadow_freelist@.m[idx];
+                        let new_m = self.shadow_freelist@.m[idx];
+                        assert(new_m == old_m.remove(i));
+                        reveal(AllBlocks::ptr_is_null);
+
+                        assert forall|k: int| 0 <= k < new_m.len()
+                            implies self.wf_free_node(idx, k)
+                        by {
+                            let old_k = if k < i { k } else { k + 1 };
+                            assert(new_m[k] == old_m[old_k]);
+                            assert(old(self).wf_free_node(idx, old_k));
+
+                            // Node at new position k: prove link pointers match new list
+                            let ptr = new_m[k];
+                            assert(self.all_blocks.contains(ptr));
+                            assert(self.all_blocks.value_at(ptr).is_free());
+
+                            // Case split on whether this node's links were modified
+                            if k == i - 1 && !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(prev_free) {
+                                // This is prev_free — its next_free link was updated
+                                assert(ptr == prev_free);
+                                // prev_free != node already proved
+                                // prev_free != next_free when both non-null
+                                if !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(next_free) {
+                                    assert(i + 1 < old_m.len() as int);
+                                    old(self).lemma_nodup_get(idx, i - 1, idx, i + 1);
+                                    assert(prev_free != next_free);
+                                }
+                                // Map entry for prev_free is the one we tracked_insert-ed
+                                // (not clobbered by node re-insertion since prev_free != node)
+
+                                // next in new list
+                                if k < new_m.len() - 1 {
+                                    assert(Self::free_next_of(new_m, k) == Some(new_m[k + 1]));
+                                    assert(new_m[k + 1] == old_m[k + 2]);
+                                    assert(old_m[k + 2] == old_m[i + 1]);
+                                    assert(old_m[i + 1] == next_free);
+                                }
+                                // prev in new list: unchanged from old
+                            } else if k == i && !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(next_free) {
+                                // This is next_free — its prev_free link was updated
+                                assert(ptr == next_free);
+                                assert(old_k == i + 1);
+                                // next_free != node already proved
+                                // next_free != prev_free when both non-null
+                                if !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(prev_free) {
+                                    assert(0 <= i - 1);
+                                    old(self).lemma_nodup_get(idx, i + 1, idx, i - 1);
+                                    assert(next_free != prev_free);
+                                }
+                                // Map entry for next_free is the one we tracked_insert-ed
+                                // (not clobbered by prev_free or node operations)
+
+                                // prev in new list
+                                if k > 0 {
+                                    assert(Self::free_prev_of(new_m, k) == Some(new_m[k - 1]));
+                                    assert(new_m[k - 1] == old_m[k - 1]);
+                                    assert(old_m[k - 1] == old_m[i - 1]);
+                                    assert(old_m[i - 1] == prev_free);
+                                }
+                                // next in new list: unchanged from old
+                            } else {
+                                // Unmodified node: perms unchanged
+                                // Help solver: ptr is distinct from all modified nodes
+                                assert(ptr != node) by {
+                                    old(self).lemma_nodup_get(idx, old_k, idx, i);
+                                };
+                                // ptr is also distinct from next_free and prev_free
+                                // (the only other keys whose Map entries were modified)
+                                if !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(next_free) {
+                                    // old_k != i+1 because in else case,
+                                    // k < i => old_k = k <= i-2, or k > i => old_k = k+1 >= i+2
+                                    assert(i + 1 < old_m.len() as int) by {
+                                        assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(next_free));
+                                        assert(old(self).wf_free_node(idx, i));
+                                    };
+                                    old(self).lemma_nodup_get(idx, old_k, idx, i + 1);
+                                    assert(ptr != next_free);
+                                }
+                                if !AllBlocks::<FLLEN, SLLEN>::ptr_is_null(prev_free) {
+                                    // old_k != i-1 because in else case,
+                                    // k < i => k != i-1 => old_k = k <= i-2, or k > i => old_k >= i+2
+                                    assert(0 <= i - 1) by {
+                                        assert(!AllBlocks::<FLLEN, SLLEN>::ptr_is_null(prev_free));
+                                        assert(old(self).wf_free_node(idx, i));
+                                    };
+                                    old(self).lemma_nodup_get(idx, old_k, idx, i - 1);
+                                    assert(ptr != prev_free);
+                                }
+                                // Map entry is unchanged since ptr != node, next_free, prev_free
+                                assert(self.all_blocks.perms@[ptr]
+                                    == old(self).all_blocks.perms@[ptr]);
+
+                                // free_next_of: same physical neighbor
+                                if k < new_m.len() - 1 {
+                                    assert(Self::free_next_of(new_m, k)
+                                        == Self::free_next_of(old_m, old_k));
+                                }
+                                if k == new_m.len() - 1 {
+                                    if old_k == old_m.len() - 1 {
+                                        assert(Self::free_next_of(new_m, k) is None);
+                                        assert(Self::free_next_of(old_m, old_k) is None);
+                                    } else {
+                                        assert(old_k + 1 == i);
+                                    }
+                                }
+                                // free_prev_of: same physical neighbor
+                                if k > 0 {
+                                    assert(Self::free_prev_of(new_m, k)
+                                        == Self::free_prev_of(old_m, old_k));
+                                }
+                                if k == 0 {
+                                    assert(Self::free_prev_of(new_m, k) is None);
+                                    assert(Self::free_prev_of(old_m, old_k) is None);
+                                }
+                            }
+                        };
+
+                        // first_free matches
+                        if AllBlocks::<FLLEN, SLLEN>::ptr_is_null(prev_free) {
+                            // i == 0: set_freelist(idx, next_free)
+                            if new_m.len() == 0 {
+                            } else {
+                                assert(new_m.first() == next_free);
+                            }
+                        }
+                    }
+                };
+            }
+
+            // Prove wf_shadow
+            proof {
+                // is_identity_injection: from lemma_ii_remove_for_index_ensures
+                assert(is_identity_injection(self.shadow_freelist@, self.all_blocks.ptrs@));
+
+                // shadow_freelist_has_all_wf_index: preserved by ii_remove
+                assert(self.shadow_freelist@.shadow_freelist_has_all_wf_index()) by {
+                    assert forall|bi: BlockIndex<FLLEN, SLLEN>|
+                        self.shadow_freelist@.m.contains_key(bi) <==> bi.wf()
+                    by {
+                        assert(self.shadow_freelist@.m.contains_key(bi)
+                            == old(self).shadow_freelist@.m.contains_key(bi));
+                    };
+                };
+
+                // shadow_ptrs_nonnull: all remaining elements were already nonnull
+                assert(self.shadow_ptrs_nonnull()) by {
+                    reveal(Tlsf::shadow_ptrs_nonnull);
+                    assert(old(self).shadow_ptrs_nonnull()) by {
+                        assert(old(self).wf_shadow());
+                    };
+                    assert forall|bi: BlockIndex<FLLEN, SLLEN>, k: int|
+                        bi.wf() && 0 <= k < self.shadow_freelist@.m[bi].len()
+                        implies self.shadow_freelist@.m[bi][k]@.addr != 0
+                    by {
+                        if bi != idx {
+                            assert(self.shadow_freelist@.m[bi][k]
+                                == old(self).shadow_freelist@.m[bi][k]);
+                        } else {
+                            let old_k = if k < i { k } else { k + 1 };
+                            assert(self.shadow_freelist@.m[idx][k]
+                                == old(self).shadow_freelist@.m[idx][old_k]);
+                        }
+                    };
+                };
+            }
+
+            // Prove !self.shadow_freelist@.contains(node)
+            proof {
+                old(self).lemma_shadow_list_contains_unique(idx, node);
+                assert(!self.shadow_freelist@.contains(node)) by {
+                    assert forall|bi: BlockIndex<FLLEN, SLLEN>|
+                        bi.wf() implies !self.shadow_freelist@.m[bi].contains(node)
+                    by {
+                        if bi != idx {
+                            // node was not in m[bi] originally
+                            assert(!old(self).shadow_freelist@.m[bi].contains(node));
+                            assert(self.shadow_freelist@.m[bi]
+                                == old(self).shadow_freelist@.m[bi]);
+                        } else {
+                            // node was removed from m[idx]
+                            old(self).lemma_shadow_list_no_duplicates();
+                            assert forall|k: int|
+                                0 <= k < self.shadow_freelist@.m[idx].len()
+                                implies self.shadow_freelist@.m[idx][k] != node
+                            by {
+                                let old_k = if k < i { k } else { k + 1 };
+                                assert(self.shadow_freelist@.m[idx][k]
+                                    == old(self).shadow_freelist@.m[idx][old_k]);
+                                old(self).lemma_nodup_get(idx, old_k, idx, i);
+                            };
+                        }
                     };
                 };
             }
