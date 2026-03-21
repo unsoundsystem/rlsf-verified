@@ -1647,11 +1647,13 @@ pub proof fn log2_power_in_range(p: int)
     }
 }
 
-pub proof fn lemma_mod_by_multiple(x: int, y: int, z: int)
-    requires x % (y * z) == 0
+pub proof fn lemma_mod_by_multiple(x: int, y: int, z: int) by (integer_ring)
+    requires
+        x % (y * z) == 0,
+        y * z != 0,
+        z != 0,
     ensures x % z == 0
 {
-    assume(false);
 }
 
 pub proof fn lemma_log2_sn(x: int, n: nat)

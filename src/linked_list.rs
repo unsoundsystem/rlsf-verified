@@ -189,10 +189,14 @@ use crate::*;
             forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
                 self.shadow_freelist@.m.contains_key(idx)
                     && 0 <= i < self.shadow_freelist@.m[idx].len() ==>
-                        idx.block_size_range().contains(
-                            self.all_blocks.perms@[
-                                self.shadow_freelist@.m[idx][i]
-                            ].points_to.value().size as int)
+                    idx == Self::map_floor_spec(
+                        self.all_blocks.perms@[
+                            self.shadow_freelist@.m[idx][i]
+                        ].points_to.value().size as usize)
+                    && idx.block_size_range().contains(
+                        self.all_blocks.perms@[
+                            self.shadow_freelist@.m[idx][i]
+                        ].points_to.value().size as int)
         }
 
         /// shadow_freelist had its first element at idx removed; other indices unchanged
@@ -246,8 +250,11 @@ use crate::*;
             assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
                 new_self.shadow_freelist@.m.contains_key(bi)
                     && 0 <= i < new_self.shadow_freelist@.m[bi].len()
-                implies bi.block_size_range().contains(
-                    new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
+                implies
+                    bi == Self::map_floor_spec(
+                        new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][i]].points_to.value().size as usize)
+                    && bi.block_size_range().contains(
+                        new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
             by {
                 let node = new_self.shadow_freelist@.m[bi][i];
                 assert(bi.wf()) by {
@@ -262,8 +269,6 @@ use crate::*;
                         old_self.lemma_nodup_get(idx, 0, idx, i + 1);
                     };
                     assert(old_self.shadow_freelist@.m.contains_key(bi));
-                    assert(bi.block_size_range().contains(
-                        old_self.all_blocks.perms@[node].points_to.value().size as int));
                     // fire trigger for perms_size_unchanged_for_freelist at (idx, i+1)
                     assert(0 <= i + 1 < old_self.shadow_freelist@.m[idx].len());
                 } else {
@@ -276,8 +281,6 @@ use crate::*;
                         }
                     };
                     assert(old_self.shadow_freelist@.m.contains_key(bi));
-                    assert(bi.block_size_range().contains(
-                        old_self.all_blocks.perms@[node].points_to.value().size as int));
                 }
                 assert(new_self.all_blocks.perms@[node].points_to.value().size
                     == old_self.all_blocks.perms@[node].points_to.value().size);
@@ -303,8 +306,11 @@ use crate::*;
             assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
                 new_self.shadow_freelist@.m.contains_key(bi)
                     && 0 <= i < new_self.shadow_freelist@.m[bi].len()
-                implies bi.block_size_range().contains(
-                    new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
+                implies
+                    bi == Self::map_floor_spec(
+                        new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][i]].points_to.value().size as usize)
+                    && bi.block_size_range().contains(
+                        new_self.all_blocks.perms@[new_self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
             by {
                 let node = new_self.shadow_freelist@.m[bi][i];
                 assert(new_self.shadow_freelist@ == old_self.shadow_freelist@);
@@ -323,8 +329,6 @@ use crate::*;
                     }
                 };
                 assert(old_self.shadow_freelist@.m.contains_key(bi));
-                assert(bi.block_size_range().contains(
-                    old_self.all_blocks.perms@[node].points_to.value().size as int));
                 assert(new_self.all_blocks.perms@[node].points_to.value().size
                     == old_self.all_blocks.perms@[node].points_to.value().size);
             };
@@ -341,6 +345,8 @@ use crate::*;
                 self.shadow_freelist@.m.contains_key(idx),
                 0 <= i < self.shadow_freelist@.m[idx].len(),
             ensures
+                idx == Self::map_floor_spec(
+                    self.all_blocks.perms@[self.shadow_freelist@.m[idx][i]].points_to.value().size as usize),
                 idx.block_size_range().contains(
                     self.all_blocks.perms@[self.shadow_freelist@.m[idx][i]].points_to.value().size as int)
         {
@@ -494,6 +500,46 @@ use crate::*;
         /// Weakening: free_blocks_in_freelist_except(Set::empty()) implies free_blocks_in_freelist_except(exceptions).
         pub(crate) proof fn lemma_free_blocks_weaken(self, exceptions: Set<*mut BlockHdr>)
             requires self.free_blocks_in_freelist()
+            ensures self.free_blocks_in_freelist_except(exceptions)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+        }
+
+        /// Extract: freelist_wf(idx) with empty sfl implies first_free is null.
+        pub(crate) proof fn lemma_extract_first_free_null(
+            &self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.shadow_freelist@.m[idx].len() == 0,
+            ensures
+                AllBlocks::<FLLEN, SLLEN>::ptr_is_null(
+                    self.first_free[idx.0 as int][idx.1 as int])
+        {
+            reveal(Tlsf::freelist_wf);
+        }
+
+        /// Construct freelist_wf from the raw facts (empty sfl case).
+        pub(crate) proof fn lemma_freelist_wf_from_empty(
+            &self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.shadow_freelist@.m[idx].len() == 0,
+                AllBlocks::<FLLEN, SLLEN>::ptr_is_null(
+                    self.first_free[idx.0 as int][idx.1 as int]),
+            ensures self.freelist_wf(idx)
+        {
+            reveal(Tlsf::freelist_wf);
+        }
+
+        /// Construct free_blocks_in_freelist_except when the underlying forall is already proved.
+        pub(crate) proof fn lemma_free_blocks_in_freelist_except_intro(
+            self, exceptions: Set<*mut BlockHdr>)
+            requires
+                forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                    && self.all_blocks.value_at(self.all_blocks.ptrs@[i]).is_free()
+                    && !exceptions.contains(self.all_blocks.ptrs@[i])
+                    ==> self.shadow_freelist@.contains(self.all_blocks.ptrs@[i]),
             ensures self.free_blocks_in_freelist_except(exceptions)
         {
             reveal(Tlsf::free_blocks_in_freelist_except);
@@ -766,18 +812,22 @@ use crate::*;
         //#[verifier::external_body] // debug
         pub(crate) fn unlink_free_block(&mut self,
             node: *mut BlockHdr,
-            idx: BlockIndex<FLLEN, SLLEN>,
+            size: usize,
             Ghost(exceptions): Ghost<Set<*mut BlockHdr>>)
         requires
-            idx.wf(),
             Self::parameter_validity(),
+            size >= GRANULARITY,
+            size % GRANULARITY == 0,
+            BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int),
+            old(self).all_blocks.perms@[node].points_to.value().size == size,
             old(self).all_blocks.wf(),
             old(self).all_freelist_wf_weak(exceptions),
             old(self).bitmap_sync(),
             old(self).bitmap_wf(),
-            // node is an element of the list
-            old(self).shadow_freelist@.m[idx].contains(node),
+            old(self).size_class_condition(),
+            old(self).all_blocks.contains(node),
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
+            !exceptions.contains(node),
         ensures
             self.all_blocks.wf(),
             self.all_freelist_wf_weak(exceptions.insert(node)),
@@ -785,6 +835,7 @@ use crate::*;
             self.bitmap_wf(),
             self.wf_shadow(),
             ({
+                let idx = Self::map_floor_spec(size);
                 let i = choose|i: int|
                     0 <= i < old(self).shadow_freelist@.m[idx].len()
                     && old(self).shadow_freelist@.m[idx][i] == node;
@@ -796,10 +847,46 @@ use crate::*;
                     self.all_blocks.perms@.contains_key(p)
                     && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
                     && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                    && self.all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
+                    && self.all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
                 ),
             // After unlinking, node is not in any freelist bucket
             !self.shadow_freelist@.contains(node),
+            self.size_class_condition(),
+            // Other freelist buckets are unchanged
+            forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
+                ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi],
         {
+            let idx = Self::map_floor(size).unwrap();
+            // Prove membership: node is in shadow_freelist@.m[idx]
+            proof {
+                // Step 1: free block → in shadow_freelist (some bucket)
+                // We have free_blocks_in_freelist_except(exceptions) and node is free.
+                // node is not in exceptions (it was not yet unlinked, exceptions tracks already-unlinked blocks)
+                // But node.is_free() and all_blocks.contains(node), so if node ∉ exceptions,
+                // then shadow_freelist contains node.
+                reveal(Tlsf::free_blocks_in_freelist_except);
+                let node_i = self.all_blocks.get_ptr_internal_index(node);
+                assert(0 <= node_i < self.all_blocks.ptrs@.len());
+                assert(self.all_blocks.ptrs@[node_i] == node);
+                // node ∉ exceptions from precondition
+                assert(self.shadow_freelist@.contains(node));
+
+                // Step 2: choose the actual bucket
+                let actual_bi: BlockIndex<FLLEN, SLLEN> = choose|bi: BlockIndex<FLLEN, SLLEN>|
+                    bi.wf() && self.shadow_freelist@.m[bi].contains(node);
+                let j: int = choose|j: int|
+                    0 <= j < self.shadow_freelist@.m[actual_bi].len()
+                    && self.shadow_freelist@.m[actual_bi][j] == node;
+
+                // Step 3: size_class_condition → actual_bi == map_floor_spec(node.size)
+                self.lemma_size_class_at(actual_bi, j);
+                // Now: actual_bi == map_floor_spec(node.size as usize)
+                // And: idx == map_floor_spec(size) from map_floor postcondition
+                // And: node.size == size from precondition
+                // Therefore: actual_bi == idx
+                assert(self.shadow_freelist@.m[idx].contains(node));
+            }
             let link = get_freelink_ptr(node);
             proof {
                 old(self).wf_weak_index_in_freelist(idx, exceptions);
@@ -878,6 +965,8 @@ use crate::*;
                         mem: next_blk.mem,
                         points_to: next_blk.points_to,
                         free_link_perm: Some(next_link_perm),
+                        overhead_mem: next_blk.overhead_mem,
+                        pad_perm: next_blk.pad_perm,
                     });
                 }
             }
@@ -927,6 +1016,8 @@ use crate::*;
                         mem: prev_blk.mem,
                         points_to: prev_blk.points_to,
                         free_link_perm: Some(prev_link_perm),
+                        overhead_mem: prev_blk.overhead_mem,
+                        pad_perm: prev_blk.pad_perm,
                     });
                 }
             } else {
@@ -943,6 +1034,8 @@ use crate::*;
                     points_to: node_blk.points_to,
                     free_link_perm: Some(link_perm),
                     mem: node_blk.mem,
+                    overhead_mem: node_blk.overhead_mem,
+                    pad_perm: node_blk.pad_perm,
                 });
             }
 
@@ -1006,6 +1099,8 @@ use crate::*;
                                 &old(self).all_blocks, &self.all_blocks, j, j);
                         }
                     }
+                    AllBlocks::<FLLEN, SLLEN>::lemma_pool_size_bounded_transfer(
+                        &old(self).all_blocks, &self.all_blocks);
                     self.all_blocks.lemma_wf_from_nodes();
                 };
             }
@@ -1270,14 +1365,42 @@ use crate::*;
                     };
                 };
             }
+
+            // Prove size_class_condition
+            proof {
+                assert(self.size_class_condition()) by {
+                    reveal(Tlsf::size_class_condition);
+                    assert forall|bi: BlockIndex<FLLEN, SLLEN>, k: int|
+                        self.shadow_freelist@.m.contains_key(bi)
+                            && 0 <= k < self.shadow_freelist@.m[bi].len()
+                        implies
+                            bi == Self::map_floor_spec(
+                                self.all_blocks.perms@[self.shadow_freelist@.m[bi][k]].points_to.value().size as usize)
+                            && bi.block_size_range().contains(
+                                self.all_blocks.perms@[self.shadow_freelist@.m[bi][k]].points_to.value().size as int)
+                    by {
+                        let entry = self.shadow_freelist@.m[bi][k];
+                        if bi != idx {
+                            assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
+                            assert(entry == old(self).shadow_freelist@.m[bi][k]);
+                        } else {
+                            let old_k = if k < i { k } else { k + 1 };
+                            assert(entry == old(self).shadow_freelist@.m[idx][old_k]);
+                        }
+                    };
+                };
+            }
         }
 
         pub(crate) fn link_free_block(&mut self,
-            idx: BlockIndex<FLLEN, SLLEN>,
+            size: usize,
             node: *mut BlockHdr)
         requires
-            idx.wf(),
             Self::parameter_validity(),
+            size >= GRANULARITY,
+            size % GRANULARITY == 0,
+            BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int),
+            old(self).all_blocks.perms@[node].points_to.value().size == size,
             old(self).all_blocks.wf(),
             old(self).all_freelist_wf_weak(set![node]),
             old(self).bitmap_sync(),
@@ -1287,10 +1410,8 @@ use crate::*;
             !old(self).shadow_freelist@.contains(node),
             // we need node is wf in all_blocks
             old(self).all_blocks.contains(node),
-            //get_freelink_ptr_spec(node) == old(node_fl_pt).ptr(),
             // NOTE: not linked to freelist but the flag is marked free & free_link_perm is Some
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
-            idx.block_size_range().contains(old(self).all_blocks.perms@[node].points_to.value().size as int),
         ensures
             self.all_blocks.wf(),
             // preserving pointer set
@@ -1303,15 +1424,21 @@ use crate::*;
                     self.all_blocks.perms@.contains_key(p)
                     && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
                     && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                    && self.all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
+                    && self.all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
                 ),
             self.all_freelist_wf(),
             self.bitmap_sync(),
             self.bitmap_wf(),
             self.size_class_condition(),
-            self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]),
-            forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != idx
+            ({
+                let idx = Self::map_floor_spec(size);
+                self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx])
+            }),
+            forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
                 ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
         {
+            let idx = Self::map_floor(size).unwrap();
             proof {
                 self.all_blocks.lemma_block_wf();
                 self.all_blocks.lemma_node_is_wf(node);
@@ -1367,12 +1494,16 @@ use crate::*;
                         points_to: first_free_perm.points_to,
                         free_link_perm: Some(first_free_fl_pt),
                         mem: first_free_perm.mem,
+                        overhead_mem: first_free_perm.overhead_mem,
+                        pad_perm: first_free_perm.pad_perm,
                     });
 
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
+                        overhead_mem: node_blk.overhead_mem,
+                        pad_perm: node_blk.pad_perm,
                     });
 
 
@@ -1406,6 +1537,8 @@ use crate::*;
                                     &old(self).all_blocks, &self.all_blocks, i, i);
                             }
                         }
+                        AllBlocks::<FLLEN, SLLEN>::lemma_pool_size_bounded_transfer(
+                            &old(self).all_blocks, &self.all_blocks);
                         self.all_blocks.lemma_wf_from_nodes();
                     };
 
@@ -1522,6 +1655,8 @@ use crate::*;
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
+                        overhead_mem: node_blk.overhead_mem,
+                        pad_perm: node_blk.pad_perm,
                     });
 
                     assert(exists|i: int| 0 <= i < self.all_blocks.ptrs@.len()
@@ -1562,6 +1697,8 @@ use crate::*;
                                     &old(self).all_blocks, &self.all_blocks, i, i);
                             }
                         }
+                        AllBlocks::<FLLEN, SLLEN>::lemma_pool_size_bounded_transfer(
+                            &old(self).all_blocks, &self.all_blocks);
                         self.all_blocks.lemma_wf_from_nodes();
                     };
                     self.all_blocks.lemma_wf_node_ptr(node_ind);
@@ -1703,16 +1840,22 @@ use crate::*;
                 assert forall|bi: BlockIndex<FLLEN, SLLEN>, i: int|
                     self.shadow_freelist@.m.contains_key(bi)
                         && 0 <= i < self.shadow_freelist@.m[bi].len()
-                    implies bi.block_size_range().contains(
-                        self.all_blocks.perms@[self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
+                    implies
+                        bi == Self::map_floor_spec(
+                            self.all_blocks.perms@[self.shadow_freelist@.m[bi][i]].points_to.value().size as usize)
+                        && bi.block_size_range().contains(
+                            self.all_blocks.perms@[self.shadow_freelist@.m[bi][i]].points_to.value().size as int)
                 by {
                     if bi == idx {
                         assert(self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx]));
                         if i == 0 {
                             assert(self.shadow_freelist@.m[idx][0] == node);
                             assert(self.all_blocks.perms@[node].points_to == old(self).all_blocks.perms@[node].points_to);
-                            assert(idx.block_size_range().contains(
-                                old(self).all_blocks.perms@[node].points_to.value().size as int));
+                            // idx == map_floor_spec(size) from map_floor postcondition
+                            // node.size == size from precondition
+                            assert(idx == Self::map_floor_spec(size));
+                            // range containment from bridge lemma
+                            Self::lemma_map_floor_spec_range_contains(size);
                         } else {
                             let prev = i - 1;
                             let old_node = old(self).shadow_freelist@.m[idx][prev];
@@ -1720,10 +1863,7 @@ use crate::*;
                             assert(0 <= prev < old(self).shadow_freelist@.m[idx].len());
                             assert(self.all_blocks.perms@[old_node].points_to
                                 == old(self).all_blocks.perms@[old_node].points_to);
-                            assert(old(self).size_class_condition());
                             assert(old(self).shadow_freelist@.m.contains_key(idx));
-                            assert(idx.block_size_range().contains(
-                                old(self).all_blocks.perms@[old_node].points_to.value().size as int));
                         }
                     } else {
                         assert(self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]);
@@ -1731,10 +1871,7 @@ use crate::*;
                         assert(self.shadow_freelist@.m[bi][i] == old_node);
                         assert(self.all_blocks.perms@[old_node].points_to
                             == old(self).all_blocks.perms@[old_node].points_to);
-                        assert(old(self).size_class_condition());
                         assert(old(self).shadow_freelist@.m.contains_key(bi));
-                        assert(bi.block_size_range().contains(
-                            old(self).all_blocks.perms@[old_node].points_to.value().size as int));
                     }
                 };
             };
@@ -2065,19 +2202,13 @@ use crate::*;
                 insert_ai + 1 < old_ptrs.len() ==> (new_ptr as usize as int) <= (old_ptrs[insert_ai + 1] as usize as int),
             ensures
                 is_identity_injection(
-                    ShadowFreelist {
-                        m: sfl.m,
-                        pi: sfl.pi.map_values(|ai: int| if insert_ai + 1 <= ai { ai + 1 } else { ai }),
-                    },
+                    sfl.ii_shift_after_insert(insert_ai),
                     add_ghost_pointer(old_ptrs, new_ptr),
                 )
         {
             lemma_add_ghost_pointer_insert_after_index(old_ptrs, new_ptr, insert_ai);
             let ghost new_ptrs = add_ghost_pointer(old_ptrs, new_ptr);
-            let ghost new_sfl = ShadowFreelist {
-                m: sfl.m,
-                pi: sfl.pi.map_values(|ai: int| if insert_ai + 1 <= ai { ai + 1 } else { ai }),
-            };
+            let ghost new_sfl = sfl.ii_shift_after_insert(insert_ai);
 
             assert(new_sfl.pi.is_injective()) by {
                 assert forall|x: (BlockIndex<FLLEN, SLLEN>, int), y: (BlockIndex<FLLEN, SLLEN>, int)|
@@ -2152,6 +2283,126 @@ use crate::*;
                     assert(nai == ai);
                     assert(0 <= nai <= insert_ai);
                     lemma_add_ghost_pointer_index_map(old_ptrs, new_ptr, insert_ai, nai);
+                    assert(new_ptrs[nai] == old_ptrs[nai]);
+                    assert(new_ptrs[nai] == old_ptrs[ai]);
+                }
+                assert(new_sfl.m[idx][m] == new_ptrs[new_sfl.pi[(idx, m)]]);
+            };
+        }
+
+        /// After removing ptrs@[remove_ai], all pi indices > remove_ai shift down by 1.
+        /// Inverse of lemma_ii_shift_after_insert_ensures.
+        pub(crate) proof fn lemma_ii_shift_after_remove_ensures(
+            sfl: ShadowFreelist<FLLEN, SLLEN>,
+            old_ptrs: Seq<*mut BlockHdr>,
+            remove_ai: int,
+            removed_ptr: *mut BlockHdr,
+        )
+            requires
+                ptrs_no_duplicates(old_ptrs),
+                ghost_pointer_ordered(old_ptrs),
+                sfl.shadow_freelist_has_all_wf_index(),
+                is_identity_injection(sfl, old_ptrs),
+                0 <= remove_ai < old_ptrs.len(),
+                old_ptrs[remove_ai] == removed_ptr,
+                // removed_ptr must not be in any freelist
+                !sfl.pi.values().contains(remove_ai),
+            ensures
+                is_identity_injection(
+                    sfl.ii_shift_after_remove(remove_ai),
+                    remove_ghost_pointer(old_ptrs, removed_ptr),
+                )
+        {
+            lemma_remove_ghost_pointer_index(old_ptrs, removed_ptr);
+            lemma_remove_ghost_pointer_ensures(old_ptrs, removed_ptr);
+            let ghost new_ptrs = remove_ghost_pointer(old_ptrs, removed_ptr);
+            let ghost new_sfl = sfl.ii_shift_after_remove(remove_ai);
+
+            // The remove index chosen by remove_ghost_pointer equals remove_ai
+            // (since ptrs_no_duplicates guarantees unique index)
+            let ghost rm_idx = choose|i: int| 0 <= i < old_ptrs.len() && old_ptrs[i] == removed_ptr;
+            assert(rm_idx == remove_ai) by {
+                lemma_ptrs_no_duplicates_eq_index(old_ptrs, rm_idx, remove_ai);
+            };
+
+            assert(new_sfl.pi.is_injective()) by {
+                assert forall|x: (BlockIndex<FLLEN, SLLEN>, int), y: (BlockIndex<FLLEN, SLLEN>, int)|
+                    x != y && new_sfl.pi.dom().contains(x) && new_sfl.pi.dom().contains(y)
+                        implies new_sfl.pi[x] != new_sfl.pi[y]
+                by {
+                    assert(sfl.pi.dom().contains(x));
+                    assert(sfl.pi.dom().contains(y));
+                    assert(sfl.pi[x] != sfl.pi[y]);
+                    let ax = sfl.pi[x];
+                    let ay = sfl.pi[y];
+                    // ax != remove_ai and ay != remove_ai since !pi.values().contains(remove_ai)
+                    assert(ax != remove_ai);
+                    assert(ay != remove_ai);
+                    let fx = if ax > remove_ai { ax - 1 } else { ax };
+                    let fy = if ay > remove_ai { ay - 1 } else { ay };
+                    assert(new_sfl.pi[x] == fx);
+                    assert(new_sfl.pi[y] == fy);
+                    if ax > remove_ai {
+                        if ay > remove_ai {
+                            assert(fx == ax - 1);
+                            assert(fy == ay - 1);
+                        } else {
+                            assert(fx == ax - 1);
+                            assert(fy == ay);
+                            assert(fy < remove_ai);
+                            assert(fx >= remove_ai);
+                        }
+                    } else {
+                        if ay > remove_ai {
+                            assert(fx == ax);
+                            assert(fy == ay - 1);
+                            assert(fx < remove_ai);
+                            assert(fy >= remove_ai);
+                        } else {
+                            assert(fx == ax);
+                            assert(fy == ay);
+                        }
+                    }
+                };
+            };
+
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                new_sfl.pi.contains_key((idx, m)) <==> idx.wf() && 0 <= m < new_sfl.m[idx].len()
+            by {
+                assert(new_sfl.pi.contains_key((idx, m)) == sfl.pi.contains_key((idx, m)));
+                assert(new_sfl.m[idx] == sfl.m[idx]);
+                assert(sfl.pi.contains_key((idx, m)) <==> idx.wf() && 0 <= m < sfl.m[idx].len());
+            };
+
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                idx.wf() && 0 <= m < new_sfl.m[idx].len() implies {
+                    &&& 0 <= #[trigger] new_sfl.pi[(idx, m)] < new_ptrs.len()
+                    &&& new_sfl.m[idx][m] == new_ptrs[new_sfl.pi[(idx, m)]]
+                }
+            by {
+                assert(sfl.m.contains_key(idx));
+                assert(new_sfl.m[idx] == sfl.m[idx]);
+                assert(sfl.pi.contains_key((idx, m)));
+                assert(0 <= #[trigger] sfl.pi[(idx, m)] < old_ptrs.len());
+                assert(sfl.m[idx][m] == old_ptrs[sfl.pi[(idx, m)]]);
+                let ai = sfl.pi[(idx, m)];
+                assert(ai != remove_ai);
+                let nai = new_sfl.pi[(idx, m)];
+                assert(nai == if ai > remove_ai { ai - 1 } else { ai });
+                if ai > remove_ai {
+                    assert(nai == ai - 1);
+                    assert(0 <= nai < new_ptrs.len());
+                    lemma_remove_ghost_pointer_index_map(old_ptrs, removed_ptr, nai);
+                    assert(nai >= remove_ai);
+                    assert(new_ptrs[nai] == old_ptrs[nai + 1]);
+                    assert(nai + 1 == ai);
+                    assert(new_ptrs[nai] == old_ptrs[ai]);
+                } else {
+                    assert(nai == ai);
+                    assert(ai < remove_ai);
+                    assert(0 <= nai < new_ptrs.len());
+                    lemma_remove_ghost_pointer_index_map(old_ptrs, removed_ptr, nai);
+                    assert(nai < remove_ai);
                     assert(new_ptrs[nai] == old_ptrs[nai]);
                     assert(new_ptrs[nai] == old_ptrs[ai]);
                 }

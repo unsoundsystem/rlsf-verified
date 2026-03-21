@@ -1,5 +1,4 @@
 use crate::parameters::*;
-use crate::ordered_pointer_list::ghost_pointer_ordered;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
@@ -54,6 +53,8 @@ verus! {
         pub(crate) points_to: PointsTo<BlockHdr>,
         pub(crate) free_link_perm: Option<PointsTo<FreeLink>>,
         pub(crate) mem: PointsToRaw,
+        pub(crate) overhead_mem: PointsToRaw,
+        pub(crate) pad_perm: Option<PointsTo<UsedBlockPad>>,
     }
 
     impl BlockPerm {
@@ -70,45 +71,11 @@ verus! {
                     &&& self.mem.is_range(
                         self.points_to.ptr() as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
                         size as int - size_of::<BlockHdr>() as int - size_of::<FreeLink>() as int)
+                    &&& self.overhead_mem.dom().is_empty()
+                    &&& self.pad_perm is None
                 }
         }
     }
-
-    pub struct UsedInfo {
-        pub ptrs: Ghost<Seq<*mut BlockHdr>>,
-        // map from block start (i.e. allocated pointer) to the padding
-        pub pad_perms: Tracked<Map<*mut u8, PointsTo<UsedBlockPad>>>,
-        // map from allocated pointer to the front overhead region
-        pub overhead_perms: Tracked<Map<*mut u8, PointsToRaw>>,
-    }
-
-    impl UsedInfo {
-        pub(crate) open spec fn wf(self) -> bool {
-            &&& ghost_pointer_ordered(self.ptrs@)
-            // FIXME: replace with II
-            //&&& forall|ptr: *mut UsedBlockHdr|
-                    //self.perms@.contains_key(ptr) <==> self.ptrs@.contains(ptr)
-            //&&& forall|p: *mut UsedBlockHdr|
-                    //self.ptrs@.contains(p) ==> self.perms@[p].ptr() == p
-        }
-
-        pub(crate) open spec fn contains(self, ptr: *mut BlockHdr) -> bool
-            recommends self.wf()
-        {
-            &&& self.wf()
-            &&& self.ptrs@.contains(ptr)
-        }
-
-        //FIXME: should be a macro
-        //pub fn add(&mut self, ptr: *mut UsedBlockHdr, Tracked(perm): Tracked<PointsTo<UsedBlockHdr>>) {
-            //proof {
-                //self.ptrs@ = self.ptrs@.push(ptr)
-                    //.sort_by(pointer_le::<UsedBlockHdr>());
-                //self.perms@.tracked_insert(ptr, perm);
-            //}
-        //}
-    }
-
 
     pub(crate) type UsedBlockHdr = BlockHdr;
 

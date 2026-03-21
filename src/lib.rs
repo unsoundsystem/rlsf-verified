@@ -16,6 +16,7 @@ mod allocate;
 mod bitmap;
 mod block;
 mod deallocate;
+mod initialize;
 mod mapping;
 mod ordered_pointer_list;
 pub mod parameters;
@@ -95,8 +96,6 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[*mut BlockHdr; SLLEN]; FLLEN],
-    //FIXME: is it valid to have it? clarify which parts of memory is delegated to user.
-    pub used_info: UsedInfo,
     pub _phantom: PhantomData<&'pool ()>,
 
     /// represents region managed by this allocator
@@ -115,7 +114,10 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub root_provenances: Tracked<Option<IsExposed>>,
 
     /// Auxiliary data used to verify segregated list
-    pub shadow_freelist: Ghost<ShadowFreelist<FLLEN, SLLEN>>
+    pub shadow_freelist: Ghost<ShadowFreelist<FLLEN, SLLEN>>,
+
+    /// Maps user pointers (returned by allocate) to block header pointers
+    pub user_block_map: Ghost<Map<*mut u8, *mut BlockHdr>>,
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -142,6 +144,37 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& self.bitmap_sync()
     }
 
+    /// Bridge lemma: decomposes closed wf() into its open components.
+    /// Needed by deallocate module which cannot see wf() body.
+    pub(crate) proof fn lemma_wf_components(&self)
+        requires self.wf()
+        ensures
+            self.all_blocks.wf(),
+            self.all_freelist_wf(),
+            self.size_class_condition(),
+            Self::parameter_validity(),
+            self.bitmap_wf(),
+            self.bitmap_sync(),
+            self.all_blocks.pool_size_bounded(),
+    {}
+
+    /// Frame lemma: wf() is preserved when only user_block_map changes.
+    pub(crate) proof fn lemma_wf_preserved_after_user_block_map_update(
+        old_self: &Self, new_self: &Self,
+    )
+        requires
+            old_self.wf(),
+            new_self.all_blocks == old_self.all_blocks,
+            new_self.fl_bitmap == old_self.fl_bitmap,
+            new_self.sl_bitmap == old_self.sl_bitmap,
+            new_self.first_free == old_self.first_free,
+            new_self.shadow_freelist == old_self.shadow_freelist,
+            new_self.root_provenances == old_self.root_provenances,
+            new_self.valid_range == old_self.valid_range,
+        ensures
+            new_self.wf(),
+    {}
+
     proof fn lemma_mark_used_preserves_size_bits(sz: usize)
         requires
             sz as int % GRANULARITY as int == 0,
@@ -155,7 +188,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(sz as int % 32 == 0);
         assert(SIZE_USED == 1);
         reveal(usize_trailing_zeros);
-        // reveal(u64_trailing_zeros); // closed in newer vstd
+        reveal(u64_trailing_zeros);
         assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
         assert((sz & !31usize) == sz) by (bit_vector)
             requires sz as int % 32 == 0;
@@ -270,11 +303,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
             first_free: Self::initial_free_lists(),
-            used_info: UsedInfo {
-                ptrs: Ghost(Seq::empty()),
-                pad_perms: Tracked(Map::tracked_empty()),
-                overhead_perms: Tracked(Map::tracked_empty()),
-            },
             all_blocks: AllBlocks::empty(),
             valid_range: Ghost(Set::empty()),
             root_provenances: Tracked(None),
@@ -282,7 +310,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             shadow_freelist: Ghost(ShadowFreelist {
                 m: Map::empty(),
                 pi: Map::empty(),
-            })
+            }),
+            user_block_map: Ghost(Map::empty()),
         }
     }
 
@@ -321,15 +350,44 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// And also in the environment this allocator will be used (e.g. with 64bit/32bit width usize,
     /// managing 2^63(31) bytes of memmory with TLSF), such a situation unlikely to occur.
     /// TODO: justification needed!
+    pub open spec fn max_pool_size_spec() -> usize {
+        (pow2(FLLEN as nat) * GRANULARITY) as usize
+    }
+
+    #[verifier::when_used_as_spec(max_pool_size_spec)]
+    #[verifier::external_body]
     const fn max_pool_size() -> (r: usize)
         requires
-            usize::BITS > Self::granularity_log2_spec() + FLLEN as u32
+            Self::parameter_validity()
         ensures
-            1 << (usize::BITS - 1) >= r >= GRANULARITY,
-            r % GRANULARITY == 0
+            r == Self::max_pool_size_spec(),
+            1 << (usize::BITS - 1) >= r >= GRANULARITY * 2,
+            r % GRANULARITY == 0,
     {
         let shift = Self::granularity_log2() + FLLEN as u32;
         1 << shift
+    }
+
+    /// Lemma: max_pool_size_spec() fits in usize and equals pow2(FLLEN) * GRANULARITY
+    pub proof fn lemma_max_pool_size_spec_value()
+        requires Self::parameter_validity()
+        ensures
+            Self::max_pool_size_spec() == (pow2(FLLEN as nat) * GRANULARITY) as usize,
+            pow2(FLLEN as nat) * GRANULARITY <= usize::MAX,
+            Self::max_pool_size_spec() as int == pow2(FLLEN as nat) * GRANULARITY,
+    {
+        Self::granularity_basics();
+        let g = Self::granularity_log2_spec();
+        let fl = FLLEN as nat;
+        crate::bits::lemma_pow2_values();
+        vstd::arithmetic::power2::lemma_pow2_adds(g as nat, fl);
+        vstd::arithmetic::power2::lemma_pow2_strictly_increases(
+            (g + FLLEN) as nat, 64nat);
+        vstd::arithmetic::power2::lemma_pow2_unfold(64nat);
+        assert(pow2(64nat) == 18446744073709551616nat);
+        assert(pow2((g + fl) as nat) <= usize::MAX as nat);
+        assert(pow2(g as nat) == GRANULARITY as nat);
+        assert(pow2(FLLEN as nat) * GRANULARITY <= usize::MAX);
     }
 
     #[cfg(feature = "std")]
@@ -395,158 +453,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
 
-    /// `insert_free_block_ptr` provides NonNull<[u8]> based interface, but Verus doesn't handle
-    /// subtile properties like "dereferencing the length field of slice pointer doesn't dereference the
-    /// entire slice pointer (thus safe)". This assumption used in `nonnull_slice_len` in rlsf.
-    ///
-    /// TODO: As an option we can wrap the address based interface with slice pointer based one
-    ///       `insert_free_block_ptr` out of Verus world and wrap/axiomize it with external_body annotation.
-    ///       (the postcondition would meet the precondition of `insert_free_block_ptr_aligned`)
-    // TODO: update ghost_free_list/all_block_headers in insert_free_block_ptr_aligned()
-    //#[verifier::external_body] // for spec debug
-    pub unsafe fn insert_free_block_ptr_aligned(
-        &mut self,
-        start: *mut u8,
-        size: usize,
-        Tracked(points_to_block): Tracked<PointsToRaw>
-    ) -> (r: Option<usize>)
-    requires
-        // Given memory must have continuous range as specified by start/size.
-        points_to_block.is_range(start as usize as int, size as int),
-        // Given pointer must be aligned
-        start as usize as int % GRANULARITY as int == 0,
-        // Tlsf is well-formed
-        old(self).wf()
-    ensures
-        self.wf(),
-        //self.root_provenances@ is Some
-
-        // Newly added free list nodes have their addresses in the given range (start..start+size)
-        // Tlsf is well-formed
-    {
-        let tracked mut mem_remains = points_to_block;
-
-        let mut size_remains = size;
-        let mut cursor = start as usize;
-
-        #[cfg(feature = "std")]
-        let mut sentinel_tmp = null_bhdr();
-
-        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
-        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */
-                decreases size_remains {
-            let chunk_size = size_remains.min(Self::max_pool_size());
-
-            assert(chunk_size % GRANULARITY == 0);
-
-            let tracked mut new_header: PointsTo<BlockHdr>;
-            let tracked mut new_header_frelink: PointsTo<FreeLink>;
-            proof {
-                let tracked (h1, m) =
-                    mem_remains.split(
-                        set_int_range(cursor as int, cursor as int
-                            + size_of::<BlockHdr>() as int));
-                let tracked (h2, m) =
-                    m.split(
-                        set_int_range(cursor as int + size_of::<BlockHdr>(),
-                            cursor as int + size_of::<BlockHdr>() + size_of::<FreeLink>()));
-                mem_remains = m;
-                new_header = h1.into_typed(cursor);
-                new_header_frelink = h2.into_typed(cursor);
-            }
-
-            // The new free block
-            // Safety: `cursor` is not zero.
-            let prov = expose_provenance(start);
-            let mut block = with_exposed_provenance(cursor, prov);
-
-            //#[cfg(feature = "std")]
-            //{
-                //use std::println;
-                //FIRST_BLOCK.get_or_init(|| block as usize);
-                //println!("first physical block is {:?}", block);
-            //}
-
-            // Initialize the new free block
-            // NOTE: header size calculated as GRANULARITY
-            assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(chunk_size - GRANULARITY));
-            let idx = Self::map_floor(chunk_size - GRANULARITY)?;
-
-            // Write the header
-            // NOTE: because Verus doesn't supports field update through raw pointer,
-            //       we have to write it at once with `ptr_mut_write`.
-            ptr_mut_write(block, Tracked(&mut new_header),
-                    BlockHdr {
-                        size: chunk_size - GRANULARITY,
-                        prev_phys_block: null_bhdr(),
-                    });
-            ptr_mut_write(get_freelink_ptr(block), Tracked(&mut new_header_frelink),
-                FreeLink {
-                    next_free: null_bhdr(),
-                    prev_free: null_bhdr(),
-                });
-
-            let tracked mut new_block_perm = BlockPerm {
-                points_to: new_header,
-                free_link_perm: Some(new_header_frelink),
-                mem: PointsToRaw::empty(Provenance::null())
-            };
-            let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
-
-            #[cfg(feature = "std")]
-            {
-                sentinel_tmp = sentinel_block;
-            }
-
-            // Link to the list
-            {
-                let tracked new_block_freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
-                self.link_free_block(idx, block);
-            }
-
-            //self.set_fl_bitmap(fl as u32);
-            //self.sl_bitmap[fl].set_bit(sl as u32);
-
-            // Cap the end with a sentinel block (a permanently-used block)
-            let tracked (sentinel_perm, m) = mem_remains.split(
-                set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
-            proof {
-                mem_remains = m;
-            }
-
-            let tracked mut sentinel_perm =
-                sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize);
-            ptr_mut_write(sentinel_block,
-                Tracked(&mut sentinel_perm),
-                BlockHdr {
-                    size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
-                    prev_phys_block: block,
-                });
-
-            proof {
-                let i = choose|i: int| self.all_blocks.ptrs@[i] == block;
-                assert(self.all_blocks.phys_next_of(i) matches Some(sentinel_block));
-            }
-
-            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
-            // iteration must be the last one
-            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
-            size_remains -= chunk_size;
-            cursor = cursor.wrapping_add(chunk_size);
-        }
-        //#[cfg(feature = "std")]
-        //{
-            //use std::println;
-            //SENTINEL.get_or_init(|| sentinel_tmp.clone() as usize);
-            //println!("sentinel block is {:?}", sentinel_tmp);
-        //}
-
-        Some(cursor.wrapping_sub(start as usize))
-
-            // TODO: update gs.root_provenances
-    }
-
-
     pub closed spec fn is_root_provenance<T>(self, ptr: *mut T) -> bool {
         let pv = ptr@.provenance;
         self.root_provenances@ matches Some(ex) && ex.provenance() == pv
@@ -606,14 +512,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 ///
 /// * This leaved abstract & tracked
 ///     * `allocate` moves out DeallocToken to ensure absence of double free
-pub tracked struct DeallocToken;
-//{
-    ///// Copy of header pointer of allocated region as an allocation identifier
-    //ghost ptr: Ghost<*mut UsedBlockHdr>,
-    ///// Padding if there exists
-    ///// invariant: pad.ptr() = pad_ptr = PTR_BEEN_DEALLOCATED - 1
-    //tracked pad: Option<Tracked<PointsTo<UsedBlockPad>>>
-//}
+pub tracked struct DeallocToken {
+    pub ghost ptr: *mut u8,
+    pub ghost user_size: int,
+    pub ghost align: usize,
+}
 
 
 #[inline]

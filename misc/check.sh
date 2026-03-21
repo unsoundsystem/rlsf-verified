@@ -12,6 +12,9 @@ funcs=(
     "mapping Tlsf::map_ceil"
     "allocate Tlsf::allocate"
     "search_block Tlsf::search_suitable_free_block_list_for_allocation"
+    "deallocate Tlsf::deallocate"
+    "deallocate Tlsf::deallocate_block"
+    "initialize Tlsf::insert_free_block_ptr_aligned"
 )
 
 cd $PROJ
