@@ -19,11 +19,19 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         Tracked(token): Tracked<DeallocToken>, //NOTE: pattern matching to move out token
         Tracked(points_to): Tracked<PointsToRaw>, // permssion to previously allocated region
     )
-    requires old(self).wf(), old(self).wf_dealloc(token)
+    requires
+        old(self).wf(),
+        old(self).wf_dealloc(token),
+        token.ptr == ptr,
+        align == token.align,
+        points_to.is_range(ptr as int, token.user_size),
+        points_to.provenance() == ptr@.provenance,
     ensures self.wf()
     {
         proof { self.lemma_wf_components(); }
-        let block = unsafe { self.used_block_hdr_for_allocation(ptr, align, Tracked(points_to)) };
+        let ghost block_ptr = self.user_block_map@[ptr];
+        let block = unsafe { self.used_block_hdr_for_allocation(
+            ptr, align, Tracked(points_to), Ghost(block_ptr), Ghost(token.user_size)) };
         unsafe { self.deallocate_block(block) };
     }
 
@@ -47,6 +55,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             (old(self).all_blocks.perms@[block].points_to.value().size & SIZE_SIZE_MASK) as int
                 - size_of::<BlockHdr>() as int),
         old(self).all_blocks.perms@[block].mem.provenance() == block@.provenance,
+        old(self).all_blocks.perms@[block].overhead_mem.dom().is_empty(),
+        old(self).all_blocks.perms@[block].pad_perm is None,
     ensures
         self.wf(),
     {
@@ -2219,34 +2229,212 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     }
 
 
+    /// Ownership/containment conditions for deallocation
+    pub closed spec fn wf_dealloc_base(&self, tok: DeallocToken) -> bool {
+        let block_ptr = self.user_block_map@[tok.ptr];
+        &&& self.user_block_map@.contains_key(tok.ptr)
+        &&& self.all_blocks.contains(block_ptr)
+        &&& self.all_blocks.perms@.contains_key(block_ptr)
+        &&& !self.all_blocks.perms@[block_ptr].points_to.value().is_free()
+        &&& tok.ptr@.provenance == block_ptr@.provenance
+    }
+
+    /// Memory layout for aligned allocation (align >= GRANULARITY)
+    pub closed spec fn wf_dealloc_granularity_aligned(&self, tok: DeallocToken) -> bool {
+        let block_ptr = self.user_block_map@[tok.ptr];
+        let bp = self.all_blocks.perms@[block_ptr];
+        let phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+        let BH = size_of::<BlockHdr>() as int;
+        let pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+        &&& tok.user_size > 0
+        &&& tok.ptr@.addr >= block_ptr@.addr + BH + pad_size
+        &&& tok.ptr@.addr + tok.user_size <= block_ptr@.addr + phys_size
+        // bp.mem: tail region [ptr+user_size, block+phys_size)
+        &&& bp.mem.provenance() == block_ptr@.provenance
+        &&& bp.mem.is_range(tok.ptr@.addr + tok.user_size,
+                block_ptr@.addr + phys_size - tok.ptr@.addr - tok.user_size)
+        // overhead_mem: gap [block+BH, ptr-pad_size)
+        &&& bp.overhead_mem.provenance() == block_ptr@.provenance
+        &&& bp.overhead_mem.is_range(block_ptr@.addr + BH,
+                tok.ptr@.addr - pad_size - block_ptr@.addr - BH)
+        // pad_perm: UsedBlockPad at [ptr-pad_size, ptr)
+        &&& bp.pad_perm matches Some(pp)
+        &&& pp.is_init()
+        &&& pp.value().block_hdr == block_ptr
+        &&& pp.ptr()@.provenance == tok.ptr@.provenance
+        &&& pp.ptr()@.addr == tok.ptr@.addr - pad_size
+    }
+
+    /// Memory layout for unaligned allocation (align < GRANULARITY)
+    pub closed spec fn wf_dealloc_granularity_unaligned(&self, tok: DeallocToken) -> bool {
+        let block_ptr = self.user_block_map@[tok.ptr];
+        let bp = self.all_blocks.perms@[block_ptr];
+        let phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+        let BH = size_of::<BlockHdr>() as int;
+        &&& tok.user_size > 0
+        &&& tok.ptr@.addr + tok.user_size <= block_ptr@.addr + phys_size
+        &&& block_ptr@.addr == tok.ptr@.addr - (GRANULARITY / 2) as int
+        // bp.mem: tail region [ptr+user_size, block+phys_size)
+        &&& bp.mem.provenance() == block_ptr@.provenance
+        &&& bp.mem.is_range(tok.ptr@.addr + tok.user_size,
+                block_ptr@.addr + phys_size - tok.ptr@.addr - tok.user_size)
+        // overhead_mem/pad_perm: empty
+        &&& bp.overhead_mem.dom().is_empty()
+        &&& bp.pad_perm is None
+    }
+
     /// Validity of blocks being deallocated
     pub closed spec fn wf_dealloc(&self, tok: DeallocToken) -> bool {
-        true
+        &&& self.wf_dealloc_base(tok)
+        &&& tok.align >= GRANULARITY ==> self.wf_dealloc_granularity_aligned(tok)
+        &&& tok.align < GRANULARITY ==> self.wf_dealloc_granularity_unaligned(tok)
     }
 
-    pub proof fn lemma_wf_dealloc_token(&self)
+    // --- Bridge lemmas (called from allocate) ---
+
+    pub(crate) proof fn lemma_establish_wf_dealloc_base(&self, tok: DeallocToken)
+        requires
+            self.user_block_map@.contains_key(tok.ptr),
+            self.all_blocks.contains(self.user_block_map@[tok.ptr]),
+            self.all_blocks.perms@.contains_key(self.user_block_map@[tok.ptr]),
+            !self.all_blocks.perms@[self.user_block_map@[tok.ptr]].points_to.value().is_free(),
+            tok.ptr@.provenance == self.user_block_map@[tok.ptr]@.provenance,
         ensures
-            self.wf_dealloc(DeallocToken),
-    {
-        assert(self.wf_dealloc(DeallocToken));
-    }
+            self.wf_dealloc_base(tok),
+    {}
 
+    pub(crate) proof fn lemma_establish_wf_dealloc_granularity_aligned(&self, tok: DeallocToken)
+        requires
+            self.user_block_map@.contains_key(tok.ptr),
+            self.all_blocks.perms@.contains_key(self.user_block_map@[tok.ptr]),
+            ({
+                let block_ptr = self.user_block_map@[tok.ptr];
+                let bp = self.all_blocks.perms@[block_ptr];
+                let phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+                let BH = size_of::<BlockHdr>() as int;
+                let pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+                &&& tok.user_size > 0
+                &&& tok.ptr@.addr >= block_ptr@.addr + BH + pad_size
+                &&& tok.ptr@.addr + tok.user_size <= block_ptr@.addr + phys_size
+                &&& bp.mem.provenance() == block_ptr@.provenance
+                &&& bp.mem.is_range(tok.ptr@.addr + tok.user_size,
+                        block_ptr@.addr + phys_size - tok.ptr@.addr - tok.user_size)
+                &&& bp.overhead_mem.provenance() == block_ptr@.provenance
+                &&& bp.overhead_mem.is_range(block_ptr@.addr + BH,
+                        tok.ptr@.addr - pad_size - block_ptr@.addr - BH)
+                &&& bp.pad_perm matches Some(pp)
+                &&& pp.is_init()
+                &&& pp.value().block_hdr == block_ptr
+                &&& pp.ptr()@.provenance == tok.ptr@.provenance
+                &&& pp.ptr()@.addr == tok.ptr@.addr - pad_size
+            }),
+        ensures
+            self.wf_dealloc_granularity_aligned(tok),
+    {}
 
-    #[verifier::external_body] // TODO: needs pad_perms infrastructure to verify
+    pub(crate) proof fn lemma_establish_wf_dealloc_granularity_unaligned(&self, tok: DeallocToken)
+        requires
+            self.user_block_map@.contains_key(tok.ptr),
+            self.all_blocks.perms@.contains_key(self.user_block_map@[tok.ptr]),
+            ({
+                let block_ptr = self.user_block_map@[tok.ptr];
+                let bp = self.all_blocks.perms@[block_ptr];
+                let phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+                let BH = size_of::<BlockHdr>() as int;
+                &&& tok.user_size > 0
+                &&& tok.ptr@.addr + tok.user_size <= block_ptr@.addr + phys_size
+                &&& block_ptr@.addr == tok.ptr@.addr - (GRANULARITY / 2) as int
+                &&& bp.mem.provenance() == block_ptr@.provenance
+                &&& bp.mem.is_range(tok.ptr@.addr + tok.user_size,
+                        block_ptr@.addr + phys_size - tok.ptr@.addr - tok.user_size)
+                &&& bp.overhead_mem.dom().is_empty()
+                &&& bp.pad_perm is None
+            }),
+        ensures
+            self.wf_dealloc_granularity_unaligned(tok),
+    {}
+
+    pub(crate) proof fn lemma_establish_wf_dealloc(&self, tok: DeallocToken)
+        requires
+            self.wf_dealloc_base(tok),
+            tok.align >= GRANULARITY ==> self.wf_dealloc_granularity_aligned(tok),
+            tok.align < GRANULARITY ==> self.wf_dealloc_granularity_unaligned(tok),
+        ensures
+            self.wf_dealloc(tok),
+    {}
+
+    // --- Elimination lemmas (called from used_block_hdr_for_allocation) ---
+
+    pub(crate) proof fn lemma_wf_dealloc_implies_base(&self, tok: DeallocToken)
+        requires self.wf_dealloc(tok)
+        ensures ({
+            let block_ptr = self.user_block_map@[tok.ptr];
+            &&& self.user_block_map@.contains_key(tok.ptr)
+            &&& self.all_blocks.contains(block_ptr)
+            &&& self.all_blocks.perms@.contains_key(block_ptr)
+            &&& !self.all_blocks.perms@[block_ptr].points_to.value().is_free()
+            &&& tok.ptr@.provenance == block_ptr@.provenance
+        })
+    {}
+
+    pub(crate) proof fn lemma_wf_dealloc_implies_aligned(&self, tok: DeallocToken)
+        requires self.wf_dealloc(tok), tok.align >= GRANULARITY
+        ensures ({
+            let block_ptr = self.user_block_map@[tok.ptr];
+            let bp = self.all_blocks.perms@[block_ptr];
+            let phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+            let BH = size_of::<BlockHdr>() as int;
+            let pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+            &&& tok.user_size > 0
+            &&& tok.ptr@.addr >= block_ptr@.addr + BH + pad_size
+            &&& tok.ptr@.addr + tok.user_size <= block_ptr@.addr + phys_size
+            &&& bp.mem.provenance() == block_ptr@.provenance
+            &&& bp.mem.is_range(tok.ptr@.addr + tok.user_size,
+                    block_ptr@.addr + phys_size - tok.ptr@.addr - tok.user_size)
+            &&& bp.overhead_mem.provenance() == block_ptr@.provenance
+            &&& bp.overhead_mem.is_range(block_ptr@.addr + BH,
+                    tok.ptr@.addr - pad_size - block_ptr@.addr - BH)
+            &&& bp.pad_perm matches Some(pp)
+            &&& pp.is_init()
+            &&& pp.value().block_hdr == block_ptr
+            &&& pp.ptr()@.provenance == tok.ptr@.provenance
+            &&& pp.ptr()@.addr == tok.ptr@.addr - pad_size
+        })
+    {}
+
+    pub(crate) proof fn lemma_wf_dealloc_implies_unaligned(&self, tok: DeallocToken)
+        requires self.wf_dealloc(tok), tok.align < GRANULARITY
+        ensures ({
+            let block_ptr = self.user_block_map@[tok.ptr];
+            let bp = self.all_blocks.perms@[block_ptr];
+            let phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+            let BH = size_of::<BlockHdr>() as int;
+            &&& tok.user_size > 0
+            &&& tok.ptr@.addr + tok.user_size <= block_ptr@.addr + phys_size
+            &&& block_ptr@.addr == tok.ptr@.addr - (GRANULARITY / 2) as int
+            &&& bp.mem.provenance() == block_ptr@.provenance
+            &&& bp.mem.is_range(tok.ptr@.addr + tok.user_size,
+                    block_ptr@.addr + phys_size - tok.ptr@.addr - tok.user_size)
+            &&& bp.overhead_mem.dom().is_empty()
+            &&& bp.pad_perm is None
+        })
+    {}
+
     #[inline]
     unsafe fn used_block_hdr_for_allocation(
         &mut self,
         ptr: *mut u8,
         align: usize,
         Tracked(user_mem): Tracked<PointsToRaw>,
+        Ghost(block_ptr): Ghost<*mut BlockHdr>,
+        Ghost(user_size): Ghost<int>,
     ) -> (r: *mut UsedBlockHdr)
     requires
-        old(self).all_blocks.wf(),
-        old(self).all_freelist_wf(),
-        old(self).bitmap_sync(),
-        old(self).bitmap_wf(),
-        old(self).size_class_condition(),
-        Self::parameter_validity(),
+        old(self).wf(),
+        old(self).wf_dealloc(DeallocToken { ptr, user_size, align }),
+        block_ptr == old(self).user_block_map@[ptr],
+        user_mem.is_range(ptr as int, user_size),
+        user_mem.provenance() == ptr@.provenance,
     ensures
         self.all_blocks.wf(),
         self.all_freelist_wf(),
@@ -2264,16 +2452,367 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             (self.all_blocks.perms@[r].points_to.value().size & SIZE_SIZE_MASK) as int
                 - size_of::<BlockHdr>() as int),
         self.all_blocks.perms@[r].mem.provenance() == r@.provenance,
+        self.all_blocks.perms@[r].overhead_mem.dom().is_empty(),
+        self.all_blocks.perms@[r].pad_perm is None,
     {
+        let ghost tok = DeallocToken { ptr, user_size, align };
+        let ghost old_self = *self;
+        proof {
+            self.lemma_wf_components();
+            self.lemma_wf_dealloc_implies_base(tok);
+        }
         if align >= GRANULARITY {
-            let tracked mut pad_perm: PointsTo<UsedBlockPad> = self.used_info.pad_perms.borrow_mut().tracked_remove(ptr);
-            let ptr =
-                UsedBlockPad::get_for_allocation(ptr);
-            ptr_ref(ptr, Tracked(&pad_perm)).block_hdr
+            proof {
+                self.lemma_wf_dealloc_implies_aligned(tok);
+            }
+            let ghost old_ab = self.all_blocks;
+            let ghost block = block_ptr;
+            let tracked mut bp = self.all_blocks.perms.borrow_mut().tracked_remove(block);
+            proof {
+                // bp == old_ab.perms@[block_ptr]
+                // Establish bp.points_to.is_init() from old_ab.wf()
+                let ghost bi = old_ab.get_ptr_internal_index(block);
+                old_ab.lemma_wf_extract_node(bi);
+                assert(old_ab.perms@[block].wf());
+                assert(bp.points_to.is_init());
+                assert(bp.points_to.ptr() == block);
+            }
+            let tracked pad_perm = bp.pad_perm.tracked_unwrap();
+            let pad_ptr = UsedBlockPad::get_for_allocation(ptr);
+            let block = ptr_ref(pad_ptr, Tracked(&pad_perm)).block_hdr;
+            proof {
+                let ghost phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+                let ghost BH = size_of::<BlockHdr>() as int;
+                let ghost pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+
+                // block read from pad == block_ptr
+                assert(block == block_ptr);
+
+                pad_perm.leak_contents();
+                let tracked pad_raw = pad_perm.into_raw();
+
+                // Provenance facts
+                assert(pad_raw.provenance() == block@.provenance) by {
+                    assert(ptr@.provenance == block@.provenance);
+                };
+                assert(user_mem.provenance() == block@.provenance) by {
+                    assert(user_mem.provenance() == ptr@.provenance);
+                    assert(ptr@.provenance == block@.provenance);
+                };
+
+                // Join ordering: block+BH <= ptr-pad_size (from spec: ptr >= block+BH+pad_size)
+                assert(block as int + BH <= ptr as int - pad_size);
+
+                // Join 1: overhead_mem [block+BH, ptr-pad_size) + pad_raw [ptr-pad_size, ptr)
+                let tracked j1 = Self::lemma_join_adjacent_ranges_is_range(
+                    bp.overhead_mem, pad_raw,
+                    block as int + BH,
+                    ptr as int - pad_size,
+                    ptr as int);
+
+                // Join 2: j1 [block+BH, ptr) + user_mem [ptr, ptr+user_size)
+                let tracked j2 = Self::lemma_join_adjacent_ranges_is_range(
+                    j1, user_mem,
+                    block as int + BH,
+                    ptr as int,
+                    ptr as int + user_size);
+
+                // Join 3: j2 [block+BH, ptr+user_size) + bp.mem [ptr+user_size, block+phys_size)
+                let tracked j3 = Self::lemma_join_adjacent_ranges_is_range(
+                    j2, bp.mem,
+                    block as int + BH,
+                    ptr as int + user_size,
+                    block as int + phys_size);
+
+                bp.mem = j3;
+                bp.pad_perm = None;
+                bp.overhead_mem = PointsToRaw::empty(block@.provenance);
+
+                assert(bp.wf()) by {
+                    assert(!bp.points_to.value().is_free());
+                    assert(bp.mem.provenance() == block@.provenance);
+                    assert(bp.points_to.ptr() == block);
+                    assert(bp.mem.provenance() == bp.points_to.ptr()@.provenance);
+                };
+            }
+            proof { self.all_blocks.perms.borrow_mut().tracked_insert(block, bp); }
+            proof {
+                let ghost bi = old_ab.get_ptr_internal_index(block);
+
+                // Prove perms@ extensional equality: remove(block).insert(block,bp) == old.insert(block,bp)
+                assert(self.all_blocks.perms@ =~= old_ab.perms@.insert(block, bp)) by {
+                    assert forall |p: *mut BlockHdr|
+                        self.all_blocks.perms@.dom().contains(p)
+                            == old_ab.perms@.insert(block, bp).dom().contains(p)
+                    by {};
+                    assert forall |p: *mut BlockHdr|
+                        self.all_blocks.perms@.dom().contains(p)
+                            implies #[trigger] self.all_blocks.perms@[p]
+                                == old_ab.perms@.insert(block, bp)[p]
+                    by {
+                        if p == block {
+                        } else {
+                            assert(self.all_blocks.perms@[p] == old_ab.perms@.remove(block)[p]);
+                            assert(old_ab.perms@.remove(block)[p] == old_ab.perms@[p]);
+                        }
+                    };
+                };
+
+                // Prove all_blocks.wf() via replace lemma
+                old_ab.lemma_wf_extract_node(bi);
+                old_ab.lemma_wf_glue_facts(bi);
+                old_ab.lemma_wf_structural_facts(bi);
+
+                assert(self.all_blocks.value_at(block) == old_ab.value_at(block));
+                assert(self.all_blocks.phys_prev_of(bi) == old_ab.phys_prev_of(bi));
+                assert(self.all_blocks.phys_next_of(bi) == old_ab.phys_next_of(bi));
+                assert(!self.all_blocks.value_at(block).is_free());
+
+                assert(self.all_blocks.value_at(block).prev_phys_block@.addr != 0 ==> (
+                    self.all_blocks.phys_prev_of(bi) matches Some(p)
+                        && p == self.all_blocks.value_at(block).prev_phys_block));
+                assert(self.all_blocks.value_at(block).prev_phys_block@.addr == 0
+                    ==> self.all_blocks.phys_prev_of(bi) is None);
+                assert(self.all_blocks.phys_next_of(bi) matches Some(next_ptr) ==>
+                    AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                        next_ptr, block, self.all_blocks.value_at(block).size));
+
+                self.all_blocks.lemma_construct_wf_node_glue(bi);
+                self.all_blocks.lemma_construct_wf_node_structural(bi);
+
+                AllBlocks::<FLLEN, SLLEN>::lemma_replace_block_perm_from_wf(
+                    old_ab, self.all_blocks, block, bp);
+
+                // Frame: all_freelist_wf, size_class_condition, bitmap preserved
+                assert(self.wf_shadow()) by {
+                    assert(old_self.wf_shadow());
+                    assert(self.shadow_freelist == old_self.shadow_freelist);
+                    Self::lemma_shadow_ptrs_nonnull_frame(old_self, *self);
+                    assert(self.all_blocks.ptrs@ == old_self.all_blocks.ptrs@);
+                };
+                assert forall|bi2: BlockIndex<FLLEN, SLLEN>, n: int|
+                    bi2.wf() && 0 <= n < old_self.shadow_freelist@.m[bi2].len()
+                    implies #[trigger] self.all_blocks.perms@[old_self.shadow_freelist@.m[bi2][n]]
+                        == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi2][n]]
+                by {
+                    let node = old_self.shadow_freelist@.m[bi2][n];
+                    if node == block {
+                        old_self.wf_index_in_freelist(bi2);
+                        old_self.lemma_freelist_wf_extract_wf_free_node(bi2, n);
+                        assert(old_self.all_blocks.value_at(node).is_free());
+                        assert(!old_self.all_blocks.perms@[block].points_to.value().is_free());
+                        assert(false);
+                    }
+                    // node != block: perms unchanged
+                };
+                Self::lemma_all_freelist_wf_perms_frame(old_self, *self);
+                // free_blocks_in_freelist: points_to unchanged for all ptrs@ entries
+                assert(self.free_blocks_in_freelist()) by {
+                    assert(old_self.free_blocks_in_freelist());
+                    Self::lemma_free_blocks_in_freelist_except_perms_frame(old_self, *self, Set::empty());
+                };
+                // size_class_condition via frame lemma
+                assert(!old_self.shadow_freelist@.contains(block)) by {
+                    if old_self.shadow_freelist@.contains(block) {
+                        let bi3 = choose|bi3: BlockIndex<FLLEN, SLLEN>| bi3.wf()
+                            && old_self.shadow_freelist@.m[bi3].contains(block);
+                        let n2 = choose|n2: int| 0 <= n2 < old_self.shadow_freelist@.m[bi3].len()
+                            && old_self.shadow_freelist@.m[bi3][n2] == block;
+                        old_self.wf_index_in_freelist(bi3);
+                        old_self.lemma_freelist_wf_extract_wf_free_node(bi3, n2);
+                        assert(old_self.all_blocks.value_at(block).is_free());
+                        assert(!old_self.all_blocks.perms@[block].points_to.value().is_free());
+                        assert(false);
+                    }
+                };
+                assert(Self::perms_size_unchanged_for_freelist(
+                    old_self.shadow_freelist@, old_self.all_blocks, self.all_blocks, block)) by {
+                    reveal(Tlsf::perms_size_unchanged_for_freelist);
+                    assert forall|bi3: BlockIndex<FLLEN, SLLEN>, i2: int|
+                        bi3.wf() && 0 <= i2 < old_self.shadow_freelist@.m[bi3].len()
+                            && old_self.shadow_freelist@.m[bi3][i2] != block
+                        implies self.all_blocks.perms@[old_self.shadow_freelist@.m[bi3][i2]].points_to.value().size
+                            == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi3][i2]].points_to.value().size
+                    by {
+                        let node = old_self.shadow_freelist@.m[bi3][i2];
+                        assert(self.all_blocks.perms@[node] == old_self.all_blocks.perms@[node]);
+                    };
+                };
+                Self::lemma_size_class_perm_change_preserved(old_self, *self, block);
+            }
+            block
         } else {
+            proof {
+                self.lemma_wf_dealloc_implies_unaligned(tok);
+            }
+            let ghost old_ab = self.all_blocks;
             let is_exposed = expose_provenance(ptr);
-            let ptr = ptr as usize - (GRANULARITY / 2);
-            with_exposed_provenance(ptr, is_exposed)
+            let block_addr = ptr as usize - (GRANULARITY / 2);
+            let block: *mut UsedBlockHdr = with_exposed_provenance(block_addr, is_exposed);
+            proof {
+                // block == block_ptr
+                assert(block == block_ptr) by {
+                    assert(block@.addr == ptr as int - (GRANULARITY / 2) as int);
+                    assert(block_ptr@.addr == ptr as int - (GRANULARITY / 2) as int);
+                    assert(block@.provenance == ptr@.provenance);
+                    assert(block_ptr@.provenance == ptr@.provenance);
+                };
+            }
+            proof {
+                let tracked mut bp = self.all_blocks.perms.borrow_mut().tracked_remove(block);
+
+                // Establish bp.points_to.is_init() from old_ab.wf()
+                let ghost bi = old_ab.get_ptr_internal_index(block);
+                old_ab.lemma_wf_extract_node(bi);
+                assert(old_ab.perms@[block].wf());
+                assert(bp.points_to.is_init());
+                assert(bp.points_to.ptr() == block);
+
+                let ghost phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+                let ghost BH = size_of::<BlockHdr>() as int;
+
+                assert(user_mem.provenance() == block@.provenance) by {
+                    assert(user_mem.provenance() == ptr@.provenance);
+                    assert(ptr@.provenance == block@.provenance);
+                };
+                assert(bp.mem.provenance() == block@.provenance);
+
+                // ptr == block + BH == block + GRANULARITY/2
+                assert(ptr as int == block as int + BH) by {
+                    assert(block as int == ptr as int - (GRANULARITY / 2) as int);
+                    if usize::BITS == 64 {
+                        assert(BH == 16);
+                        assert(GRANULARITY == 32);
+                    } else {
+                        assert(BH == 8);
+                        assert(GRANULARITY == 16);
+                    }
+                };
+
+                let tracked joined = Self::lemma_join_adjacent_ranges_is_range(
+                    user_mem, bp.mem,
+                    ptr as int,
+                    ptr as int + user_size,
+                    block as int + phys_size);
+
+                assert(joined.is_range(block as int + BH, phys_size - BH)) by {
+                    assert(ptr as int == block as int + BH);
+                };
+
+                bp.mem = joined;
+                bp.overhead_mem = PointsToRaw::empty(block@.provenance);
+                bp.pad_perm = None;
+
+                assert(bp.wf()) by {
+                    assert(!bp.points_to.value().is_free());
+                    assert(bp.mem.provenance() == block@.provenance);
+                    assert(bp.points_to.ptr() == block);
+                    assert(bp.mem.provenance() == bp.points_to.ptr()@.provenance);
+                };
+
+                self.all_blocks.perms.borrow_mut().tracked_insert(block, bp);
+
+                // Prove perms@ extensional equality
+                assert(self.all_blocks.perms@ =~= old_ab.perms@.insert(block, bp)) by {
+                    assert forall |p: *mut BlockHdr|
+                        self.all_blocks.perms@.dom().contains(p)
+                            == old_ab.perms@.insert(block, bp).dom().contains(p)
+                    by {};
+                    assert forall |p: *mut BlockHdr|
+                        self.all_blocks.perms@.dom().contains(p)
+                            implies #[trigger] self.all_blocks.perms@[p]
+                                == old_ab.perms@.insert(block, bp)[p]
+                    by {
+                        if p == block {
+                        } else {
+                            assert(self.all_blocks.perms@[p] == old_ab.perms@.remove(block)[p]);
+                            assert(old_ab.perms@.remove(block)[p] == old_ab.perms@[p]);
+                        }
+                    };
+                };
+
+                // Prove all_blocks.wf()
+                old_ab.lemma_wf_glue_facts(bi);
+                old_ab.lemma_wf_structural_facts(bi);
+
+                assert(self.all_blocks.value_at(block) == old_ab.value_at(block));
+                assert(self.all_blocks.phys_prev_of(bi) == old_ab.phys_prev_of(bi));
+                assert(self.all_blocks.phys_next_of(bi) == old_ab.phys_next_of(bi));
+                assert(!self.all_blocks.value_at(block).is_free());
+
+                assert(self.all_blocks.value_at(block).prev_phys_block@.addr != 0 ==> (
+                    self.all_blocks.phys_prev_of(bi) matches Some(p)
+                        && p == self.all_blocks.value_at(block).prev_phys_block));
+                assert(self.all_blocks.value_at(block).prev_phys_block@.addr == 0
+                    ==> self.all_blocks.phys_prev_of(bi) is None);
+                assert(self.all_blocks.phys_next_of(bi) matches Some(next_ptr) ==>
+                    AllBlocks::<FLLEN, SLLEN>::phys_next_matches(
+                        next_ptr, block, self.all_blocks.value_at(block).size));
+
+                self.all_blocks.lemma_construct_wf_node_glue(bi);
+                self.all_blocks.lemma_construct_wf_node_structural(bi);
+
+                AllBlocks::<FLLEN, SLLEN>::lemma_replace_block_perm_from_wf(
+                    old_ab, self.all_blocks, block, bp);
+
+                // Frame: wf_shadow, all_freelist_wf, size_class_condition, bitmap preserved
+                assert(self.wf_shadow()) by {
+                    assert(old_self.wf_shadow());
+                    assert(self.shadow_freelist == old_self.shadow_freelist);
+                    Self::lemma_shadow_ptrs_nonnull_frame(old_self, *self);
+                    assert(self.all_blocks.ptrs@ == old_self.all_blocks.ptrs@);
+                };
+                assert forall|bi2: BlockIndex<FLLEN, SLLEN>, n: int|
+                    bi2.wf() && 0 <= n < old_self.shadow_freelist@.m[bi2].len()
+                    implies #[trigger] self.all_blocks.perms@[old_self.shadow_freelist@.m[bi2][n]]
+                        == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi2][n]]
+                by {
+                    let node = old_self.shadow_freelist@.m[bi2][n];
+                    if node == block {
+                        old_self.wf_index_in_freelist(bi2);
+                        old_self.lemma_freelist_wf_extract_wf_free_node(bi2, n);
+                        assert(old_self.all_blocks.value_at(node).is_free());
+                        assert(!old_self.all_blocks.perms@[block].points_to.value().is_free());
+                        assert(false);
+                    }
+                };
+                Self::lemma_all_freelist_wf_perms_frame(old_self, *self);
+                assert(self.free_blocks_in_freelist()) by {
+                    assert(old_self.free_blocks_in_freelist());
+                    Self::lemma_free_blocks_in_freelist_except_perms_frame(old_self, *self, Set::empty());
+                };
+                // size_class_condition via frame lemma
+                assert(!old_self.shadow_freelist@.contains(block)) by {
+                    if old_self.shadow_freelist@.contains(block) {
+                        let bi3 = choose|bi3: BlockIndex<FLLEN, SLLEN>|
+                            bi3.wf()
+                            && old_self.shadow_freelist@.m.contains_key(bi3)
+                            && old_self.shadow_freelist@.m[bi3].contains(block);
+                        let n2 = choose|n2: int| 0 <= n2 < old_self.shadow_freelist@.m[bi3].len()
+                            && old_self.shadow_freelist@.m[bi3][n2] == block;
+                        old_self.wf_index_in_freelist(bi3);
+                        old_self.lemma_freelist_wf_extract_wf_free_node(bi3, n2);
+                        assert(old_self.all_blocks.value_at(block).is_free());
+                        assert(!old_self.all_blocks.perms@[block].points_to.value().is_free());
+                        assert(false);
+                    }
+                };
+                assert(Self::perms_size_unchanged_for_freelist(
+                    old_self.shadow_freelist@, old_self.all_blocks, self.all_blocks, block)) by {
+                    reveal(Tlsf::perms_size_unchanged_for_freelist);
+                    assert forall|bi3: BlockIndex<FLLEN, SLLEN>, i2: int|
+                        bi3.wf() && 0 <= i2 < old_self.shadow_freelist@.m[bi3].len()
+                            && old_self.shadow_freelist@.m[bi3][i2] != block
+                        implies self.all_blocks.perms@[old_self.shadow_freelist@.m[bi3][i2]].points_to.value().size
+                            == old_self.all_blocks.perms@[old_self.shadow_freelist@.m[bi3][i2]].points_to.value().size
+                    by {
+                        let node = old_self.shadow_freelist@.m[bi3][i2];
+                        assert(self.all_blocks.perms@[node] == old_self.all_blocks.perms@[node]);
+                    };
+                };
+                Self::lemma_size_class_perm_change_preserved(old_self, *self, block);
+            }
+            block
         }
     }
 

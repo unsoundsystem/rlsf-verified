@@ -95,8 +95,6 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     /// `sl_bitmap[fl].get_bit(sl)` is set iff `first_free[fl][sl].is_some()`
     pub sl_bitmap: [usize; FLLEN],
     pub first_free: [[*mut BlockHdr; SLLEN]; FLLEN],
-    //FIXME: is it valid to have it? clarify which parts of memory is delegated to user.
-    pub used_info: UsedInfo,
     pub _phantom: PhantomData<&'pool ()>,
 
     /// represents region managed by this allocator
@@ -115,7 +113,10 @@ pub struct Tlsf<'pool, const FLLEN: usize, const SLLEN: usize> {
     pub root_provenances: Tracked<Option<IsExposed>>,
 
     /// Auxiliary data used to verify segregated list
-    pub shadow_freelist: Ghost<ShadowFreelist<FLLEN, SLLEN>>
+    pub shadow_freelist: Ghost<ShadowFreelist<FLLEN, SLLEN>>,
+
+    /// Maps user pointers (returned by allocate) to block header pointers
+    pub user_block_map: Ghost<Map<*mut u8, *mut BlockHdr>>,
 }
 
 impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
@@ -154,6 +155,23 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.bitmap_wf(),
             self.bitmap_sync(),
             self.all_blocks.pool_size_bounded(),
+    {}
+
+    /// Frame lemma: wf() is preserved when only user_block_map changes.
+    pub(crate) proof fn lemma_wf_preserved_after_user_block_map_update(
+        old_self: &Self, new_self: &Self,
+    )
+        requires
+            old_self.wf(),
+            new_self.all_blocks == old_self.all_blocks,
+            new_self.fl_bitmap == old_self.fl_bitmap,
+            new_self.sl_bitmap == old_self.sl_bitmap,
+            new_self.first_free == old_self.first_free,
+            new_self.shadow_freelist == old_self.shadow_freelist,
+            new_self.root_provenances == old_self.root_provenances,
+            new_self.valid_range == old_self.valid_range,
+        ensures
+            new_self.wf(),
     {}
 
     proof fn lemma_mark_used_preserves_size_bits(sz: usize)
@@ -284,11 +302,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             fl_bitmap: 0,
             sl_bitmap: [0; FLLEN],
             first_free: Self::initial_free_lists(),
-            used_info: UsedInfo {
-                ptrs: Ghost(Seq::empty()),
-                pad_perms: Tracked(Map::tracked_empty()),
-                overhead_perms: Tracked(Map::tracked_empty()),
-            },
             all_blocks: AllBlocks::empty(),
             valid_range: Ghost(Set::empty()),
             root_provenances: Tracked(None),
@@ -296,7 +309,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             shadow_freelist: Ghost(ShadowFreelist {
                 m: Map::empty(),
                 pi: Map::empty(),
-            })
+            }),
+            user_block_map: Ghost(Map::empty()),
         }
     }
 
@@ -502,7 +516,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             let tracked mut new_block_perm = BlockPerm {
                 points_to: new_header,
                 free_link_perm: Some(new_header_frelink),
-                mem: PointsToRaw::empty(Provenance::null())
+                mem: PointsToRaw::empty(Provenance::null()),
+                overhead_mem: PointsToRaw::empty(Provenance::null()),
+                pad_perm: None,
             };
             let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
 
@@ -619,14 +635,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 ///
 /// * This leaved abstract & tracked
 ///     * `allocate` moves out DeallocToken to ensure absence of double free
-pub tracked struct DeallocToken;
-//{
-    ///// Copy of header pointer of allocated region as an allocation identifier
-    //ghost ptr: Ghost<*mut UsedBlockHdr>,
-    ///// Padding if there exists
-    ///// invariant: pad.ptr() = pad_ptr = PTR_BEEN_DEALLOCATED - 1
-    //tracked pad: Option<Tracked<PointsTo<UsedBlockPad>>>
-//}
+pub tracked struct DeallocToken {
+    pub ghost ptr: *mut u8,
+    pub ghost user_size: int,
+    pub ghost align: usize,
+}
 
 
 #[inline]

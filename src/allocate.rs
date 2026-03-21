@@ -279,6 +279,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         points_to: new_head_perm.points_to,
                         free_link_perm: Some(next_free_link_perm),
                         mem: new_head_perm.mem,
+                        overhead_mem: new_head_perm.overhead_mem,
+                        pad_perm: new_head_perm.pad_perm,
                     });
                     assert(self.all_blocks.perms@[next_free_candidate].free_link_perm.unwrap().value().next_free
                         == next_next_free_candidate);
@@ -523,6 +525,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(new_block_perm.points_to.ptr() == block);
                 assert(old_head_perm.wf());
                 assert(new_block_perm.mem.provenance() == block@.provenance);
+                // Free blocks have pad_perm = None and overhead_mem empty
+                assert(old_head_perm.points_to.value().is_free());
+                assert(new_block_perm.pad_perm is None);
+                assert(new_block_perm.overhead_mem.dom().is_empty());
             }
             if new_size == block_size {
                 // The allocation completely fills this free block.
@@ -674,6 +680,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         points_to: new_block_header_perm.into_typed::<BlockHdr>(new_free_block.addr()),
                         free_link_perm: Some(new_header_freelink_typed),
                         mem,
+                        overhead_mem: PointsToRaw::empty(new_header_freelink_prov),
+                        pad_perm: None,
                     };
                     assert(new_free_block_perm.free_link_perm.unwrap().ptr() == get_freelink_ptr_spec(new_free_block)) by {
                         assert(new_freelink == get_freelink_ptr_spec(new_free_block));
@@ -2078,6 +2086,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
 
             //// Place a `UsedBlockPad` (used by `used_block_hdr_for_allocation`)
+            // Maintain pad_perm/overhead_mem tracking for wf_dealloc proof
+            proof { assert(new_block_perm.pad_perm is None); }
             let ghost mem_dom_before_pad = new_block_perm.mem.dom();
             proof {
                 assert(mem_dom_before_pad
@@ -2266,7 +2276,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 proof {
                     let ghost pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
                     let ghost pad_lo = ptr as int - pad_size;
-                    self.used_info.pad_perms.borrow_mut().tracked_insert(ptr, pad_perm);
+                    new_block_perm.pad_perm = Some(pad_perm);
                     new_block_perm.mem = mem_rest;
                     assert(new_block_perm.mem.dom() == mem_dom_before_pad.difference(
                         set_int_range(
@@ -2276,9 +2286,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     ));
                 }
             }
-            //proof {
-                //admit(); //-------------------------------------------------------------
-            //}
+            proof {
+                // Track pad_perm state for wf_dealloc proof later
+                if align >= GRANULARITY {
+                    assert(new_block_perm.pad_perm is Some);
+                } else {
+                    // pad_perm was never set (was None from old_head_perm, a free block)
+                    assert(new_block_perm.pad_perm is None);
+                }
+            }
 
             let ghost hdr_end = block as int + size_of::<BlockHdr>() as int;
             let ghost overhead_hi = if align >= GRANULARITY {
@@ -2319,17 +2335,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     }
                 };
             }
+            let ghost mem_dom_before_overhead_split = new_block_perm.mem.dom();
             let tracked (overhead_mem, mem_after_overhead) =
                 new_block_perm.mem.split(set_int_range(hdr_end, overhead_hi));
             proof {
-                self.used_info.overhead_perms.borrow_mut().tracked_insert(ptr, overhead_mem);
+                new_block_perm.overhead_mem = overhead_mem;
             }
 
             let ghost ret_lo = ptr as int;
             let ghost ret_hi = ptr as int + size as int;
             proof {
                 assert(set_int_range(ret_lo, ret_hi).subset_of(mem_after_overhead.dom())) by {
-                    assert(mem_after_overhead.dom() == new_block_perm.mem.dom().difference(set_int_range(hdr_end, overhead_hi)));
+                    assert(mem_after_overhead.dom() == mem_dom_before_overhead_split.difference(set_int_range(hdr_end, overhead_hi)));
                     assert forall |a:int|
                         #[trigger] set_int_range(ret_lo, ret_hi).contains(a)
                         implies mem_after_overhead.dom().contains(a)
@@ -2344,7 +2361,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             };
                         };
                         assert(a >= block as int + size_of::<BlockHdr>() as int);
-                        assert(new_block_perm.mem.dom().contains(a));
+                        assert(mem_dom_before_overhead_split.contains(a));
                         assert(!set_int_range(hdr_end, overhead_hi).contains(a)) by {
                             if align >= GRANULARITY {
                                 assert(overhead_hi == ptr as int - vstd::layout::size_of::<UsedBlockPad>() as int);
@@ -2962,7 +2979,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(self.wf());
             }
             proof {
-                self.lemma_wf_dealloc_token();
                 assert(ptr.addr() % align == 0);
                 assert(self.is_root_provenance(ptr));
                 assert(ptr@.provenance == ret_mem.provenance()) by {
@@ -2976,12 +2992,229 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
 
             //self.print_stat();
-            let r = Some((ptr, Tracked(ret_mem), Tracked(DeallocToken)));
+            let ghost self_before_ubm_update = *self;
             proof {
-                assert(r is Some);
-                assert(r matches Some((_, _, tok)) ==> self.wf_dealloc(tok@)) by {
-                    self.lemma_wf_dealloc_token();
+                self.user_block_map@ = self.user_block_map@.insert(ptr, block);
+                Self::lemma_wf_preserved_after_user_block_map_update(
+                    &self_before_ubm_update, self);
+            }
+            let tracked dealloc_tok = DeallocToken { ptr: ptr, user_size: size as int, align: align };
+            proof {
+                assert(self.user_block_map@[ptr] == block);
+                assert(self.all_blocks.perms@.contains_key(block));
+                self.all_blocks.lemma_contains(block);
+                assert(self.all_blocks.contains(block));
+                assert(!self.all_blocks.perms@[block].points_to.value().is_free());
+                assert(ptr@.provenance == block@.provenance);
+                self.lemma_establish_wf_dealloc_base(dealloc_tok);
+
+                let ghost bp = self.all_blocks.perms@[block];
+                let ghost phys_size = (bp.points_to.value().size & SPEC_SIZE_SIZE_MASK) as int;
+                let ghost BH = size_of::<BlockHdr>() as int;
+                let ghost pad_size = vstd::layout::size_of::<UsedBlockPad>() as int;
+
+                // mem_rest2 is [ptr+size, block+new_size)
+                // new_block_perm.mem = mem_rest2 (set at line 2394)
+                // after tracked_insert, bp.mem == new_block_perm.mem == mem_rest2
+                assert(bp.mem.is_range(
+                    ptr as int + size as int,
+                    block as int + new_size as int - ptr as int - size as int)) by {
+                    // mem_rest2 = mem_after_overhead - [ret_lo, ret_hi)
+                    // mem_after_overhead was obtained by splitting overhead from new_block_perm.mem
+                    // ret_lo = ptr, ret_hi = ptr + size
+                    assert(mem_rest2.dom() == mem_after_overhead.dom().difference(
+                        set_int_range(ptr as int, ptr as int + size as int)));
+                    // mem_after_overhead.dom() = (mem before overhead split).dom() - [hdr_end, overhead_hi)
+                    assert(mem_after_overhead.dom() ==
+                        mem_dom_before_overhead_split.difference(set_int_range(hdr_end, overhead_hi)));
+                    // Result: mem_rest2 covers [ptr+size, block+new_size)
+                    assert forall |a: int|
+                        #[trigger] set_int_range(ptr as int + size as int, block as int + new_size as int).contains(a)
+                        implies mem_rest2.dom().contains(a)
+                    by {
+                        assert(a >= ptr as int + size as int);
+                        assert(a < block as int + new_size as int);
+                        assert(!set_int_range(ptr as int, ptr as int + size as int).contains(a));
+                        assert(!set_int_range(hdr_end, overhead_hi).contains(a)) by {
+                            if align >= GRANULARITY {
+                                assert(overhead_hi == ptr as int - pad_size);
+                                assert(a >= ptr as int + size as int);
+                            } else {
+                                assert(overhead_hi == ptr as int);
+                                assert(a >= ptr as int + size as int);
+                            }
+                        };
+                        assert(mem_dom_before_overhead_split.contains(a)) by {
+                            if align >= GRANULARITY {
+                                // mem before overhead split = original mem minus pad
+                                // pad range is [ptr-pad_size, ptr)
+                                assert(!set_int_range(ptr as int - pad_size, ptr as int).contains(a)) by {
+                                    assert(a >= ptr as int + size as int);
+                                };
+                            }
+                        };
+                    };
+                    assert forall |a: int|
+                        mem_rest2.dom().contains(a)
+                        implies #[trigger] set_int_range(ptr as int + size as int, block as int + new_size as int).contains(a)
+                    by {
+                        assert(!set_int_range(ptr as int, ptr as int + size as int).contains(a));
+                        assert(!set_int_range(hdr_end, overhead_hi).contains(a));
+                        assert(mem_dom_before_overhead_split.contains(a));
+                        assert(a < block as int + new_size as int);
+                        assert(a >= ptr as int + size as int) by {
+                            if a < ptr as int + size as int {
+                                if a >= ptr as int {
+                                    assert(set_int_range(ptr as int, ptr as int + size as int).contains(a));
+                                    assert(false);
+                                } else if a >= hdr_end {
+                                    if align >= GRANULARITY {
+                                        if a < overhead_hi {
+                                            assert(set_int_range(hdr_end, overhead_hi).contains(a));
+                                            assert(false);
+                                        } else {
+                                            // a >= overhead_hi = ptr - pad_size, a < ptr
+                                            // a is in pad range or not
+                                            assert(a >= ptr as int - pad_size);
+                                            assert(a < ptr as int);
+                                        }
+                                    } else {
+                                        assert(a >= hdr_end);
+                                        assert(a < ptr as int);
+                                        assert(set_int_range(hdr_end, overhead_hi).contains(a));
+                                        assert(false);
+                                    }
+                                }
+                            }
+                        };
+                    };
+                    assert(mem_rest2.dom() == set_int_range(ptr as int + size as int, block as int + new_size as int));
                 };
+                assert(bp.mem.provenance() == block@.provenance) by {
+                    assert(mem_rest2.provenance() == mem_after_overhead.provenance());
+                    assert(mem_after_overhead.provenance() == new_block_perm.mem.provenance());
+                    assert(new_block_perm.mem.provenance() == block@.provenance);
+                };
+
+                // phys_size == new_size because SIZE_SIZE_MASK preserves new_size
+                assert(phys_size == new_size as int) by {
+                    assert(bp.points_to.value().size == (new_size | SIZE_USED));
+                    assert(((new_size | SIZE_USED) & SPEC_SIZE_SIZE_MASK) == new_size) by {
+                        Self::lemma_mark_used_preserves_size_bits(new_size);
+                    };
+                };
+
+                if align >= GRANULARITY {
+                    // overhead_mem is [block+BH, ptr-pad_size)
+                    assert(bp.overhead_mem.is_range(
+                        block as int + BH,
+                        ptr as int - pad_size - block as int - BH)) by {
+                        assert(overhead_mem.dom() == set_int_range(hdr_end, overhead_hi));
+                        assert(hdr_end == block as int + BH);
+                        assert(overhead_hi == ptr as int - pad_size);
+                    };
+                    assert(bp.overhead_mem.provenance() == block@.provenance) by {
+                        assert(overhead_mem.provenance() == new_block_perm.mem.provenance());
+                        assert(new_block_perm.mem.provenance() == block@.provenance);
+                    };
+
+                    // pad_perm conditions
+                    assert(bp.pad_perm matches Some(pp));
+                    let ghost pp = bp.pad_perm.unwrap();
+                    assert(pp.is_init());
+                    assert(pp.value().block_hdr == block);
+                    assert(pp.ptr()@.provenance == ptr@.provenance);
+                    assert(pp.ptr()@.addr == ptr as int - pad_size);
+
+                    assert(ptr as int >= block as int + BH + pad_size) by {
+                        if usize::BITS == 64 {
+                            assert(BH == 16);
+                            assert(pad_size == 8);
+                            assert(ptr as int >= block as int + 32);
+                        } else {
+                            assert(BH == 8);
+                            assert(pad_size == 4);
+                            assert(ptr as int >= block as int + 16);
+                        }
+                    };
+                    assert(ptr as int + size as int <= block as int + phys_size) by {
+                        assert(ptr as int + size as int <= block as int + new_size as int);
+                    };
+                    self.lemma_establish_wf_dealloc_granularity_aligned(dealloc_tok);
+                } else {
+                    // In the low-align case: overhead == size_of::<UsedBlockHdr>() == BH == GRANULARITY/2
+                    // because ptr == unaligned_ptr (round_up is no-op when align divides unaligned_ptr)
+                    assert(overhead as int == (GRANULARITY / 2) as int) by {
+                        // Lower bound: ptr >= unaligned_ptr = block + size_of::<UsedBlockHdr>()
+                        assert(ptr as int >= unaligned_ptr as int);
+                        assert(overhead as int >= unaligned_ptr as int - block as int);
+                        // Upper bound: overhead <= max_overhead
+                        // max_overhead = align.saturating_sub(GRAN/2) + size_of::<UsedBlockHdr>()
+                        // align < GRANULARITY and is power of 2, so align <= GRAN/2, saturating_sub = 0
+                        // max_overhead = size_of::<UsedBlockHdr>() = GRANULARITY/2
+                        if usize::BITS == 64 {
+                            assert(GRANULARITY == 32);
+                            assert(size_of::<UsedBlockHdr>() == 16);
+                            assert(max_overhead == 16) by {
+                                assert(align < 32);
+                                assert(align <= 16) by {
+                                    lemma_pow2_value_in_usize(align);
+                                };
+                            };
+                        } else {
+                            assert(GRANULARITY == 16);
+                            assert(size_of::<UsedBlockHdr>() == 8);
+                            assert(max_overhead == 8) by {
+                                assert(align < 16);
+                                assert(align <= 8) by {
+                                    lemma_pow2_value_in_usize(align);
+                                };
+                            };
+                        }
+                    };
+                    // overhead_mem is empty
+                    assert(bp.overhead_mem.dom().is_empty()) by {
+                        assert(overhead_mem.dom() == set_int_range(hdr_end, overhead_hi));
+                        assert(overhead_hi == ptr as int);
+                        assert(hdr_end == block as int + BH);
+                        assert(ptr as int == block as int + overhead as int);
+                        assert(overhead as int == BH) by {
+                            if usize::BITS == 64 {
+                                assert(BH == 16);
+                            } else {
+                                assert(BH == 8);
+                            }
+                        };
+                    };
+                    assert(bp.pad_perm is None);
+                    assert(block as int == ptr as int - (GRANULARITY / 2) as int) by {
+                        assert(ptr as int == block as int + overhead as int);
+                    };
+                    assert(ptr as int + size as int <= block as int + phys_size) by {
+                        assert(ptr as int + size as int <= block as int + new_size as int);
+                    };
+                    self.lemma_establish_wf_dealloc_granularity_unaligned(dealloc_tok);
+                }
+                self.lemma_establish_wf_dealloc(dealloc_tok);
+            }
+            let r = Some((ptr, Tracked(ret_mem), Tracked(dealloc_tok)));
+            proof {
+                assert(self.wf());
+                assert(self.wf_dealloc(dealloc_tok));
+                assert(ptr@.provenance == ret_mem.provenance());
+                assert(!ret_mem.dom().is_empty());
+                assert(ptr.addr() % align == 0);
+                assert(self.is_root_provenance(ptr));
+                assert(exists|s: int| s >= size as int && #[trigger] ret_mem.is_range(ptr as usize as int, s));
+                // Assert the full postcondition pattern to stabilize proof
+                assert(r matches Some((p, pt, tk)) ==> ({
+                    &&& self.wf_dealloc(tk@)
+                    &&& p@.provenance == pt@.provenance()
+                    &&& !pt@.dom().is_empty()
+                    &&& (exists|s: int| s >= size as int && #[trigger] pt@.is_range(p as usize as int, s))
+                    &&& p.addr() % align == 0
+                    &&& self.is_root_provenance(p)
+                }));
             }
             r
         }

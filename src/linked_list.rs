@@ -807,6 +807,8 @@ use crate::*;
                     self.all_blocks.perms@.contains_key(p)
                     && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
                     && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                    && self.all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
+                    && self.all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
                 ),
             // After unlinking, node is not in any freelist bucket
             !self.shadow_freelist@.contains(node),
@@ -923,6 +925,8 @@ use crate::*;
                         mem: next_blk.mem,
                         points_to: next_blk.points_to,
                         free_link_perm: Some(next_link_perm),
+                        overhead_mem: next_blk.overhead_mem,
+                        pad_perm: next_blk.pad_perm,
                     });
                 }
             }
@@ -972,6 +976,8 @@ use crate::*;
                         mem: prev_blk.mem,
                         points_to: prev_blk.points_to,
                         free_link_perm: Some(prev_link_perm),
+                        overhead_mem: prev_blk.overhead_mem,
+                        pad_perm: prev_blk.pad_perm,
                     });
                 }
             } else {
@@ -988,6 +994,8 @@ use crate::*;
                     points_to: node_blk.points_to,
                     free_link_perm: Some(link_perm),
                     mem: node_blk.mem,
+                    overhead_mem: node_blk.overhead_mem,
+                    pad_perm: node_blk.pad_perm,
                 });
             }
 
@@ -1376,6 +1384,8 @@ use crate::*;
                     self.all_blocks.perms@.contains_key(p)
                     && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
                     && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                    && self.all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
+                    && self.all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
                 ),
             self.all_freelist_wf(),
             self.bitmap_sync(),
@@ -1444,12 +1454,16 @@ use crate::*;
                         points_to: first_free_perm.points_to,
                         free_link_perm: Some(first_free_fl_pt),
                         mem: first_free_perm.mem,
+                        overhead_mem: first_free_perm.overhead_mem,
+                        pad_perm: first_free_perm.pad_perm,
                     });
 
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
+                        overhead_mem: node_blk.overhead_mem,
+                        pad_perm: node_blk.pad_perm,
                     });
 
 
@@ -1601,6 +1615,8 @@ use crate::*;
                         points_to: node_blk.points_to,
                         free_link_perm: Some(node_fl_pt),
                         mem: node_blk.mem,
+                        overhead_mem: node_blk.overhead_mem,
+                        pad_perm: node_blk.pad_perm,
                     });
 
                     assert(exists|i: int| 0 <= i < self.all_blocks.ptrs@.len()

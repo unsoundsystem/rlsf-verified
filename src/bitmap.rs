@@ -30,7 +30,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.first_free == old(self).first_free,
             self.shadow_freelist == old(self).shadow_freelist,
             self.all_blocks == old(self).all_blocks,
-            self.used_info == old(self).used_info,
+            self.user_block_map == old(self).user_block_map,
             self.valid_range == old(self).valid_range,
             self.root_provenances == old(self).root_provenances,
     {
@@ -162,7 +162,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.all_blocks == old(self).all_blocks,
             self.first_free == old(self).first_free,
             self.shadow_freelist == old(self).shadow_freelist,
-            self.used_info == old(self).used_info,
+            self.user_block_map == old(self).user_block_map,
             self.valid_range == old(self).valid_range,
             self.root_provenances == old(self).root_provenances,
             forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
