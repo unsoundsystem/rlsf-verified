@@ -11,9 +11,3 @@ default = []
 std = []
 
 [dev-dependencies]
-criterion = "0.8.1"
-rlsf = "0.2.1"
-
-[[bench]]
-name = "alloc_bench"
-harness = false

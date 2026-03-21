@@ -1,24 +1,23 @@
 extern crate rlsf_verified;
 use std::hint::black_box;
 use std::mem::MaybeUninit;
-use std::ptr::NonNull;
 
 const BUF_SIZE: usize = 65536;
 const FLLEN: usize = 12;
 const SLLEN: usize = 16;
 
+#[repr(align(32))] // GRANULARITY == 32
+struct AlignedPool([MaybeUninit<u8>; BUF_SIZE]);
+
 pub fn run_alt_verified(size: usize, iters: usize) {
-    use rlsf_verified::{parameters::GRANULARITY, round_up, Tlsf};
-    let mut pool = [MaybeUninit::<u8>::uninit(); BUF_SIZE];
+    use rlsf_verified::{parameters::GRANULARITY, Tlsf};
+    let mut pool = AlignedPool([MaybeUninit::uninit(); BUF_SIZE]);
     let mut tlsf = Tlsf::<FLLEN, SLLEN>::new();
     // align varies
     let align = size.next_power_of_two();
     unsafe {
-        let block = NonNull::new((&mut pool) as *mut [_] as _).unwrap();
-        let unaligned_start = block.as_ptr() as *mut u8;
-        let start = round_up(unaligned_start, GRANULARITY);
-        let size = BUF_SIZE;
-        tlsf.insert_free_block_ptr_aligned_test(start as *mut u8, size);
+        let start = pool.0.as_mut_ptr() as *mut u8;
+        tlsf.insert_free_block_ptr_aligned_test(start, BUF_SIZE);
     }
 
     for _ in 0..iters {
@@ -50,16 +49,13 @@ pub fn run_alt_original(size: usize, iters: usize) {
 }
 
 pub fn run_aaaddd_verified(size: usize, iters: usize) {
-    use rlsf_verified::{parameters::GRANULARITY, round_up, Tlsf};
-    let mut pool = [MaybeUninit::<u8>::uninit(); BUF_SIZE];
+    use rlsf_verified::{parameters::GRANULARITY, Tlsf};
+    let mut pool = AlignedPool([MaybeUninit::uninit(); BUF_SIZE]);
     let mut tlsf = Tlsf::<FLLEN, SLLEN>::new();
     let align = size.next_power_of_two();
     unsafe {
-        let block = NonNull::new((&mut pool) as *mut [_] as _).unwrap();
-        let unaligned_start = block.as_ptr() as *mut u8;
-        let start = round_up(unaligned_start, GRANULARITY);
-        let size = BUF_SIZE;
-        tlsf.insert_free_block_ptr_aligned_test(start as *mut u8, size);
+        let start = pool.0.as_mut_ptr() as *mut u8;
+        tlsf.insert_free_block_ptr_aligned_test(start, BUF_SIZE);
     }
 
     for _ in 0..iters {
