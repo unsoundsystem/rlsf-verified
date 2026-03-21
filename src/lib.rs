@@ -142,6 +142,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& self.bitmap_sync()
     }
 
+    /// Bridge lemma: decomposes closed wf() into its open components.
+    /// Needed by deallocate module which cannot see wf() body.
+    pub(crate) proof fn lemma_wf_components(&self)
+        requires self.wf()
+        ensures
+            self.all_blocks.wf(),
+            self.all_freelist_wf(),
+            self.size_class_condition(),
+            Self::parameter_validity(),
+            self.bitmap_wf(),
+            self.bitmap_sync(),
+            self.all_blocks.pool_size_bounded(),
+    {}
+
     proof fn lemma_mark_used_preserves_size_bits(sz: usize)
         requires
             sz as int % GRANULARITY as int == 0,
@@ -470,7 +484,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Initialize the new free block
             // NOTE: header size calculated as GRANULARITY
             assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(chunk_size - GRANULARITY));
-            let idx = Self::map_floor(chunk_size - GRANULARITY)?;
 
             // Write the header
             // NOTE: because Verus doesn't supports field update through raw pointer,
@@ -501,7 +514,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // Link to the list
             {
                 let tracked new_block_freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
-                self.link_free_block(idx, block);
+                self.link_free_block(chunk_size - GRANULARITY, block);
             }
 
             //self.set_fl_bitmap(fl as u32);

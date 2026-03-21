@@ -460,6 +460,205 @@ verus! {
         };
     }
 
+    // =========================================
+    // remove_ghost_pointer: inverse of add_ghost_pointer
+    // =========================================
+
+    /// Removes p from an ordered sequence. Inverse of add_ghost_pointer.
+    /// Equivalent to ls.remove(idx) where ls[idx] == p.
+    pub(crate) closed spec fn remove_ghost_pointer(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr
+    ) -> Seq<*mut BlockHdr>
+        recommends ghost_pointer_ordered(ls), ls.contains(p)
+    {
+        let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+        ls.remove(idx)
+    }
+
+    pub(crate) proof fn lemma_remove_ghost_pointer_index(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr,
+    )
+        requires
+            ghost_pointer_ordered(ls),
+            ptrs_no_duplicates(ls),
+            ls.contains(p),
+        ensures ({
+            let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+            &&& 0 <= idx < ls.len()
+            &&& ls[idx] == p
+            &&& remove_ghost_pointer(ls, p) == ls.remove(idx)
+            &&& remove_ghost_pointer(ls, p).len() == ls.len() - 1
+        })
+    {
+        reveal(remove_ghost_pointer);
+        let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+        assert(0 <= idx < ls.len());
+    }
+
+    pub(crate) proof fn lemma_remove_ghost_pointer_ensures(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr,
+    )
+        requires
+            ghost_pointer_ordered(ls),
+            ptrs_no_duplicates(ls),
+            ls.contains(p),
+        ensures
+            ghost_pointer_ordered(remove_ghost_pointer(ls, p)),
+            !remove_ghost_pointer(ls, p).contains(p),
+            remove_ghost_pointer(ls, p).len() == ls.len() - 1,
+    {
+        reveal(remove_ghost_pointer);
+        reveal(ptrs_no_duplicates);
+        let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+        let result = ls.remove(idx);
+
+        // Ordered preserved: elements before idx keep their order,
+        // elements after idx shift down but keep their relative order
+        assert(ghost_pointer_ordered(result)) by {
+            reveal(ghost_pointer_ordered);
+            assert forall|i: int, j: int|
+                0 <= i < result.len() && 0 <= j < result.len() && i < j
+                implies (result[i] as usize as int) <= (result[j] as usize as int)
+            by {
+                let oi = if i < idx { i } else { i + 1 };
+                let oj = if j < idx { j } else { j + 1 };
+                assert(result[i] == ls[oi]);
+                assert(result[j] == ls[oj]);
+                assert(oi < oj);
+                assert((ls[oi] as usize as int) <= (ls[oj] as usize as int));
+            };
+        };
+
+        // !contains(p): since ls had no duplicates, removing the one occurrence removes p
+        assert(!result.contains(p)) by {
+            if result.contains(p) {
+                let j = choose|j: int| 0 <= j < result.len() && result[j] == p;
+                let oj = if j < idx { j } else { j + 1 };
+                assert(ls[oj] == p);
+                assert(ls[idx] == p);
+                assert(oj != idx);
+                assert(ls.no_duplicates());
+                assert(false);
+            }
+        };
+    }
+
+    pub(crate) proof fn lemma_remove_ghost_pointer_contains_old(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr, e: *mut BlockHdr,
+    )
+        requires
+            ghost_pointer_ordered(ls),
+            ptrs_no_duplicates(ls),
+            ls.contains(p),
+            ls.contains(e),
+            e != p,
+        ensures
+            remove_ghost_pointer(ls, p).contains(e),
+    {
+        reveal(remove_ghost_pointer);
+        let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+        let ei = choose|i: int| 0 <= i < ls.len() && ls[i] == e;
+        let result = ls.remove(idx);
+        if ei < idx {
+            assert(result[ei] == ls[ei]);
+            assert(result[ei] == e);
+        } else {
+            assert(ei != idx);
+            assert(ei > idx);
+            assert(result[ei - 1] == ls[ei]);
+            assert(result[ei - 1] == e);
+        }
+    }
+
+    pub(crate) proof fn lemma_remove_ghost_pointer_contains_reverse(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr, e: *mut BlockHdr,
+    )
+        requires
+            ghost_pointer_ordered(ls),
+            ptrs_no_duplicates(ls),
+            ls.contains(p),
+            remove_ghost_pointer(ls, p).contains(e),
+        ensures
+            ls.contains(e),
+    {
+        reveal(remove_ghost_pointer);
+        let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+        let result = ls.remove(idx);
+        let j = choose|j: int| 0 <= j < result.len() && result[j] == e;
+        let oj = if j < idx { j } else { j + 1 };
+        assert(ls[oj] == result[j]);
+        assert(ls[oj] == e);
+    }
+
+    pub(crate) proof fn lemma_remove_ghost_pointer_index_map(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr, i: int,
+    )
+        requires
+            ghost_pointer_ordered(ls),
+            ptrs_no_duplicates(ls),
+            ls.contains(p),
+            0 <= i < remove_ghost_pointer(ls, p).len(),
+        ensures ({
+            let idx = choose|j: int| 0 <= j < ls.len() && ls[j] == p;
+            &&& i < idx ==> remove_ghost_pointer(ls, p)[i] == ls[i]
+            &&& i >= idx ==> remove_ghost_pointer(ls, p)[i] == ls[i + 1]
+        })
+    {
+        reveal(remove_ghost_pointer);
+        let idx = choose|j: int| 0 <= j < ls.len() && ls[j] == p;
+        let result = ls.remove(idx);
+        if i < idx {
+            assert(result[i] == ls[i]);
+        } else {
+            assert(result[i] == ls[i + 1]);
+        }
+    }
+
+    pub(crate) proof fn lemma_remove_ghost_pointer_insert_point(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr,
+    )
+        requires
+            ghost_pointer_ordered(ls),
+            ptrs_no_duplicates(ls),
+            ls.contains(p),
+        ensures ({
+            let idx = choose|j: int| 0 <= j < ls.len() && ls[j] == p;
+            &&& 0 <= idx < ls.len()
+            &&& ls[idx] == p
+        })
+    {
+        reveal(remove_ghost_pointer);
+    }
+
+    pub(crate) proof fn lemma_ptrs_no_duplicates_preserved_by_remove(
+        ls: Seq<*mut BlockHdr>, p: *mut BlockHdr,
+    )
+        requires
+            ptrs_no_duplicates(ls),
+            ghost_pointer_ordered(ls),
+            ls.contains(p),
+        ensures
+            ptrs_no_duplicates(remove_ghost_pointer(ls, p))
+    {
+        reveal(ptrs_no_duplicates);
+        reveal(remove_ghost_pointer);
+        let idx = choose|i: int| 0 <= i < ls.len() && ls[i] == p;
+        let result = ls.remove(idx);
+        assert(result.no_duplicates()) by {
+            assert forall|i: int, j: int|
+                0 <= i < result.len() && 0 <= j < result.len() && i != j
+                implies result[i] != result[j]
+            by {
+                let oi = if i < idx { i } else { i + 1 };
+                let oj = if j < idx { j } else { j + 1 };
+                assert(result[i] == ls[oi]);
+                assert(result[j] == ls[oj]);
+                assert(oi != oj);
+                assert(ls.no_duplicates());
+            };
+        };
+    }
+
     pub(crate) proof fn lemma_drop_first_elements<T>(x: Seq<T>)
         requires x.len() > 0
         ensures forall|i: int| 0 < i < x.len() ==> x.drop_first().contains(x[i])

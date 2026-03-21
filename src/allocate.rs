@@ -202,6 +202,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(old_head_perm == old(self).all_blocks.perms@[block]);
                 assert(old(self).all_blocks.perms@[block].points_to.value().size == selected_block_size);
                 assert(search_size as int <= block_size as int) by {
+                    // lemma_size_class_at now gives both:
+                    //   idx == map_floor_spec(selected_block_size)
+                    //   idx.block_size_range().contains(selected_block_size as int)
                     old(self).lemma_size_class_at(idx, 0);
                     assert(idx.block_size_range().contains(selected_block_size as int));
                     assert(search_size as int <= idx.block_size_range().start());
@@ -826,10 +829,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             new_free_block,
                         );
                         self.all_blocks.ptrs@ = add_ghost_pointer(old_ptrs, new_free_block);
-                        self.shadow_freelist@ = ShadowFreelist {
-                            m: sfl_before_shift.m,
-                            pi: sfl_before_shift.pi.map_values(|ai: int| if block_id + 1 <= ai { ai + 1 } else { ai }),
-                        };
+                        self.shadow_freelist@ = sfl_before_shift.ii_shift_after_insert(block_id);
                         assert(self.all_blocks.contains(new_free_block)) by {
                             lemma_add_ghost_pointer_ensures(old(self).all_blocks.ptrs@, new_free_block);
                             assert(self.all_blocks.ptrs@.contains(new_free_block));
@@ -1631,6 +1631,26 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             // }}}
                         };
                         // }}}
+                        // pool_size_bounded: insertion preserves first/last
+                        assert(self.all_blocks.pool_size_bounded()) by {
+                            let ghost old_ptrs = old(self).all_blocks.ptrs@;
+                            let ghost new_ptrs = self.all_blocks.ptrs@;
+                            old(self).all_blocks.lemma_pool_size_bounded();
+                            if old_ptrs.len() >= 2 {
+                                lemma_add_ghost_pointer_insert_after_index(
+                                    old_ptrs, new_free_block, block_id);
+                                // result[0] == old_ptrs[0] (since 0 <= block_id)
+                                assert(new_ptrs[0] == old_ptrs[0]);
+                                // result.last() == old_ptrs.last()
+                                // block_id + 1 < old_ptrs.len() (block has phys_next)
+                                assert(new_ptrs.last()
+                                    == old_ptrs.last());
+                                AllBlocks::<FLLEN, SLLEN>::lemma_pool_size_bounded_from_sub(
+                                    &old(self).all_blocks, &self.all_blocks);
+                            } else {
+                                self.all_blocks.lemma_pool_size_bounded_trivial();
+                            }
+                        };
                         self.all_blocks.lemma_wf_from_nodes();
                     };
                     // --- Prove all_freelist_wf + bitmap_sync via big-step lemma ---
@@ -1857,7 +1877,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         //assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(new_free_block_size as int));
                     //}
 
-                    let new_block_idx = Self::map_floor(new_free_block_size).unwrap();
                     let ghost ptrs_before_link = self.all_blocks.ptrs@;
                     proof {
                         assert(old(self).size_class_condition());
@@ -2028,7 +2047,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         };
                     }
 
-                    self.link_free_block(new_block_idx, new_free_block);
+                    self.link_free_block(new_free_block_size, new_free_block);
 
                     proof {
                         let ghost old_ptrs = old(self).all_blocks.ptrs@;
@@ -2637,6 +2656,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 assert(self.all_blocks.wf_node(i));
                             }
                         };
+                        AllBlocks::<FLLEN, SLLEN>::lemma_pool_size_bounded_transfer(
+                            &old(self).all_blocks, &self.all_blocks);
                         self.all_blocks.lemma_wf_from_nodes();
                     };
                 }

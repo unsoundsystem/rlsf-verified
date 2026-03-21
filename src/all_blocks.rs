@@ -264,6 +264,7 @@ verus! {
                 old_ab.ptrs@.contains(block),
                 ghost_pointer_ordered(old_ab.ptrs@),
                 ptrs_no_duplicates(old_ab.ptrs@),
+                old_ab.pool_size_bounded(),
                 forall|i: int| 0 <= i < old_ab.ptrs@.len() && old_ab.ptrs@[i] != block ==> old_ab.wf_node(i),
                 new_ab.ptrs@ == old_ab.ptrs@,
                 new_ab.perms@ == old_ab.perms@.insert(block, new_perm),
@@ -276,6 +277,7 @@ verus! {
         {
             let bi = old_ab.get_ptr_internal_index(block);
             assert(ghost_pointer_ordered(new_ab.ptrs@));
+            Self::lemma_pool_size_bounded_transfer(&old_ab, &new_ab);
             assert forall|i: int| 0 <= i < new_ab.ptrs@.len() implies new_ab.wf_node(i) by {
                 if i == bi {
                     assert(new_ab.wf_node(i));
@@ -350,6 +352,7 @@ verus! {
             let bi = old_ab.get_ptr_internal_index(block);
             old_ab.lemma_wf_nodup();
             assert(ghost_pointer_ordered(new_ab.ptrs@));
+            Self::lemma_pool_size_bounded_transfer(&old_ab, &new_ab);
             assert forall|i: int| 0 <= i < new_ab.ptrs@.len() implies new_ab.wf_node(i) by {
                 if i == bi {
                     assert(new_ab.wf_node(i));
@@ -408,10 +411,20 @@ verus! {
             forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i)
         }
 
+        /// Pool size upper bound: the span from first block to sentinel
+        /// is strictly less than the maximum block size.
+        /// Ensures any block's physical size is within valid_block_size range.
+        pub(crate) closed spec fn pool_size_bounded(self) -> bool {
+            self.ptrs@.len() >= 2 ==>
+                (self.ptrs@.last() as usize as int) - (self.ptrs@[0] as usize as int)
+                    < pow2(FLLEN as nat) * GRANULARITY as int
+        }
+
         /// Well-formedness for the global list structure.
         pub(crate) open spec fn wf(self) -> bool {
             &&& self.all_nodes_wf()
             &&& ghost_pointer_ordered(self.ptrs@)
+            &&& self.pool_size_bounded()
         }
 
         /// Extract: wf() → wf_node(i), with reveal scoped to lemma body.
@@ -604,8 +617,88 @@ verus! {
             requires
                 forall|i: int| 0 <= i < self.ptrs@.len() ==> self.wf_node(i),
                 ghost_pointer_ordered(self.ptrs@),
+                self.pool_size_bounded(),
             ensures self.wf()
         {
+        }
+
+        /// Bridge lemma: extract pool_size_bounded facts from wf().
+        pub(crate) proof fn lemma_pool_size_bounded(&self)
+            requires self.wf()
+            ensures self.pool_size_bounded()
+        { }
+
+        /// Trivial case: pool_size_bounded holds when ptrs@ has fewer than 2 elements.
+        pub(crate) proof fn lemma_pool_size_bounded_trivial(&self)
+            requires self.ptrs@.len() < 2
+            ensures self.pool_size_bounded()
+        {
+            reveal(AllBlocks::pool_size_bounded);
+        }
+
+        /// Transfer: pool_size_bounded is preserved when ptrs@ is unchanged.
+        pub(crate) proof fn lemma_pool_size_bounded_transfer(
+            old_ab: &Self, new_ab: &Self)
+            requires
+                old_ab.pool_size_bounded(),
+                new_ab.ptrs@ == old_ab.ptrs@,
+            ensures
+                new_ab.pool_size_bounded(),
+        {
+            reveal(AllBlocks::pool_size_bounded);
+        }
+
+        /// Transfer: pool_size_bounded is preserved when first and last
+        /// elements of ptrs@ are preserved and the bound still holds.
+        pub(crate) proof fn lemma_pool_size_bounded_from_sub(
+            old_ab: &Self, new_ab: &Self)
+            requires
+                old_ab.pool_size_bounded(),
+                old_ab.ptrs@.len() >= 2,
+                new_ab.ptrs@.len() >= 2,
+                new_ab.ptrs@[0] == old_ab.ptrs@[0],
+                new_ab.ptrs@.last() == old_ab.ptrs@.last(),
+            ensures
+                new_ab.pool_size_bounded(),
+        {
+            reveal(AllBlocks::pool_size_bounded);
+        }
+
+        /// Bridge lemma: for any pair of adjacent blocks in the ordered list,
+        /// the address span is bounded by the pool size.
+        /// Requires pool_size_bounded and ghost_pointer_ordered separately,
+        /// so it can be called before wf() is fully established.
+        pub(crate) proof fn lemma_pool_bound_implies_span_bound(&self, i: int)
+            requires
+                ghost_pointer_ordered(self.ptrs@),
+                self.pool_size_bounded(),
+                self.ptrs@.len() >= 2,
+                0 <= i < self.ptrs@.len() - 1,
+            ensures
+                (self.ptrs@[i + 1] as usize as int) - (self.ptrs@[i] as usize as int)
+                    < pow2(FLLEN as nat) * GRANULARITY as int
+        {
+            reveal(AllBlocks::pool_size_bounded);
+            lemma_ghost_pointer_ordered_index(self.ptrs@, 0, i);
+            lemma_ghost_pointer_ordered_index(self.ptrs@, i + 1, self.ptrs@.len() as int - 1);
+        }
+
+        /// Generalized span bound: any pair (i, j) with i < j has span < pool bound.
+        pub(crate) proof fn lemma_pool_bound_any_span(&self, i: int, j: int)
+            requires
+                ghost_pointer_ordered(self.ptrs@),
+                self.pool_size_bounded(),
+                self.ptrs@.len() >= 2,
+                0 <= i < self.ptrs@.len(),
+                0 <= j < self.ptrs@.len(),
+                i < j,
+            ensures
+                (self.ptrs@[j] as usize as int) - (self.ptrs@[i] as usize as int)
+                    < pow2(FLLEN as nat) * GRANULARITY as int
+        {
+            reveal(AllBlocks::pool_size_bounded);
+            lemma_ghost_pointer_ordered_index(self.ptrs@, 0, i);
+            lemma_ghost_pointer_ordered_index(self.ptrs@, j, self.ptrs@.len() as int - 1);
         }
 
 
@@ -723,6 +816,22 @@ verus! {
                         }
                     } else { v }
                 ).remove(last_key)
+            }
+        }
+
+        /// Shift pi indices after inserting a new pointer at ptrs@[insert_ai+1].
+        pub(crate) open spec fn ii_shift_after_insert(self, insert_ai: int) -> Self {
+            Self {
+                m: self.m,
+                pi: self.pi.map_values(|ai: int| if insert_ai + 1 <= ai { ai + 1 } else { ai }),
+            }
+        }
+
+        /// Shift pi indices after removing a pointer at ptrs@[remove_ai].
+        pub(crate) open spec fn ii_shift_after_remove(self, remove_ai: int) -> Self {
+            Self {
+                m: self.m,
+                pi: self.pi.map_values(|ai: int| if ai > remove_ai { (ai - 1) as int } else { ai }),
             }
         }
 
