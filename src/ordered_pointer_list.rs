@@ -230,6 +230,34 @@ verus! {
         }
     }
 
+    /// When adding to an empty list, the result is [p].
+    pub(crate) proof fn lemma_add_ghost_pointer_empty(p: *mut BlockHdr)
+        ensures
+            add_ghost_pointer(Seq::empty(), p).len() == 1,
+            add_ghost_pointer(Seq::empty(), p)[0] == p,
+    {
+        reveal(add_ghost_pointer);
+    }
+
+    /// When adding to a single-element list [q] where q < p, result is [q, p].
+    pub(crate) proof fn lemma_add_ghost_pointer_append_to_singleton(
+        q: *mut BlockHdr, p: *mut BlockHdr)
+        requires
+            (q as usize as int) < (p as usize as int),
+        ensures
+            add_ghost_pointer(seq![q], p).len() == 2,
+            add_ghost_pointer(seq![q], p)[0] == q,
+            add_ghost_pointer(seq![q], p)[1] == p,
+    {
+        reveal(add_ghost_pointer);
+        // After one unfolding: since (p as usize) > (q as usize) = seq![q].first(),
+        // result = seq![q].add(add_ghost_pointer(seq![q].drop_first(), p))
+        // Need to connect seq![q].drop_first() to Seq::empty()
+        assert(seq![q].drop_first() =~= Seq::<*mut BlockHdr>::empty());
+        // Now handle the recursive call via the empty lemma
+        lemma_add_ghost_pointer_empty(p);
+    }
+
     pub(crate) proof fn lemma_add_ghost_pointer_insert_after_index(
         ls: Seq<*mut BlockHdr>,
         p: *mut BlockHdr,
@@ -381,6 +409,22 @@ verus! {
         }
     }
 
+    proof fn lemma_consecutive_ordering_implies_allpairs(
+        ls: Seq<*mut BlockHdr>, i: int, j: int)
+        requires
+            forall|k: int| 0 <= k < ls.len() - 1
+                ==> (#[trigger] (ls[k] as int)) < (ls[k + 1] as int),
+            0 <= i < j < ls.len(),
+        ensures
+            (ls[i] as int) < (ls[j] as int)
+        decreases j - i
+    {
+        if j == i + 1 {
+        } else {
+            lemma_consecutive_ordering_implies_allpairs(ls, i, j - 1);
+        }
+    }
+
     pub(crate) proof fn lemma_ptrs_no_duplicates_from_ordered(ls: Seq<*mut BlockHdr>)
         requires
             forall|i: int|
@@ -390,7 +434,16 @@ verus! {
             ptrs_no_duplicates(ls)
     {
         reveal(ptrs_no_duplicates);
-        assert(ls.no_duplicates());
+        assert forall|i: int, j: int|
+            0 <= i < ls.len() && 0 <= j < ls.len() && i != j
+            implies ls[i] != ls[j]
+        by {
+            if i < j {
+                lemma_consecutive_ordering_implies_allpairs(ls, i, j);
+            } else {
+                lemma_consecutive_ordering_implies_allpairs(ls, j, i);
+            }
+        };
     }
 
     pub(crate) proof fn lemma_ptrs_no_duplicates_preserved_by_add_ghost_pointer(

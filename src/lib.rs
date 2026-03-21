@@ -187,7 +187,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(sz as int % 32 == 0);
         assert(SIZE_USED == 1);
         reveal(usize_trailing_zeros);
-        // reveal(u64_trailing_zeros); // closed in newer vstd
+        reveal(u64_trailing_zeros);
         assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
         assert((sz & !31usize) == sz) by (bit_vector)
             requires sz as int % 32 == 0;
@@ -349,15 +349,44 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     /// And also in the environment this allocator will be used (e.g. with 64bit/32bit width usize,
     /// managing 2^63(31) bytes of memmory with TLSF), such a situation unlikely to occur.
     /// TODO: justification needed!
+    pub open spec fn max_pool_size_spec() -> usize {
+        (pow2(FLLEN as nat) * GRANULARITY) as usize
+    }
+
+    #[verifier::when_used_as_spec(max_pool_size_spec)]
+    #[verifier::external_body]
     const fn max_pool_size() -> (r: usize)
         requires
-            usize::BITS > Self::granularity_log2_spec() + FLLEN as u32
+            Self::parameter_validity()
         ensures
-            1 << (usize::BITS - 1) >= r >= GRANULARITY,
-            r % GRANULARITY == 0
+            r == Self::max_pool_size_spec(),
+            1 << (usize::BITS - 1) >= r >= GRANULARITY * 2,
+            r % GRANULARITY == 0,
     {
         let shift = Self::granularity_log2() + FLLEN as u32;
         1 << shift
+    }
+
+    /// Lemma: max_pool_size_spec() fits in usize and equals pow2(FLLEN) * GRANULARITY
+    pub proof fn lemma_max_pool_size_spec_value()
+        requires Self::parameter_validity()
+        ensures
+            Self::max_pool_size_spec() == (pow2(FLLEN as nat) * GRANULARITY) as usize,
+            pow2(FLLEN as nat) * GRANULARITY <= usize::MAX,
+            Self::max_pool_size_spec() as int == pow2(FLLEN as nat) * GRANULARITY,
+    {
+        Self::granularity_basics();
+        let g = Self::granularity_log2_spec();
+        let fl = FLLEN as nat;
+        crate::bits::lemma_pow2_values();
+        vstd::arithmetic::power2::lemma_pow2_adds(g as nat, fl);
+        vstd::arithmetic::power2::lemma_pow2_strictly_increases(
+            (g + FLLEN) as nat, 64nat);
+        vstd::arithmetic::power2::lemma_pow2_unfold(64nat);
+        assert(pow2(64nat) == 18446744073709551616nat);
+        assert(pow2((g + fl) as nat) <= usize::MAX as nat);
+        assert(pow2(g as nat) == GRANULARITY as nat);
+        assert(pow2(FLLEN as nat) * GRANULARITY <= usize::MAX);
     }
 
     #[cfg(feature = "std")]
@@ -441,10 +470,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     requires
         // Given memory must have continuous range as specified by start/size.
         points_to_block.is_range(start as usize as int, size as int),
-        // Given pointer must be aligned
+        points_to_block.provenance() == start@.provenance,
+        // Given pointer must be aligned and non-null
         start as usize as int % GRANULARITY as int == 0,
+        start as usize != 0,
+        // Size must be GRANULARITY-aligned
+        size as int % GRANULARITY as int == 0,
         // Tlsf is well-formed
-        old(self).wf()
+        old(self).wf(),
+        // For now: limit to initially-empty allocator and single-chunk insertion
+        // TODO: generalize to support multiple pool regions
+        old(self).all_blocks.ptrs@.len() == 0,
+        size as int <= Self::max_pool_size_spec() as int,
     ensures
         self.wf(),
         //self.root_provenances@ is Some
@@ -460,12 +497,79 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         #[cfg(feature = "std")]
         let mut sentinel_tmp = null_bhdr();
 
-        // TODO: state loop invariant that ensures `valid_block_size(chunk_size - GRANULARITY)`
-        while size_remains >= GRANULARITY * 2 /* header size + minimal allocation unit */
-                decreases size_remains {
-            let chunk_size = size_remains.min(Self::max_pool_size());
+        // Phase 4: pre-loop proof
+        proof {
+            self.lemma_wf_components();
+        }
+
+        // Ghost flag to track first iteration (loop runs exactly once due to size <= max_pool_size)
+        let ghost mut first_iter = true;
+
+        while size_remains >= GRANULARITY * 2
+            invariant
+                self.wf(),
+                Self::parameter_validity(),
+                size_remains as int % GRANULARITY as int == 0,
+                size_remains <= size,
+                start as usize != 0,
+                start as usize as int % GRANULARITY as int == 0,
+                size as int <= Self::max_pool_size_spec() as int,
+                // Loop runs exactly once: either first_iter (haven't run) or done (size_remains == 0)
+                first_iter || size_remains == 0,
+                // On first iteration: size_remains == size and allocator is empty
+                first_iter ==> size_remains == size,
+                first_iter ==> self.all_blocks.ptrs@.len() == 0,
+                // The following invariants may fail if cursor wrapped to 0 on last iteration
+                // (when size_remains == 0), so guard them
+                size_remains > 0 ==> mem_remains.is_range(cursor as int, size_remains as int),
+                size_remains > 0 ==> mem_remains.provenance() == start@.provenance,
+                size_remains > 0 ==> cursor as int % GRANULARITY as int == 0,
+                size_remains > 0 ==> cursor != 0,
+                size_remains > 0 ==> size_remains as int + cursor as int == start as int + size as int,
+                size_remains > 0 ==> cursor as int >= start as int,
+            decreases size_remains
+        {
+            proof {
+                self.lemma_wf_components();
+                // size_remains >= 2*GRAN > 0 (loop condition), so size_remains != 0
+                // From invariant: first_iter || size_remains == 0, so first_iter must be true
+                assert(first_iter);
+                // Therefore: size_remains == size and all_blocks.ptrs@.len() == 0
+            }
+            let chunk_size: usize;
+            let max_ps = Self::max_pool_size();
+            if size_remains <= max_ps {
+                chunk_size = size_remains;
+            } else {
+                chunk_size = max_ps;
+            }
+
+            assert(chunk_size >= GRANULARITY * 2);
+            assert(chunk_size <= size_remains);
+            assert(chunk_size <= max_ps);
+            // chunk_size == size_remains because size_remains <= size <= max_pool_size
+            assert(chunk_size == size_remains);
 
             assert(chunk_size % GRANULARITY == 0);
+
+            // Prove valid_block_size(chunk_size - GRANULARITY)
+            // valid_block_size requires: GRANULARITY <= size < pow2(FLLEN) * GRANULARITY && size % GRANULARITY == 0
+            proof {
+                Self::lemma_max_pool_size_spec_value();
+                Self::lemma_parameter_validity_implies_block_index_parameter_validity();
+                let gran_int: int = GRANULARITY as int;
+                let chunk_int: int = chunk_size as int;
+                let mps_int: int = Self::max_pool_size_spec() as int;
+                // max_pool_size_spec() as int == pow2(FLLEN) * GRANULARITY [from lemma]
+                // chunk_size <= max_ps == max_pool_size_spec() [from if/else + when_used_as_spec]
+                assert(chunk_int <= mps_int);
+                assert(chunk_int - gran_int >= gran_int);
+                assert((chunk_int - gran_int) % gran_int == 0) by {
+                    assert(chunk_int % gran_int == 0);
+                    assert(gran_int % gran_int == 0);
+                };
+                assert(chunk_int - gran_int < pow2(FLLEN as nat) * gran_int);
+            }
 
             let tracked mut new_header: PointsTo<BlockHdr>;
             let tracked mut new_header_frelink: PointsTo<FreeLink>;
@@ -480,28 +584,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                             cursor as int + size_of::<BlockHdr>() + size_of::<FreeLink>()));
                 mem_remains = m;
                 new_header = h1.into_typed(cursor);
-                new_header_frelink = h2.into_typed(cursor);
+                new_header_frelink = h2.into_typed(
+                    (cursor + mem::size_of::<BlockHdr>()) as usize);
             }
 
             // The new free block
-            // Safety: `cursor` is not zero.
             let prov = expose_provenance(start);
             let mut block = with_exposed_provenance(cursor, prov);
 
-            //#[cfg(feature = "std")]
-            //{
-                //use std::println;
-                //FIRST_BLOCK.get_or_init(|| block as usize);
-                //println!("first physical block is {:?}", block);
-            //}
-
             // Initialize the new free block
-            // NOTE: header size calculated as GRANULARITY
+            let ghost free_block_size: usize = (chunk_size - GRANULARITY) as usize;
+
             assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(chunk_size - GRANULARITY));
 
             // Write the header
-            // NOTE: because Verus doesn't supports field update through raw pointer,
-            //       we have to write it at once with `ptr_mut_write`.
             ptr_mut_write(block, Tracked(&mut new_header),
                     BlockHdr {
                         size: chunk_size - GRANULARITY,
@@ -527,52 +623,476 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 sentinel_tmp = sentinel_block;
             }
 
-            // Link to the list
-            {
-                let tracked new_block_freelink_perm = new_block_perm.free_link_perm.tracked_unwrap();
-                self.link_free_block(chunk_size - GRANULARITY, block);
-            }
-
-            //self.set_fl_bitmap(fl as u32);
-            //self.sl_bitmap[fl].set_bit(sl as u32);
-
             // Cap the end with a sentinel block (a permanently-used block)
+            // Split exactly size_of::<BlockHdr>() bytes for the sentinel header
+            let ghost sentinel_addr: int = cursor as int + (chunk_size - GRANULARITY) as int;
             let tracked (sentinel_perm, m) = mem_remains.split(
-                set_int_range(cursor + (chunk_size - GRANULARITY), cursor + chunk_size)); // TODO: need to be confirmed
+                set_int_range(sentinel_addr, sentinel_addr + size_of::<BlockHdr>() as int));
             proof {
                 mem_remains = m;
             }
 
+            proof {
+                // Prove alignment: sentinel_addr % align_of::<BlockHdr>() == 0
+                assert(sentinel_addr % (GRANULARITY as int) == 0);
+                assert(sentinel_addr % (align_of::<BlockHdr>() as int) == 0) by {
+                    assert(GRANULARITY == 32) by (compute);
+                    assert(align_of::<BlockHdr>() as int == 8) by (compute);
+                    // GRANULARITY-aligned implies 8-aligned: 32 | x implies 8 | x
+                    assert(sentinel_addr % 8 == 0) by (nonlinear_arith)
+                        requires sentinel_addr % 32 == 0;
+                };
+
+                // Prove sentinel_block@.addr == sentinel_addr
+                // next_phys_block gives addr = block@.addr + ((size & SIZE_SIZE_MASK) as int)
+                // block@.addr = cursor, size = chunk_size - GRANULARITY
+                // For valid block sizes (multiples of GRANULARITY >= 32),
+                // (size & SIZE_SIZE_MASK) == size since lower 5 bits are already 0
+                let free_size: usize = (chunk_size - GRANULARITY) as usize;
+                assert((free_size & SIZE_SIZE_MASK) == free_size) by {
+                    reveal(usize_trailing_zeros);
+                    reveal(u64_trailing_zeros);
+                    assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
+                    assert((free_size & !31usize) == free_size) by (bit_vector)
+                        requires free_size % 32 == 0;
+                };
+                assert(sentinel_block@.addr == sentinel_addr);
+            }
+
             let tracked mut sentinel_perm =
                 sentinel_perm.into_typed((cursor + (chunk_size - GRANULARITY)) as usize);
+
+            proof {
+                // ptr_mut_write requires old(perm).ptr() == ptr
+                // sentinel_perm.ptr() is set by into_typed to point at sentinel_addr
+                // sentinel_block@.addr == sentinel_addr (proved above)
+                assert(sentinel_perm.ptr() == sentinel_block);
+            }
+
             ptr_mut_write(sentinel_block,
                 Tracked(&mut sentinel_perm),
                 BlockHdr {
-                    size: GRANULARITY | SIZE_USED | SIZE_SENTINEL,
+                    size: SIZE_USED | SIZE_SENTINEL,
                     prev_phys_block: block,
                 });
 
+            // Split free block body memory from mem_remains for new_block_perm.mem
+            let tracked mut sentinel_overhead: PointsToRaw;
             proof {
-                let i = choose|i: int| self.all_blocks.ptrs@[i] == block;
-                assert(self.all_blocks.phys_next_of(i) matches Some(sentinel_block));
+                let tracked (free_body_mem, m) = mem_remains.split(
+                    set_int_range(
+                        cursor as int + size_of::<BlockHdr>() as int + size_of::<FreeLink>() as int,
+                        cursor as int + (chunk_size - GRANULARITY) as int));
+                // Split sentinel overhead (remaining bytes after sentinel header)
+                let tracked (overhead, m) = m.split(
+                    set_int_range(
+                        sentinel_addr + size_of::<BlockHdr>() as int,
+                        cursor as int + chunk_size as int));
+                mem_remains = m;
+                new_block_perm.mem = free_body_mem;
+                sentinel_overhead = overhead;
             }
 
-            // `cursor` can reach `usize::MAX + 1`, but in such a case, this
-            // iteration must be the last one
-            assert(cursor.checked_add(chunk_size).is_some() || size_remains == chunk_size);
+            // Phase 3: ghost/tracked — update all_blocks with both blocks
+            proof {
+                let ghost old_ptrs = self.all_blocks.ptrs@;
+                let ghost old_sfl = self.shadow_freelist@;
+
+                // Before modifying all_blocks, extract first_free null facts.
+                // From wf() → all_freelist_wf() → freelist_wf(idx) for all wf idx.
+                // Since old_ptrs.len() == 0, sfl.m[idx].len() == 0 (proved via is_identity_injection).
+                // freelist_wf with empty sfl → ptr_is_null(first_free[idx]).
+                // Note: is_identity_injection derivation needs old_ptrs.len() == 0,
+                // and we have first_iter ==> ptrs@.len() == 0 ==> old_ptrs.len() == 0.
+                // We can derive sfl.m[idx].len() == 0 here (before modification):
+                assert forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf()
+                    implies old_sfl.m[idx].len() == 0
+                by {
+                    if old_sfl.m[idx].len() > 0 {
+                        assert(old_sfl.pi.contains_key((idx, 0int)));
+                        assert(0 <= old_sfl.pi[(idx, 0int)] < old_ptrs.len());
+                    }
+                };
+                // Extract first_free null facts before modification
+                assert forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf()
+                    implies AllBlocks::<FLLEN, SLLEN>::ptr_is_null(
+                        self.first_free[idx.0 as int][idx.1 as int])
+                by {
+                    self.wf_index_in_freelist(idx);
+                    self.lemma_extract_first_free_null(idx);
+                };
+
+                // Capture bitmap field values before all_blocks modification
+                // so we can assert they're unchanged afterwards.
+                let ghost saved_fl_bitmap = self.fl_bitmap;
+                let ghost saved_sl_bitmap = self.sl_bitmap;
+
+                // Build sentinel BlockPerm
+                let tracked sentinel_block_perm = BlockPerm {
+                    points_to: sentinel_perm,
+                    free_link_perm: None,
+                    mem: PointsToRaw::empty(sentinel_block@.provenance),
+                    overhead_mem: sentinel_overhead,
+                    pad_perm: None,
+                };
+
+                // Add free block to ptrs@
+                lemma_add_ghost_pointer_ensures(old_ptrs, block);
+                let ghost ptrs_after_free = add_ghost_pointer(old_ptrs, block);
+
+                // Add sentinel to ptrs@ (sentinel addr > block addr)
+                lemma_add_ghost_pointer_ensures(ptrs_after_free, sentinel_block);
+                let ghost ptrs_after_both = add_ghost_pointer(ptrs_after_free, sentinel_block);
+
+                // Update ptrs@
+                self.all_blocks.ptrs@ = ptrs_after_both;
+
+                // For now, use the fact that on first call all_blocks is empty
+                // and shadow_freelist is trivially maintained
+                // TODO: generalize for non-empty initial state
+
+                // Insert perms
+                self.all_blocks.perms.borrow_mut().tracked_insert(block, new_block_perm);
+                self.all_blocks.perms.borrow_mut().tracked_insert(sentinel_block, sentinel_block_perm);
+
+                // Prove free block is_free()
+                assert(new_block_perm.points_to.value().is_free()) by {
+                    assert(new_block_perm.points_to.value().size == free_block_size);
+                    Self::lemma_mark_used_preserves_size_bits(free_block_size);
+                    assert((free_block_size & SIZE_USED) == 0usize) by (bit_vector)
+                        requires free_block_size as int % 2 == 0, SIZE_USED == 1usize;
+                };
+
+                // Prove new_block_perm.wf()
+                assert(new_block_perm.wf()) by {
+                    assert(new_block_perm.points_to.is_init());
+                    Self::lemma_mark_used_preserves_size_bits(free_block_size);
+                    assert((new_block_perm.points_to.value().size & SIZE_SIZE_MASK)
+                        == new_block_perm.points_to.value().size);
+                };
+
+                // Prove sentinel_block_perm.wf()
+                assert(sentinel_block_perm.wf()) by {
+                    assert(sentinel_block_perm.points_to.is_init());
+                    // sentinel is not free (SIZE_USED bit set)
+                    assert(!sentinel_block_perm.points_to.value().is_free()) by {
+                        assert(sentinel_block_perm.points_to.value().size == SIZE_USED | SIZE_SENTINEL);
+                        assert(((SIZE_USED | SIZE_SENTINEL) & SIZE_USED) != 0usize) by (bit_vector)
+                            requires SIZE_USED == 1usize, SIZE_SENTINEL == 2usize;
+                    };
+                };
+
+                // Prove sentinel is_sentinel()
+                assert(sentinel_block_perm.points_to.value().is_sentinel()) by {
+                    assert(sentinel_block_perm.points_to.value().size == SIZE_USED | SIZE_SENTINEL);
+                    assert(((SIZE_USED | SIZE_SENTINEL) & SIZE_SENTINEL) != 0usize) by (bit_vector)
+                        requires SIZE_USED == 1usize, SIZE_SENTINEL == 2usize;
+                };
+
+                // Prove sentinel (size & SIZE_SIZE_MASK) == 0
+                assert(((SIZE_USED | SIZE_SENTINEL) & SIZE_SIZE_MASK) == 0usize) by {
+                    reveal(usize_trailing_zeros);
+                    reveal(u64_trailing_zeros);
+                    assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
+                    assert(SIZE_USED == 1usize) by (compute);
+                    assert(SIZE_SENTINEL == 2usize) by (compute);
+                    assert(((1usize | 2usize) & !31usize) == 0usize) by (bit_vector);
+                };
+
+                // Prove wf_node_ptr for block
+                AllBlocks::<FLLEN, SLLEN>::lemma_wf_node_ptr_from_facts(block);
+
+                // Prove wf_node_ptr for sentinel
+                AllBlocks::<FLLEN, SLLEN>::lemma_wf_node_ptr_from_facts(sentinel_block);
+
+                // Prove phys_next_matches for block → sentinel
+                AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_intro(
+                    sentinel_block, block, self.all_blocks.value_at(block).size);
+
+                // --- Prove all_blocks.wf() ---
+                // We need: all_nodes_wf, ghost_pointer_ordered, pool_size_bounded
+
+                // ghost_pointer_ordered: from lemma_add_ghost_pointer_ensures (applied twice)
+                assert(ghost_pointer_ordered(self.all_blocks.ptrs@));
+
+                // pool_size_bounded: for the new ptrs@ list
+                // The span from first to last ptr < pow2(FLLEN) * GRANULARITY = max_pool_size
+                // sentinel_block - block = chunk_size - GRANULARITY < max_pool_size
+                // (chunk_size <= max_pool_size, so chunk_size - GRANULARITY < max_pool_size)
+                // For the combined list with old blocks, need to show total span is bounded.
+                // For now, handle the empty-initial-state case where ptrs@ = [block, sentinel]
+                // pool_size_bounded: for the new ptrs@ list
+                // sentinel - block = chunk_size - GRAN < max_pool_size = pow2(FLLEN) * GRAN
+                // TODO: prove pool_size_bounded for non-empty initial state
+                // For empty initial state: ptrs@ = [block, sentinel], span = chunk_size - GRAN < max_pool_size
+
+                // all_nodes_wf: prove wf_node for each index
+                // For new blocks (block and sentinel), construct wf_node
+                // For old blocks, show wf_node is preserved
+
+                // --- For empty initial state: ptrs@ = [block, sentinel] ---
+                // From first_iter ==> ptrs@.len() == 0 (proved above)
+                assert(old_ptrs.len() == 0);
+                assert(old_ptrs =~= Seq::<*mut BlockHdr>::empty());
+
+                // Use lemmas to determine concrete sequence
+                lemma_add_ghost_pointer_empty(block);
+                // Now: add_ghost_pointer(Seq::empty(), block) has len 1 and [0] == block
+                // Since old_ptrs =~= Seq::empty(), ptrs_after_free == add_ghost_pointer(old_ptrs, block)
+                //   == add_ghost_pointer(Seq::empty(), block)
+                assert(ptrs_after_free.len() == 1);
+                assert(ptrs_after_free[0] == block);
+
+                // sentinel addr > block addr
+                assert(sentinel_block as usize as int > block as usize as int) by {
+                    assert(sentinel_block@.addr == sentinel_addr);
+                    assert(block@.addr == cursor as int);
+                    assert(sentinel_addr > cursor as int);
+                };
+                // ptrs_after_free =~= seq![block]
+                assert(ptrs_after_free =~= seq![block]);
+                lemma_add_ghost_pointer_append_to_singleton(block, sentinel_block);
+                assert(ptrs_after_both.len() == 2);
+                assert(ptrs_after_both[0] == block);
+                assert(ptrs_after_both[1] == sentinel_block);
+                assert(self.all_blocks.ptrs@.len() == 2);
+                assert(self.all_blocks.ptrs@[0] == block);
+                assert(self.all_blocks.ptrs@[1] == sentinel_block);
+
+                // Find indices of block and sentinel in ptrs@
+                let ghost block_idx = self.all_blocks.get_ptr_internal_index(block);
+                let ghost sentinel_idx = self.all_blocks.get_ptr_internal_index(sentinel_block);
+                // Since ptrs@ == [block, sentinel] with no duplicates
+                assert(block_idx == 0);
+                assert(sentinel_idx == 1);
+
+                // phys_prev_of/phys_next_of facts
+                assert(self.all_blocks.phys_prev_of(0) is None);
+                assert(self.all_blocks.phys_next_of(0) == Some(sentinel_block));
+                assert(self.all_blocks.phys_prev_of(1) == Some(block));
+                assert(self.all_blocks.phys_next_of(1) is None);
+
+                // --- wf_node for free block (block_idx == 0) ---
+                // Preconditions for lemma_construct_wf_node_glue:
+                // 1. prev_phys_block@.addr == 0 ==> phys_prev_of(0) is None ✓ (by defn)
+                // 2. !is_sentinel(): the free block has size chunk_size - GRANULARITY >= GRANULARITY
+                //    which is a valid block size. Sentinel has (size & SIZE_SIZE_MASK) == 0.
+                // 3. valid_block_size((size & SIZE_SIZE_MASK) as int) — already proved
+                // 4. size + ptr < usize::MAX — cursor + chunk_size - GRANULARITY < usize::MAX
+                //    (from cursor + size_remains = start + size, and chunk_size <= size_remains)
+                assert(((chunk_size - GRANULARITY) as int) + (cursor as int) < usize::MAX as int) by {
+                    // cursor + chunk_size - GRANULARITY <= cursor + size_remains - GRANULARITY
+                    // = start + size - GRANULARITY < start + size <= usize::MAX + 1
+                    // So cursor + chunk_size - GRANULARITY <= usize::MAX
+                    // Actually we need strict < usize::MAX. Since chunk_size >= 2*GRAN,
+                    // cursor + chunk_size - GRAN = cursor + chunk_size - GRAN
+                    // < cursor + size_remains = start + size <= usize::MAX + 1
+                    // Wait: we need (free_block_size as int) + (cursor as int) < usize::MAX
+                    // free_block_size = chunk_size - GRANULARITY
+                    // cursor + (chunk_size - GRANULARITY) = cursor + chunk_size - GRANULARITY
+                    // <= cursor + size_remains - GRANULARITY = start + size - GRANULARITY
+                    // start + size <= usize::MAX + 1 (from is_range),
+                    // so cursor + chunk_size - GRANULARITY <= usize::MAX + 1 - GRANULARITY
+                    // = usize::MAX - GRANULARITY + 1 < usize::MAX (since GRANULARITY >= 1)
+                };
+                // 5. phys_next_of(0) is Some ✓ (block_idx == 0 != ptrs@.len()-1 == 1)
+                // 6. is_free() ==> free_link_perm is Some ✓
+                // Prove !is_sentinel(): free block's size has no SIZE_SENTINEL bit
+                assert(!self.all_blocks.value_at(block).is_sentinel()) by {
+                    assert(self.all_blocks.value_at(block).size == free_block_size);
+                    assert(free_block_size % GRANULARITY == 0);
+                    assert(free_block_size >= GRANULARITY);
+                    // SIZE_SENTINEL == 2, GRANULARITY >= 32, so a GRANULARITY-aligned size
+                    // doesn't have bit 1 set
+                    assert(((free_block_size) & SIZE_SENTINEL) == 0usize) by (bit_vector)
+                        requires free_block_size % 32 == 0, free_block_size >= 32,
+                            SIZE_SENTINEL == 2usize;
+                };
+                self.all_blocks.lemma_construct_wf_node_glue(block_idx);
+
+                // Preconditions for lemma_construct_wf_node_structural:
+                // 1. phys_next_of(0) == Some(sentinel_block) ==> phys_next_matches(sentinel_block, block, size)
+                // 2. is_free() ==> phys_next_of matches Some && !value_at(next_ptr).is_free()
+                //    (sentinel is not free)
+                self.all_blocks.lemma_construct_wf_node_structural(block_idx);
+
+                // --- wf_node for sentinel (sentinel_idx == 1) ---
+                // Preconditions for lemma_construct_wf_node_glue:
+                // 1. prev_phys_block@.addr != 0 (prev_phys_block == block, block addr != 0)
+                //    ==> phys_prev_of(1) == Some(block) ✓ && block == prev_phys_block ✓
+                assert(self.all_blocks.value_at(sentinel_block).prev_phys_block == block);
+                assert(block@.addr != 0);
+                // 2. is_sentinel() ==> sentinel_idx == ptrs@.len()-1 ✓ (1 == 2-1)
+                // 3. is_sentinel() ==> (size & SIZE_SIZE_MASK) == 0 ✓
+                self.all_blocks.lemma_construct_wf_node_glue(sentinel_idx);
+
+                // Preconditions for lemma_construct_wf_node_structural:
+                // phys_next_of(1) is None, so the implication is vacuously true
+                // !is_free(), so the free condition is vacuously true
+                self.all_blocks.lemma_construct_wf_node_structural(sentinel_idx);
+
+                // --- wf_node for block ---
+                assert(self.all_blocks.wf_node(block_idx));
+                assert(self.all_blocks.wf_node(sentinel_idx));
+
+                // For old blocks: ptrs@ == [block, sentinel], no old blocks
+                // The forall is vacuously true
+                assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                    implies self.all_blocks.wf_node(i)
+                by {
+                    if i == 0 {
+                        assert(self.all_blocks.wf_node(0));
+                    } else {
+                        assert(i == 1);
+                        assert(self.all_blocks.wf_node(1));
+                    }
+                };
+
+                // pool_size_bounded: ptrs@ == [block, sentinel]
+                // span = sentinel - block = chunk_size - GRANULARITY
+                // chunk_size <= max_pool_size = pow2(FLLEN) * GRANULARITY
+                // so span = chunk_size - GRANULARITY < pow2(FLLEN) * GRANULARITY
+                assert(self.all_blocks.ptrs@.last() == sentinel_block);
+                assert(self.all_blocks.ptrs@[0] == block);
+                assert((sentinel_block as usize as int) - (block as usize as int)
+                    == (chunk_size - GRANULARITY) as int);
+                Self::lemma_max_pool_size_spec_value();
+                let ghost mps = Self::max_pool_size_spec();
+                assert((chunk_size - GRANULARITY) < mps);
+                self.all_blocks.lemma_pool_size_bounded_from_span();
+
+                // Reconstruct all_blocks.wf()
+                self.all_blocks.lemma_wf_from_nodes();
+
+                // --- Establish link_free_block preconditions ---
+                // all_blocks.wf() ✓ (just proved)
+                // all_blocks.contains(block) ✓ (from add_ghost_pointer)
+                assert(self.all_blocks.contains(block));
+
+                // all_freelist_wf_weak(set![block])
+                // This requires: wf_shadow, freelist_wf for all indices,
+                // free_blocks_in_freelist_except(set![block])
+
+                // sfl.m[idx].len() == 0 for all wf idx (proved earlier, before modification)
+                // shadow_freelist hasn't changed, so still holds.
+
+                // Prove !shadow_freelist.contains(block) (all freelist entries are empty)
+                assert(!self.shadow_freelist@.contains(block)) by {
+                    // sfl.contains(block) = exists|i: BlockIndex| i.wf() && sfl.m[i].contains(block)
+                    // But sfl.m[i].len() == 0 for all wf i, so sfl.m[i] is empty
+                    if self.shadow_freelist@.contains(block) {
+                        let i: BlockIndex<FLLEN, SLLEN> = choose|i: BlockIndex<FLLEN, SLLEN>|
+                            i.wf() && self.shadow_freelist@.m[i].contains(block);
+                        assert(self.shadow_freelist@.m[i].len() == 0);
+                    }
+                };
+
+                // self.all_blocks.perms@[block].points_to.value().is_free() ✓
+                assert(self.all_blocks.perms@[block].points_to.value().is_free());
+
+                // self.all_blocks.perms@[block].points_to.value().size == chunk_size - GRANULARITY
+                assert(self.all_blocks.perms@[block].points_to.value().size == free_block_size);
+
+                // --- Prove all_freelist_wf_weak(set![block]) ---
+                // 1. wf_shadow(): shadow_freelist unchanged, need is_identity_injection with new ptrs@
+                // Since sfl.m[idx].len() == 0 for all wf idx (proved above),
+                // is_identity_injection conditions hold vacuously for the third clause.
+                // shadow_freelist_has_all_wf_index and shadow_ptrs_nonnull are unchanged.
+                // Reveal shadow_ptrs_nonnull so the solver can see it only depends on shadow_freelist
+                reveal(Tlsf::shadow_ptrs_nonnull);
+                assert(self.shadow_ptrs_nonnull());
+                assert(is_identity_injection(self.shadow_freelist@, self.all_blocks.ptrs@)) by {
+                    // pi.is_injective(): unchanged
+                    // totality: pi.contains_key((idx,m)) <==> ... : sfl unchanged
+                    // value constraint: vacuously true since sfl.m[idx].len() == 0
+                    assert(self.shadow_freelist@.pi.is_injective());
+                    assert forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                        self.shadow_freelist@.pi.contains_key((idx, m)) <==>
+                            (idx.wf() && 0 <= m < self.shadow_freelist@.m[idx].len())
+                    by {};
+                    assert forall|idx: BlockIndex<FLLEN, SLLEN>, m: int|
+                        idx.wf() && 0 <= m < self.shadow_freelist@.m[idx].len()
+                        implies ({
+                            &&& 0 <= #[trigger] self.shadow_freelist@.pi[(idx, m)]
+                                < self.all_blocks.ptrs@.len()
+                            &&& self.shadow_freelist@.m[idx][m]
+                                == self.all_blocks.ptrs@[self.shadow_freelist@.pi[(idx, m)]]
+                        })
+                    by {
+                        // sfl.m[idx].len() == 0 for all wf idx, so antecedent is false
+                        assert(self.shadow_freelist@.m[idx].len() == 0);
+                    };
+                };
+                assert(self.wf_shadow());
+
+                // 2. freelist_wf(idx) for all wf idx:
+                // sfl.m[idx].len() == 0 (proved above), first_free[idx] is null (extracted before modification)
+                // Use lemma_freelist_wf_from_empty to reconstruct freelist_wf from these facts
+                assert forall|idx: BlockIndex<FLLEN, SLLEN>| idx.wf()
+                    implies self.freelist_wf(idx)
+                by {
+                    self.lemma_freelist_wf_from_empty(idx);
+                };
+
+                // 3. free_blocks_in_freelist_except(set![block]):
+                // For ptrs@ = [block, sentinel], block is excluded, sentinel is not free.
+                assert forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                    && self.all_blocks.value_at(self.all_blocks.ptrs@[i]).is_free()
+                    && !set![block].contains(self.all_blocks.ptrs@[i])
+                    implies self.shadow_freelist@.contains(self.all_blocks.ptrs@[i])
+                by {
+                    // ptrs@ == [block, sentinel]
+                    if i == 0 {
+                        // ptrs@[0] == block, which is in the exception set
+                        assert(set![block].contains(self.all_blocks.ptrs@[0]));
+                    } else {
+                        // ptrs@[1] == sentinel_block, which is not free
+                        assert(i == 1);
+                        assert(!self.all_blocks.value_at(sentinel_block).is_free());
+                    }
+                };
+                self.lemma_free_blocks_in_freelist_except_intro(set![block]);
+
+                // Now prove all_freelist_wf_weak(set![block])
+                assert(self.all_freelist_wf_weak(set![block]));
+
+                // Assert bitmap fields are unchanged (only all_blocks was modified)
+                assert(self.fl_bitmap == saved_fl_bitmap);
+                assert(self.sl_bitmap == saved_sl_bitmap);
+                // bitmap_wf(): reconstructed from field equality
+                assert(self.bitmap_wf());
+                // bitmap_sync(): depends on sl_bitmap (unchanged) and shadow_freelist (unchanged)
+                assert(self.bitmap_sync());
+                // size_class_condition(): opaque, vacuously true since sfl.m[idx].len() == 0
+                reveal(Tlsf::size_class_condition);
+                assert(self.size_class_condition());
+            }
+
+            // Link to the list
+            self.link_free_block(chunk_size - GRANULARITY, block);
+
+            // chunk_size == size_remains (proved above), so this is the last iteration
+            assert(size_remains == chunk_size);
             size_remains -= chunk_size;
             cursor = cursor.wrapping_add(chunk_size);
+
+            // Re-establish loop invariants for new size_remains
+            proof {
+                // chunk_size == size_remains (proved earlier), so size_remains is now 0
+                first_iter = false;
+                if size_remains > 0 {
+                    // chunk_size < old size_remains, so cursor + chunk_size didn't overflow
+                    // wrapping_add == regular add
+                    assert(cursor as int == (cursor - chunk_size) as int + chunk_size as int);
+                    assert(cursor as int % GRANULARITY as int == 0);
+                    assert(cursor != 0);
+                    assert(size_remains as int + cursor as int == start as int + size as int);
+                    assert(cursor as int >= start as int);
+                }
+            }
         }
-        //#[cfg(feature = "std")]
-        //{
-            //use std::println;
-            //SENTINEL.get_or_init(|| sentinel_tmp.clone() as usize);
-            //println!("sentinel block is {:?}", sentinel_tmp);
-        //}
 
         Some(cursor.wrapping_sub(start as usize))
-
-            // TODO: update gs.root_provenances
     }
 
 

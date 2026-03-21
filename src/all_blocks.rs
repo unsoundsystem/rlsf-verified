@@ -123,7 +123,7 @@ verus! {
             &&& self.value_at(ptr).prev_phys_block@.addr == 0 ==> self.phys_prev_of(i) is None
             &&& if self.value_at(ptr).is_sentinel() {
                 &&& i == self.ptrs@.len() - 1
-                &&& self.value_at(ptr).size == 0
+                &&& (self.value_at(ptr).size & SIZE_SIZE_MASK) == 0
             } else {
                 &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size((self.value_at(ptr).size & SIZE_SIZE_MASK) as int)
                 &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
@@ -480,7 +480,7 @@ verus! {
                 },
                 self.value_at(self.ptrs@[i]).is_sentinel() ==> {
                     &&& i == self.ptrs@.len() - 1
-                    &&& self.value_at(self.ptrs@[i]).size == 0
+                    &&& (self.value_at(self.ptrs@[i]).size & SIZE_SIZE_MASK) == 0
                 },
                 self.value_at(self.ptrs@[i]).is_free() ==> (
                     self.perms@[self.ptrs@[i]].free_link_perm matches Some(p)
@@ -522,7 +522,7 @@ verus! {
                     &&& self.value_at(ptr).prev_phys_block@.addr == 0 ==> self.phys_prev_of(i) is None
                     &&& if self.value_at(ptr).is_sentinel() {
                         &&& i == self.ptrs@.len() - 1
-                        &&& self.value_at(ptr).size == 0
+                        &&& (self.value_at(ptr).size & SIZE_SIZE_MASK) == 0
                     } else {
                         &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(
                             (self.value_at(ptr).size & SIZE_SIZE_MASK) as int)
@@ -631,6 +631,17 @@ verus! {
         /// Trivial case: pool_size_bounded holds when ptrs@ has fewer than 2 elements.
         pub(crate) proof fn lemma_pool_size_bounded_trivial(&self)
             requires self.ptrs@.len() < 2
+            ensures self.pool_size_bounded()
+        {
+            reveal(AllBlocks::pool_size_bounded);
+        }
+
+        /// Construct pool_size_bounded from explicit span bound.
+        pub(crate) proof fn lemma_pool_size_bounded_from_span(&self)
+            requires
+                self.ptrs@.len() >= 2 ==>
+                    (self.ptrs@.last() as usize as int) - (self.ptrs@[0] as usize as int)
+                        < pow2(FLLEN as nat) * GRANULARITY as int,
             ensures self.pool_size_bounded()
         {
             reveal(AllBlocks::pool_size_bounded);

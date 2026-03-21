@@ -57,6 +57,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         old(self).all_blocks.perms@[block].mem.provenance() == block@.provenance,
         old(self).all_blocks.perms@[block].overhead_mem.dom().is_empty(),
         old(self).all_blocks.perms@[block].pad_perm is None,
+        !old(self).all_blocks.perms@[block].points_to.value().is_sentinel(),
     ensures
         self.wf(),
     {
@@ -69,15 +70,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.all_blocks.lemma_wf_structural_facts(block_i);
             self.all_blocks.lemma_wf_nodup();
 
-            // Block is not sentinel: sentinel => size == 0, but SIZE_USED set => size >= 1
-            assert(!self.all_blocks.value_at(block).is_sentinel()) by {
-                if self.all_blocks.value_at(block).is_sentinel() {
-                    assert(self.all_blocks.value_at(block).size == 0);
-                    assert(0usize & SIZE_USED == 0) by (bit_vector)
-                        requires SIZE_USED == 1usize;
-                    assert(false);
-                }
-            };
+            // Block is not sentinel (from precondition)
+            assert(!self.all_blocks.value_at(block).is_sentinel());
             assert(self.all_blocks.phys_next_of(block_i) is Some);
 
             // Next phys facts
@@ -1431,14 +1425,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.all_blocks.value_at(new_next_phys_block).is_sentinel();
             assert(nnpb_is_sentinel ==> {
                 &&& nnpb_new_idx == new_len - 1
-                &&& self.all_blocks.value_at(new_next_phys_block).size == 0usize
+                &&& (self.all_blocks.value_at(new_next_phys_block).size & SIZE_SIZE_MASK) == 0usize
             }) by {
                 if nnpb_is_sentinel {
-                    // nnpb_size == old nnpb size. sentinel has size 0.
+                    // nnpb_size == old nnpb size. sentinel has (size & SIZE_SIZE_MASK) == 0.
                     // In old state, nnpb was at new_next_phys_idx. If sentinel there,
-                    // it was last, and size was 0.
+                    // it was last, and (size & SIZE_SIZE_MASK) was 0.
                     post_unlink_ab.lemma_wf_glue_facts(new_next_phys_idx);
-                    // old: sentinel ==> new_next_phys_idx == old_len - 1 && size == 0
+                    // old: sentinel ==> new_next_phys_idx == old_len - 1 && (size & SIZE_SIZE_MASK) == 0
                     // new_len = old_len - num_removals. nnpb_new_idx = new_next_phys_idx - num_removals.
                     // So nnpb_new_idx == new_len - 1. ✓
                 }
@@ -2454,6 +2448,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         self.all_blocks.perms@[r].mem.provenance() == r@.provenance,
         self.all_blocks.perms@[r].overhead_mem.dom().is_empty(),
         self.all_blocks.perms@[r].pad_perm is None,
+        !self.all_blocks.perms@[r].points_to.value().is_sentinel(),
     {
         let ghost tok = DeallocToken { ptr, user_size, align };
         let ghost old_self = *self;

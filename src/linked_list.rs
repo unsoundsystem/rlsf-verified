@@ -505,6 +505,46 @@ use crate::*;
             reveal(Tlsf::free_blocks_in_freelist_except);
         }
 
+        /// Extract: freelist_wf(idx) with empty sfl implies first_free is null.
+        pub(crate) proof fn lemma_extract_first_free_null(
+            &self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.freelist_wf(idx),
+                self.shadow_freelist@.m[idx].len() == 0,
+            ensures
+                AllBlocks::<FLLEN, SLLEN>::ptr_is_null(
+                    self.first_free[idx.0 as int][idx.1 as int])
+        {
+            reveal(Tlsf::freelist_wf);
+        }
+
+        /// Construct freelist_wf from the raw facts (empty sfl case).
+        pub(crate) proof fn lemma_freelist_wf_from_empty(
+            &self, idx: BlockIndex<FLLEN, SLLEN>)
+            requires
+                idx.wf(),
+                self.shadow_freelist@.m[idx].len() == 0,
+                AllBlocks::<FLLEN, SLLEN>::ptr_is_null(
+                    self.first_free[idx.0 as int][idx.1 as int]),
+            ensures self.freelist_wf(idx)
+        {
+            reveal(Tlsf::freelist_wf);
+        }
+
+        /// Construct free_blocks_in_freelist_except when the underlying forall is already proved.
+        pub(crate) proof fn lemma_free_blocks_in_freelist_except_intro(
+            self, exceptions: Set<*mut BlockHdr>)
+            requires
+                forall|i: int| 0 <= i < self.all_blocks.ptrs@.len()
+                    && self.all_blocks.value_at(self.all_blocks.ptrs@[i]).is_free()
+                    && !exceptions.contains(self.all_blocks.ptrs@[i])
+                    ==> self.shadow_freelist@.contains(self.all_blocks.ptrs@[i]),
+            ensures self.free_blocks_in_freelist_except(exceptions)
+        {
+            reveal(Tlsf::free_blocks_in_freelist_except);
+        }
+
         /// Weakening from any subset: if free_blocks_in_freelist_except(s1) and s1 ⊆ s2, then free_blocks_in_freelist_except(s2).
         pub(crate) proof fn lemma_free_blocks_weaken_exceptions(self, s1: Set<*mut BlockHdr>, s2: Set<*mut BlockHdr>)
             requires

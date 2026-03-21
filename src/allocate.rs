@@ -202,13 +202,24 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(old_head_perm == old(self).all_blocks.perms@[block]);
                 assert(old(self).all_blocks.perms@[block].points_to.value().size == selected_block_size);
                 assert(search_size as int <= block_size as int) by {
-                    // lemma_size_class_at now gives both:
-                    //   idx == map_floor_spec(selected_block_size)
-                    //   idx.block_size_range().contains(selected_block_size as int)
                     old(self).lemma_size_class_at(idx, 0);
                     assert(idx.block_size_range().contains(selected_block_size as int));
                     assert(search_size as int <= idx.block_size_range().start());
                 };
+                // Help solver determine this block is not a sentinel.
+                // block_size >= search_size >= GRANULARITY, but sentinel has
+                // (size & SIZE_SIZE_MASK) == 0. Since block_size >= GRANULARITY,
+                // (block_size & SIZE_SIZE_MASK) >= GRANULARITY > 0.
+                assert(block_size >= GRANULARITY);
+                assert((block_size & SIZE_SIZE_MASK) != 0usize) by {
+                    reveal(usize_trailing_zeros);
+                    reveal(u64_trailing_zeros);
+                    assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
+                    assert(GRANULARITY == 32usize) by (compute);
+                    assert((block_size & !31usize) >= 32usize) by (bit_vector)
+                        requires block_size >= 32usize;
+                };
+                assert(!old(self).all_blocks.value_at(block).is_sentinel());
                 assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size((block_size & SIZE_SIZE_MASK) as int));
             }
 
