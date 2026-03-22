@@ -69,6 +69,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.all_blocks.lemma_wf_glue_facts(block_i);
             self.all_blocks.lemma_wf_structural_facts(block_i);
             self.all_blocks.lemma_wf_nodup();
+            // Alignment facts (needed for get_freelink_ptr, established before tracked_remove)
+            self.all_blocks.lemma_wf_node_ptr(block_i);
 
             // Block is not sentinel (from precondition)
             assert(!self.all_blocks.value_at(block).is_sentinel());
@@ -81,6 +83,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.all_blocks.lemma_wf_glue_facts(next_i);
             self.all_blocks.lemma_wf_structural_facts(next_i);
             self.all_blocks.lemma_phys_next_is_distinct(block_i);
+            // Alignment for next_phys_block (needed for get_freelink_ptr at L796)
+            self.all_blocks.lemma_wf_node_ptr(next_i);
 
             // Prev phys facts (established now while wf() holds)
             if self.all_blocks.value_at(block).prev_phys_block@.addr != 0 {

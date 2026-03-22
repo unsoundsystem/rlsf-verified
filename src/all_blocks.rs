@@ -3,8 +3,13 @@ use crate::block_index::BlockIndex;
 use crate::block_index::GRANULARITY;
 use crate::ordered_pointer_list::*;
 use crate::parameters::SIZE_SIZE_MASK;
+use crate::parameters::SIZE_SENTINEL;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::bits::u64_trailing_zeros;
+#[cfg(verus_keep_ghost)]
+use crate::bits::usize_trailing_zeros;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 #[cfg(verus_keep_ghost)]
@@ -112,6 +117,80 @@ verus! {
             reveal(AllBlocks::wf_node_ptr);
         }
 
+        /// Bridge lemma: derives alignment without leaking ptr@ terms.
+        /// Uses `ptr as usize` (= spec_cast_ptr_to_usize) to avoid
+        /// triggering ptrs_mut_eq broadcasts in the caller's SMT context.
+        pub(crate) proof fn lemma_wf_node_aligned(self, i: int)
+            requires
+                self.wf(),
+                0 <= i < self.ptrs@.len(),
+            ensures
+                (self.ptrs@[i] as usize) as int % (GRANULARITY as int) == 0,
+        {
+            assert(self.wf_node(i));
+            reveal(AllBlocks::wf_node_ptr);
+        }
+
+        /// Minimal overflow bound for get_freelink_ptr: for non-sentinel blocks,
+        /// ptr + sizeof(BlockHdr) < usize::MAX.
+        /// Scopes all intermediate glue facts to prevent solver pollution in callers.
+        pub(crate) proof fn lemma_wf_ptr_hdr_bound(self, i: int)
+            requires
+                self.wf(),
+                0 <= i < self.ptrs@.len(),
+                !self.value_at(self.ptrs@[i]).is_sentinel(),
+                (size_of::<BlockHdr>() as int) <= (GRANULARITY as int),
+            ensures
+                (self.ptrs@[i] as usize as int) + (size_of::<BlockHdr>() as int) < usize::MAX as int,
+        {
+            self.lemma_wf_glue_facts(i);
+            // glue_facts: (size + ptr) < usize::MAX, valid_block_size(size & SIZE_SIZE_MASK)
+            // valid_block_size: size_masked >= GRANULARITY >= size_of::<BlockHdr>()
+            // size >= size_masked (clearing low bits cannot increase value):
+            let size = self.value_at(self.ptrs@[i]).size;
+            let m = SIZE_SIZE_MASK;
+            assert((size & m) <= size) by (bit_vector);
+        }
+
+        /// Free-block variant: derives !is_sentinel() from is_free() + wf() internally.
+        pub(crate) proof fn lemma_wf_free_ptr_hdr_bound(self, i: int)
+            requires
+                self.wf(),
+                0 <= i < self.ptrs@.len(),
+                self.value_at(self.ptrs@[i]).is_free(),
+                (size_of::<BlockHdr>() as int) <= (GRANULARITY as int),
+            ensures
+                (self.ptrs@[i] as usize as int) + (size_of::<BlockHdr>() as int) < usize::MAX as int,
+        {
+            // Free blocks are not sentinels: wf() + is_free() implies
+            // size == size & SIZE_SIZE_MASK (low 5 bits cleared), so size & 2 == 0
+            self.lemma_wf_perm_wf(i);
+            let ptr = self.ptrs@[i];
+            let s = self.perms@[ptr].points_to.value().size;
+            assert(s == (s & SIZE_SIZE_MASK));
+            assert(!self.value_at(ptr).is_sentinel()) by {
+                reveal(usize_trailing_zeros);
+                reveal(u64_trailing_zeros);
+                assert(SIZE_SIZE_MASK == !31usize) by (compute);
+                assert(SIZE_SENTINEL == 2usize) by (compute);
+                assert(((s & !31usize) & 2usize) == 0usize) by (bit_vector);
+            };
+            self.lemma_wf_ptr_hdr_bound(i);
+        }
+
+        /// Sentinel variant: ptr + sizeof(BlockHdr) < usize::MAX for sentinel blocks.
+        /// Directly from wf_node_glue sentinel case.
+        pub(crate) proof fn lemma_wf_sentinel_ptr_hdr_bound(self, i: int)
+            requires
+                self.wf(),
+                0 <= i < self.ptrs@.len(),
+                self.value_at(self.ptrs@[i]).is_sentinel(),
+            ensures
+                (self.ptrs@[i] as usize as int) + (size_of::<BlockHdr>() as int) < usize::MAX as int,
+        {
+            self.lemma_wf_glue_facts(i);
+        }
+
         /// Group B: Glue invariants between physical state & tracked/ghost state.
         /// No ptr@ terms — uses value_at(ptr) only.
         pub(crate) closed spec fn wf_node_glue(self, i: int) -> bool
@@ -124,6 +203,7 @@ verus! {
             &&& if self.value_at(ptr).is_sentinel() {
                 &&& i == self.ptrs@.len() - 1
                 &&& (self.value_at(ptr).size & SIZE_SIZE_MASK) == 0
+                &&& (ptr as int) + (size_of::<BlockHdr>() as int) < usize::MAX
             } else {
                 &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size((self.value_at(ptr).size & SIZE_SIZE_MASK) as int)
                 &&& (self.value_at(ptr).size as int) + (ptr as int) < usize::MAX
@@ -481,6 +561,7 @@ verus! {
                 self.value_at(self.ptrs@[i]).is_sentinel() ==> {
                     &&& i == self.ptrs@.len() - 1
                     &&& (self.value_at(self.ptrs@[i]).size & SIZE_SIZE_MASK) == 0
+                    &&& (self.ptrs@[i] as int) + (size_of::<BlockHdr>() as int) < usize::MAX
                 },
                 self.value_at(self.ptrs@[i]).is_free() ==> (
                     self.perms@[self.ptrs@[i]].free_link_perm matches Some(p)
@@ -523,6 +604,7 @@ verus! {
                     &&& if self.value_at(ptr).is_sentinel() {
                         &&& i == self.ptrs@.len() - 1
                         &&& (self.value_at(ptr).size & SIZE_SIZE_MASK) == 0
+                        &&& (ptr as int) + (size_of::<BlockHdr>() as int) < usize::MAX
                     } else {
                         &&& BlockIndex::<FLLEN, SLLEN>::valid_block_size(
                             (self.value_at(ptr).size & SIZE_SIZE_MASK) as int)

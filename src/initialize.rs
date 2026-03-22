@@ -47,6 +47,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         // TODO: generalize to support multiple pool regions
         old(self).all_blocks.ptrs@.len() == 0,
         size as int <= Self::max_pool_size_spec() as int,
+        (start as usize as int) + (size as int) < (usize::MAX as int) + 1,
     ensures
         self.wf(),
     {
@@ -62,19 +63,22 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             self.lemma_wf_components();
         }
 
-        // Platform-specific layout facts (unprovable in Verus)
-        assume(size_of::<BlockHdr>() == 16);
-        assume(size_of::<BlockHdr>() as usize as int == size_of::<BlockHdr>());
-        assume(vstd::layout::size_of::<BlockHdr>() == 16);
-        assume(vstd::layout::size_of::<BlockHdr>() as usize as int == vstd::layout::size_of::<BlockHdr>());
-        assume(vstd::layout::align_of::<BlockHdr>() == 8);
-        assume(vstd::layout::align_of::<BlockHdr>() as usize as int == vstd::layout::align_of::<BlockHdr>());
-        assume(size_of::<FreeLink>() == 16);
-        assume(size_of::<FreeLink>() as usize as int == size_of::<FreeLink>());
-        assume(vstd::layout::size_of::<FreeLink>() == 16);
-        assume(vstd::layout::size_of::<FreeLink>() as usize as int == vstd::layout::size_of::<FreeLink>());
-        assume(vstd::layout::align_of::<FreeLink>() == 8);
-        assume(vstd::layout::align_of::<FreeLink>() as usize as int == vstd::layout::align_of::<FreeLink>());
+        // Layout facts established via layout_for_type_is_valid + broadcast lemmas
+        vstd::layout::layout_for_type_is_valid::<BlockHdr>();
+        vstd::layout::layout_for_type_is_valid::<FreeLink>();
+        proof {
+            assert(size_of::<BlockHdr>() == 16
+                && vstd::layout::size_of::<BlockHdr>() == 16
+                && vstd::layout::align_of::<BlockHdr>() == 8) by {
+                broadcast use VERUS_layout_of_BlockHdr;
+            };
+            assert(size_of::<FreeLink>() == 16
+                && vstd::layout::size_of::<FreeLink>() == 16
+                && vstd::layout::align_of::<FreeLink>() == 8) by {
+                broadcast use VERUS_layout_of_FreeLink;
+            };
+        }
+
 
         let ghost mut first_iter = true;
 
@@ -111,6 +115,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 size_remains > 0 ==> cursor != 0,
                 size_remains > 0 ==> size_remains as int + cursor as int == start as int + size as int,
                 size_remains > 0 ==> cursor as int >= start as int,
+                // Address space bound: range fits in usize
+                size_remains > 0 ==> cursor as int + size_remains as int <= usize::MAX as int + 1,
             decreases size_remains
         {
             proof {
@@ -216,6 +222,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         size: chunk_size - GRANULARITY,
                         prev_phys_block: null_bhdr(),
                     });
+            proof {
+                // block = with_exposed_provenance(cursor, prov), cursor % GRANULARITY == 0
+                assert((block as usize) as int % GRANULARITY as int == 0);
+            }
             ptr_mut_write(get_freelink_ptr(block), Tracked(&mut new_header_frelink),
                 FreeLink {
                     next_free: null_bhdr(),
@@ -237,6 +247,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert((s & 2usize) == 0usize) by (bit_vector)
                     requires s % 32usize == 0, SIZE_SENTINEL == 2usize;
                 assert(!new_block_perm.points_to.value().is_sentinel());
+                // Overflow bound for next_phys_block: block + size < usize::MAX
+                // block as usize == cursor, size = chunk_size - GRANULARITY
+                // cursor + chunk_size <= cursor + size_remains <= usize::MAX + 1
+                // cursor + chunk_size - GRANULARITY <= usize::MAX + 1 - GRANULARITY < usize::MAX
+                assert((block as usize as int) + (new_block_perm.points_to.value().size as int) < usize::MAX as int);
             }
             let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
 
@@ -448,6 +463,14 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
                 assert(self.all_blocks.value_at(sentinel_block).prev_phys_block == block);
                 assert(block@.addr != 0);
+                // sentinel bound: sentinel_block + size_of::<BlockHdr>() < usize::MAX
+                // cursor + chunk_size <= cursor + size_remains <= usize::MAX + 1
+                // sentinel_addr = cursor + chunk_size - GRANULARITY
+                // sentinel_addr + 16 = cursor + chunk_size - 16 <= usize::MAX + 1 - 16 < usize::MAX
+                assert(sentinel_block@.addr == sentinel_addr);
+                assert(sentinel_addr == cursor as int + (chunk_size - GRANULARITY) as int);
+                assert(cursor as int + chunk_size as int <= usize::MAX as int + 1);
+                assert((sentinel_block as int) + (size_of::<BlockHdr>() as int) < usize::MAX);
                 self.all_blocks.lemma_construct_wf_node_glue(sentinel_idx);
                 self.all_blocks.lemma_construct_wf_node_structural(sentinel_idx);
 

@@ -85,15 +85,28 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             r matches None ==> *old(self) == *self,
             self.wf(),
     {
-        assume(size_of::<usize>() == 8);
-        assume(size_of::<BlockHdr>() == 16);
-        assume(vstd::layout::align_of::<BlockHdr>() == 8);
-        assume(size_of::<FreeLink>() == 16);
-        assume(vstd::layout::align_of::<FreeLink>() == 8);
-        assume(size_of::<UsedBlockHdr>() == 16);
-        assume(size_of::<UsedBlockPad>() == 8);
-        assume(vstd::layout::size_of::<UsedBlockPad>() == 8);
-        assume(vstd::layout::align_of::<UsedBlockPad>() == 8);
+        vstd::layout::layout_for_type_is_valid::<BlockHdr>();
+        vstd::layout::layout_for_type_is_valid::<FreeLink>();
+        vstd::layout::layout_for_type_is_valid::<UsedBlockPad>();
+        vstd::layout::layout_for_type_is_valid::<usize>();
+        proof {
+            assert(size_of::<BlockHdr>() == 16
+                && vstd::layout::align_of::<BlockHdr>() == 8) by {
+                broadcast use VERUS_layout_of_BlockHdr;
+            };
+            assert(size_of::<FreeLink>() == 16
+                && vstd::layout::align_of::<FreeLink>() == 8) by {
+                broadcast use VERUS_layout_of_FreeLink;
+            };
+            assert(size_of::<UsedBlockPad>() == 8
+                && vstd::layout::size_of::<UsedBlockPad>() == 8
+                && vstd::layout::align_of::<UsedBlockPad>() == 8) by {
+                broadcast use VERUS_layout_of_UsedBlockPad;
+            };
+            assert(size_of::<usize>() == 8) by {
+                broadcast use VERUS_layout_of_usize;
+            };
+        }
         unsafe {
 
             // The extra bytes consumed by the header and padding.
@@ -287,7 +300,12 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     old(self).lemma_freelist_wf_extract_wf_free_node(idx, 1);
                     assert(old(self).wf_free_node(idx, 1));
                     old(self).all_blocks.lemma_node_is_wf(next_free);
-                    assert(old(self).all_blocks.wf_node(old(self).all_blocks.get_ptr_internal_index(next_free)));
+                    let ghost nf_i = old(self).all_blocks.get_ptr_internal_index(next_free);
+                    assert(old(self).all_blocks.wf_node(nf_i));
+                    // Overflow bound for get_freelink_ptr: scoped to avoid pollution
+                    assert((next_free as usize as int) + (size_of::<BlockHdr>() as int) < usize::MAX as int) by {
+                        old(self).all_blocks.lemma_wf_free_ptr_hdr_bound(nf_i);
+                    };
                     new_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(next_free);
                     assert(self.all_blocks.perms@ == perms_after_removing_block.remove(next_free));
                     assert(new_head_perm == old(self).all_blocks.perms@[next_free]);
@@ -651,6 +669,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let freelink_size = size_of::<FreeLink>();
                 let new_free_block: *mut BlockHdr =
                     with_exposed_provenance(block as usize + new_size, block_prov);
+                proof {
+                    // new_free_block overflow bound for get_freelink_ptr:
+                    // new_free_block@.addr = block + new_size, block + block_size < usize::MAX
+                    // new_size < block_size, so new_free_block + 16 < block + block_size < usize::MAX
+                }
                 let new_freelink = get_freelink_ptr(new_free_block);
                 let new_free_block_size = block_size - new_size;
 

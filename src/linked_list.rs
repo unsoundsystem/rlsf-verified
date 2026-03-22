@@ -857,6 +857,11 @@ use crate::*;
             forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
                 ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi],
         {
+            vstd::layout::layout_for_type_is_valid::<BlockHdr>();
+            proof {
+                broadcast use VERUS_layout_of_BlockHdr;
+                assert(size_of::<BlockHdr>() as int <= GRANULARITY as int);
+            }
             let idx = Self::map_floor(size).unwrap();
             // Prove membership: node is in shadow_freelist@.m[idx]
             proof {
@@ -886,6 +891,8 @@ use crate::*;
                 // And: node.size == size from precondition
                 // Therefore: actual_bi == idx
                 assert(self.shadow_freelist@.m[idx].contains(node));
+                // Overflow bound for get_freelink_ptr(node)
+                self.all_blocks.lemma_wf_free_ptr_hdr_bound(node_i);
             }
             let link = get_freelink_ptr(node);
             proof {
@@ -921,6 +928,18 @@ use crate::*;
             let prev_free = ptr_ref(link, Tracked(&link_perm)).prev_free;
 
             if next_free != null_bhdr() {
+                proof {
+                    // Overflow bound for get_freelink_ptr(next_free)
+                    reveal(AllBlocks::ptr_is_null);
+                    assert(old(self).wf_free_node(idx, i));
+                    assert(Some(next_free) == Self::free_next_of(old(self).shadow_freelist@.m[idx], i));
+                    assert(i < old(self).shadow_freelist@.m[idx].len() - 1);
+                    assert(old(self).shadow_freelist@.m[idx][i + 1] == next_free);
+                    assert(old(self).all_blocks.contains(next_free));
+                    let ghost nf_ai = old(self).all_blocks.get_ptr_internal_index(next_free);
+                    assert(old(self).wf_free_node(idx, i + 1));
+                    old(self).all_blocks.lemma_wf_free_ptr_hdr_bound(nf_ai);
+                }
                 let next_link = get_freelink_ptr(next_free);
                 proof {
                     reveal(AllBlocks::ptr_is_null);
@@ -972,6 +991,18 @@ use crate::*;
             }
 
             if prev_free != null_bhdr() {
+                proof {
+                    // Overflow bound for get_freelink_ptr(prev_free)
+                    reveal(AllBlocks::ptr_is_null);
+                    assert(old(self).wf_free_node(idx, i));
+                    assert(Self::free_prev_of(old(self).shadow_freelist@.m[idx], i) == Some(prev_free));
+                    assert(0 < i);
+                    assert(old(self).shadow_freelist@.m[idx][i - 1] == prev_free);
+                    assert(old(self).all_blocks.contains(prev_free));
+                    let ghost pf_ai = old(self).all_blocks.get_ptr_internal_index(prev_free);
+                    assert(old(self).wf_free_node(idx, i - 1));
+                    old(self).all_blocks.lemma_wf_free_ptr_hdr_bound(pf_ai);
+                }
                 let prev_link = get_freelink_ptr(prev_free);
                 proof {
                     reveal(AllBlocks::ptr_is_null);
@@ -1438,12 +1469,18 @@ use crate::*;
             forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
                 ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
         {
+            let _ = core::mem::size_of::<BlockHdr>();
             let idx = Self::map_floor(size).unwrap();
             proof {
                 self.all_blocks.lemma_block_wf();
                 self.all_blocks.lemma_node_is_wf(node);
                 self.shadow_freelist@
                     .lemma_sfl_not_contains_iff_pi_undefined(self.all_blocks, node);
+            }
+            proof {
+                // Overflow bound for get_freelink_ptr(node) — needed in both branches
+                let ghost node_i = self.all_blocks.get_ptr_internal_index(node);
+                self.all_blocks.lemma_wf_free_ptr_hdr_bound(node_i);
             }
             let tracked node_blk = self.all_blocks.perms.borrow_mut().tracked_remove(node);
             let tracked node_fl_pt = node_blk.free_link_perm.tracked_unwrap();
@@ -1455,6 +1492,13 @@ use crate::*;
                     reveal(AllBlocks::ptr_is_null);
                     assert(first_free@.addr != 0);
                 };
+                proof {
+                    // Overflow bound for get_freelink_ptr(first_free)
+                    old(self).freelist_nonempty(idx);
+                    let ghost ff_i = old(self).all_blocks.get_ptr_internal_index(first_free);
+                    assert(old(self).wf_free_node(idx, 0));
+                    old(self).all_blocks.lemma_wf_free_ptr_hdr_bound(ff_i);
+                }
                 assert(self.all_blocks.perms@.contains_key(first_free)) by {
                     old(self).freelist_nonempty(idx);
                     old(self).all_blocks.lemma_contains(first_free);
