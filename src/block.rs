@@ -1,6 +1,10 @@
 use crate::parameters::*;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::bits::u64_trailing_zeros;
+#[cfg(verus_keep_ghost)]
+use crate::bits::usize_trailing_zeros;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 #[cfg(verus_keep_ghost)]
@@ -23,6 +27,11 @@ verus! {
         }
 
         pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<&BlockPerm>) -> (r: *mut Self)
+            requires
+                perm.points_to.is_init(),
+                perm.points_to.ptr() == block,
+                !perm.points_to.value().is_sentinel(),
+                (block as usize as int) + (perm.points_to.value().size as int) < usize::MAX as int,
             ensures
                 r@.provenance == block@.provenance,
                 r@.addr == block@.addr + ((perm.points_to.value().size & SIZE_SIZE_MASK) as int),
@@ -35,10 +44,28 @@ verus! {
                 assert!((size & SIZE_SENTINEL) == 0, "`self` must not be a sentinel");
             }
 
+            proof {
+                reveal(usize_trailing_zeros);
+                reveal(u64_trailing_zeros);
+                assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
+                assert(size == perm.points_to.value().size);
+            }
+
+            // Compute masked size with overflow-safe bit masking
+            // SIZE_SIZE_MASK clears the low 5 bits
+            let mask: usize = !31usize;
+            let masked_size = size & mask;
+            proof {
+                assert(masked_size <= size) by (bit_vector)
+                    requires masked_size == size & mask, mask == !31usize;
+                assert((block as usize) as int + (masked_size as int)
+                    <= (block as usize) as int + (size as int));
+            }
+
             // Safety: Since `self.size & SIZE_SENTINEL` is not lying, the
             //         next block should exist at a non-null location.
             let prov = expose_provenance(block);
-            let r = with_exposed_provenance((block as usize) + (size & SIZE_SIZE_MASK), prov);
+            let r = with_exposed_provenance((block as usize) + masked_size, prov);
             r
         }
     }
@@ -111,6 +138,8 @@ verus! {
     }
 
     pub fn get_freelink_ptr(ptr: *mut BlockHdr) -> (r: *mut FreeLink)
+        requires
+            (ptr as usize as int) + (size_of::<BlockHdr>() as int) <= usize::MAX as int,
         ensures
             r == get_freelink_ptr_spec(ptr),
             r@.provenance == ptr@.provenance,

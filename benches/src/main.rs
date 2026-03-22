@@ -1,20 +1,18 @@
 extern crate rlsf_verified;
-use rlsf_verified::{parameters::GRANULARITY, round_up, Tlsf};
+use rlsf_verified::{parameters::GRANULARITY, Tlsf};
 use std::hint::black_box;
 use std::mem::MaybeUninit;
-use std::ptr::NonNull;
+
+#[repr(align(32))] // GRANULARITY == 32
+struct AlignedPool([MaybeUninit<u8>; 65536]);
 
 fn main() {
     for i in 0..200000 {
-        let mut pool = [MaybeUninit::<u8>::uninit(); 65536];
+        let mut pool = AlignedPool([MaybeUninit::uninit(); 65536]);
         let mut tlsf = Tlsf::<12usize, 16usize>::new();
         unsafe {
-            let block = NonNull::new((&mut pool) as *mut [_] as _).unwrap();
-
-            let unaligned_start = block.as_ptr() as *mut u8;
-            let start = round_up(unaligned_start, GRANULARITY);
-            let size = 65536;
-            tlsf.insert_free_block_ptr_aligned_test(start as *mut u8, size);
+            let start = pool.0.as_mut_ptr() as *mut u8;
+            tlsf.insert_free_block_ptr_aligned_test(start, 65536);
             for i in 1..200 {
                 let (x, _, _) = tlsf
                     .allocate(black_box(size_of::<usize>() * i), GRANULARITY)

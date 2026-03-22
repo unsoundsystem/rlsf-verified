@@ -20,7 +20,7 @@ CPU = "1"
 RT_PRIO = "99"
 
 # Adjust if your repo layout differs.
-BENCH_PROJ = Path(__file__).resolve().parent.parent.parent / "rlsf-verified-tests"
+BENCH_PROJ = Path(__file__).resolve().parent.parent.parent / "benches"
 SIZES = ["16k", "2k", "256b", "64b", "32b", "16b", "8b"]
 KINDS = ["original", "verified"]
 TASKS = ["alt", "aaaddd"]
