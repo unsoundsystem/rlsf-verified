@@ -45,65 +45,76 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             }
         })
     {
+        // Preliminary proofs
         proof {
             lemma_pow2_values();
             lemma_log2_values();
             Self::lemma_size_within_max_is_valid_block_size(size);
         }
-
-        // === Inlined map_floor computation ===
-        assert(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64)
-        by {
+        assert(Self::granularity_log2_spec() + usize_leading_zeros(size) < 64) by {
             Self::fl_not_underflow(size);
         };
-        proof {
-            granularity_is_power_of_two();
-        }
-        let mut fl: u32 = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
+        proof { granularity_is_power_of_two(); }
+
+        // FL computation
+        let mut fl = usize::BITS - Self::granularity_log2() - 1 - size.leading_zeros();
         assert(fl == log(2, size as int) - Self::granularity_log2()) by {
             log2_using_leading_zeros_usize(size);
             assert(fl == usize::BITS - Self::granularity_log2() - 1 - usize_leading_zeros(size));
             assert(log(2, size as int) == usize::BITS - usize_leading_zeros(size) - 1);
         };
 
+        // SL via rotation
         let mut sl = size.rotate_right((fl + Self::granularity_log2()).wrapping_sub(Self::sli()));
 
-        assert(fl >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)) by {
-            Self::lemma_fl_fllen_le_iff_valid_size(fl, size);
+        // Save ghost floor values
+        let ghost fl_floor: u32 = fl;
+        let ghost sl_raw: usize = sl;
+        let ghost sl_shift_amount: i32 = ((fl + Self::granularity_log2()) as int - Self::sli() as int) as i32;
+        let ghost sl_floor_usize: usize = sl_raw & (SLLEN - 1) as usize;
+        let ghost sl_floor_val: int = sl_floor_usize as int;
+
+        // Establish floor mapping correctness
+        // Prove fl_floor < FLLEN
+        assert(fl_floor >= FLLEN <==> !BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)) by {
+            Self::lemma_fl_fllen_le_iff_valid_size(fl_floor, size);
         };
-        if fl as usize >= FLLEN {
-            assert(!BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
-            return None;
-        } else {
-            assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
+        assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
+        assert(fl_floor < FLLEN);
+
+        // Prove sl_floor_val is in range
+        proof {
+            mask_higher_bits_leq_mask(sl_raw, SLLEN);
         }
+        assert(0 <= sl_floor_val < SLLEN as int);
 
-        proof { mask_higher_bits_leq_mask(sl, SLLEN); }
-        let floor = BlockIndex(fl as usize, sl & (SLLEN - 1));
-        let sl_shift_amount: i32 = (fl + Self::granularity_log2()).wrapping_sub(Self::sli()) as i32;
-        let BlockIndex(fl, sl) = floor;
-        // === End inlined map_floor computation ===
-
-        // === map_floor proof (copied from map_floor body) ===
+        // Prove sl_floor_val = (size / slb) % SLLEN (same calc! as map_floor)
         proof {
             Self::granularity_basics();
-            assert(fl == log(2, size as int) - Self::granularity_log2_spec());
+            assert(fl_floor == log(2, size as int) - Self::granularity_log2_spec());
             assert(Self::granularity_log2() == Self::granularity_log2_spec());
 
-            if fl + Self::granularity_log2_spec() >= Self::sli_spec()  {
+            assert(Self::sli_spec() >= 0) by {
+                vstd::arithmetic::logarithm::lemma_log_nonnegative(2, SLLEN as int);
+            };
+            assert(Self::granularity_log2_spec() >= 0) by {
+                vstd::arithmetic::logarithm::lemma_log_nonnegative(2, GRANULARITY as int);
+            };
 
-                let flb = pow2((fl + Self::granularity_log2_spec()) as nat) as int;
+            if fl_floor + Self::granularity_log2_spec() >= Self::sli_spec() {
+                let flb = pow2((fl_floor + Self::granularity_log2_spec()) as nat) as int;
                 let slb = flb / SLLEN as int;
-                assert(fl == log(2, size as int / GRANULARITY as int)) by {
+
+                assert(fl_floor == log(2, size as int / GRANULARITY as int)) by {
                     lemma_log2_distributes(size as int, GRANULARITY as int)
                 };
-                assert(sl == ((size as int) / slb) % SLLEN as int) by {
+
+                assert(sl_floor_val == ((size as int) / slb) % SLLEN as int) by {
                     assert(usize_rotate_right(size, sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
                         == (size >> sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize) by {
                         lemma_usize_rotr_mask_lower(size, sl_shift_amount);
                     };
-                    assert(sl == (size >> sl_shift_amount) & (SLLEN - 1) as usize) by {
-
+                    assert(sl_floor_usize == (size >> sl_shift_amount) & (SLLEN - 1) as usize) by {
                         assert(SLLEN - 1 == low_mask_usize(Self::sli_spec() as nat)) by {
                             Self::sli_pow2_is_sllen();
                             assert(SLLEN - 1 == pow2(Self::sli_spec() as nat) - 1);
@@ -111,11 +122,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
                         calc! {
                             (==)
-                            sl; {}
+                            sl_floor_usize; {}
 
                             usize_rotate_right(size, sl_shift_amount) & (SLLEN - 1) as usize;
                             {
-                                assert(fl + Self::granularity_log2_spec() <= usize::BITS);
+                                assert(fl_floor + Self::granularity_log2_spec() <= usize::BITS);
                                 lemma_duplicate_low_mask_usize(
                                     usize_rotate_right(size, sl_shift_amount),
                                     Self::sli_spec() as nat,
@@ -134,7 +145,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                                 & low_mask_usize((usize::BITS - sl_shift_amount) as nat)
                                 & low_mask_usize(Self::sli_spec() as nat);
                             {
-                                assert(fl + Self::granularity_log2_spec() <= usize::BITS);
+                                assert(fl_floor + Self::granularity_log2_spec() <= usize::BITS);
                                 lemma_duplicate_low_mask_usize(
                                     size >> sl_shift_amount,
                                     Self::sli_spec() as nat,
@@ -148,36 +159,45 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     assert((size >> sl_shift_amount) & (SLLEN - 1) as usize == (size >> sl_shift_amount) % SLLEN) by {
                         bit_mask_is_mod_for_pow2(size >> sl_shift_amount, SLLEN);
                     };
-                    assert(slb == pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
+                    assert(slb == pow2((fl_floor + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
                         assert(SLLEN == pow2(Self::sli_spec() as nat)) by { Self::sli_pow2_is_sllen() };
-                        assert(pow2((fl + Self::granularity_log2_spec()) as nat) / SLLEN as nat
-                                == pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
+                        assert(pow2((fl_floor + Self::granularity_log2_spec()) as nat) / SLLEN as nat
+                                == pow2((fl_floor + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
                             lemma_pow2_div_sub(
                                 Self::sli_spec() as nat,
-                                (fl + Self::granularity_log2_spec()) as nat
+                                (fl_floor + Self::granularity_log2_spec()) as nat
                             );
                         };
                     };
                     assert(size >> sl_shift_amount
                         == (size as nat /
-                            (pow2((fl + Self::granularity_log2_spec()
+                            (pow2((fl_floor + Self::granularity_log2_spec()
                                    - Self::sli_spec()) as nat))))
                     by {
                         assert(0 <= sl_shift_amount < 64);
-                        assert(sl_shift_amount == fl + Self::granularity_log2_spec()
+                        assert(sl_shift_amount == fl_floor + Self::granularity_log2_spec()
                                    - Self::sli_spec());
                         lemma_usize_shr_is_div(size, sl_shift_amount as usize);
                     };
                     assert(size > 0);
-                    vstd::arithmetic::power2::lemma_pow2_pos((fl + Self::granularity_log2_spec()
+                    vstd::arithmetic::power2::lemma_pow2_pos((fl_floor + Self::granularity_log2_spec()
                                    - Self::sli_spec()) as nat);
 
                     assert((size >> sl_shift_amount) & (SLLEN - 1) as usize
                         == (size as int /
-                            (pow2((fl + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) as int)
+                            (pow2((fl_floor + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) as int)
                         % SLLEN as int);
                 };
+            }
+        }
+
+        // Call lemma_floor_index_contains_size
+        proof {
+            if fl_floor + Self::granularity_log2_spec() >= Self::sli_spec() {
+                // non-fl_zero: sl_floor_val = (size / slb) % SLLEN already proven
+                Self::lemma_floor_index_contains_size(size, fl_floor as int, sl_floor_val);
             } else {
+                // fl_zero case: size == GRANULARITY, same as map_floor
                 if GRANULARITY == 32 {
                     assert(Self::sli_spec() <= 6) by {
                         Self::sli_pow2_is_sllen();
@@ -187,7 +207,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         vstd::arithmetic::logarithm::lemma_log_is_ordered(2, SLLEN as int, 64);
                     };
                     assert(Self::granularity_log2_spec() == 5) by { assert(log(2, 32) == 5) };
-                    assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
                 } else if GRANULARITY == 16 {
                     assert(Self::sli_spec() <= 5) by {
                         Self::sli_pow2_is_sllen();
@@ -196,68 +215,753 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                         assert(SLLEN <= 32);
                     };
                     assert(Self::granularity_log2_spec() == 4) by { assert(log(2, 16) == 4) };
-                    assert(fl + Self::granularity_log2_spec() < Self::sli_spec());
-                    assert(Self::sli_spec() <= 4);
                 }
+                assert(fl_floor == 0usize);
+                assert(fl_floor == log(2, size as int / GRANULARITY as int)) by {
+                    lemma_log2_distributes(size as int, GRANULARITY as int);
+                };
+                assert(size as int / GRANULARITY as int == 1) by {
+                    assert(log(2, size as int / GRANULARITY as int) == 0);
+                    assert(size as int / GRANULARITY as int >= 1);
+                    if size as int / GRANULARITY as int >= 2 {
+                        vstd::arithmetic::logarithm::lemma_log_is_ordered(
+                            2, 2, size as int / GRANULARITY as int
+                        );
+                        assert(log(2, 2) >= 1);
+                    }
+                };
+                assert(size == GRANULARITY);
+
+                // sl_floor_val for fl_zero: prove from concrete rotation
+                lemma_low_mask_u64_values();
+                assert(high_mask_u64(1) == !low_mask_u64(1));
+                assert(!0x1u64 == 0xfffffffffffffffeu64) by(bit_vector);
+                if GRANULARITY == 32 {
+                    assert(Self::sli_spec() == 6);
+                    assert(SLLEN == 64) by { Self::sli_pow2_is_sllen(); };
+                    assert(5u32.wrapping_sub(6u32) == u32::MAX);
+                    assert(u32::MAX as i32 == -1i32) by(bit_vector);
+                    assert(low_mask_u64(63) == 0x7fffffffffffffffu64);
+                    assert(
+                        ((32u64 & 0x7fffffffffffffffu64) << 1u64)
+                        | ((32u64 & 0xfffffffffffffffeu64) >> 63u64)
+                        == 64u64
+                    ) by(bit_vector);
+                    assert(usize_rotate_right(32, -1i32) == 64usize);
+                    assert((64usize & 63usize) == 0usize) by(bit_vector);
+                    assert(sl_floor_val == 0);
+                } else if GRANULARITY == 16 {
+                    assert(Self::sli_spec() == 5);
+                    assert(SLLEN == 32) by { Self::sli_pow2_is_sllen(); };
+                    assert(4u32.wrapping_sub(5u32) == u32::MAX);
+                    assert(u32::MAX as i32 == -1i32) by(bit_vector);
+                    assert(low_mask_u64(63) == 0x7fffffffffffffffu64);
+                    assert(
+                        ((16u64 & 0x7fffffffffffffffu64) << 1u64)
+                        | ((16u64 & 0xfffffffffffffffeu64) >> 63u64)
+                        == 32u64
+                    ) by(bit_vector);
+                    assert(usize_rotate_right(16, -1i32) == 32usize);
+                    assert((32usize & 31usize) == 0usize) by(bit_vector);
+                    assert(sl_floor_val == 0);
+                }
+                Self::lemma_floor_index_contains_size(size, 0, 0);
             }
-
-            Self::lemma_floor_index_contains_size(size, fl as int, sl as int);
         }
-        // === End map_floor proof ===
+        // Now have: floor_idx.wf() && floor_idx.block_size_range().contains(size)
+        // where floor_idx = BlockIndex(fl_floor as usize, sl_floor_val as usize)
 
-        // === Ceiling increment ===
-        let idx =
-            if sl < SLLEN - 1 {
-                BlockIndex(fl, sl + 1)
-            } else if fl < FLLEN - 1 {
-                BlockIndex(fl + 1, 0)
-            } else {
-                floor
-            };
+        // Ceiling arithmetic
+        // Ghost ceiling value (computed from the original sl_raw before mutation)
+        let ghost needs_ceil: usize = bool_to_usize_spec(sl_raw >= (1usize << (Self::sli() + 1)));
 
+        // The most significant one of `size` should be now at `sl[SLI]`
+        // Underflowed digits appear in `sl[SLI + 1..USIZE-BITS]`. They should
+        // be rounded up
+        sl = (sl & (SLLEN - 1)) + bool_to_usize(sl >= (1 << (Self::sli() + 1))) as usize;
+
+        // After ceiling adjustment: sl = sl_floor_usize + needs_ceil
+        // sl_floor_usize < SLLEN, needs_ceil ∈ {0,1}, so sl ≤ SLLEN
         proof {
-            assert(floor.wf());
-            assert(floor.block_size_range().contains(size as int));
-            assert(floor.block_size_range().start() <= (size as int));
-            assert((size as int) < floor.block_size_range().end());
+            assert(sl == sl_floor_usize + needs_ceil);
+            assert(sl <= SLLEN);
+            // sl >> sli ≤ 1 (since sl ≤ SLLEN = pow2(sli))
+            assert(sl >> Self::sli() <= 1usize) by {
+                Self::sli_pow2_is_sllen();
+                assert(SLLEN == pow2(Self::sli_spec() as nat));
+                lemma_usize_shr_is_div(sl, Self::sli() as usize);
+                vstd::arithmetic::power2::lemma_pow2_pos(Self::sli_spec() as nat);
+                vstd::arithmetic::div_mod::lemma_div_is_ordered(
+                    sl as int, SLLEN as int, pow2(Self::sli_spec() as nat) as int);
+                assert(sl as int / pow2(Self::sli_spec() as nat) as int
+                    <= SLLEN as int / pow2(Self::sli_spec() as nat) as int);
+                assert(SLLEN as int / pow2(Self::sli_spec() as nat) as int == 1);
+            };
+            // fl_floor < FLLEN ≤ usize::BITS ≤ 64, so fl_floor + 1 ≤ 65 < u32::MAX
+            Self::lemma_parameter_validity_implies_block_index_parameter_validity();
+            assert(FLLEN <= usize::BITS);
+            assert(fl_floor < usize::BITS);
+            let ghost fl_val: int = fl as int;
+            let ghost carry_val: int = (sl >> Self::sli()) as int;
+            assert(fl_val + carry_val < 4294967296);
+        }
 
-            if sl < SLLEN - 1 {
-                assert(idx.wf());
-                if floor.fl_zero_cond() {
-                    floor.fl_is_zero();
-                    idx.fl_is_zero();
-                    assert(floor.block_size_range().start() == GRANULARITY as int);
-                    assert(floor.block_size_range().end() == 2 * GRANULARITY as int);
-                    assert(idx.block_size_range().start() == GRANULARITY as int);
-                    assert((size as int) % (GRANULARITY as int) == 0);
-                    assert((size as int) < (2 * (GRANULARITY as int)));
-                    assert((GRANULARITY as int) <= (size as int));
-                    assert((size as int) == (GRANULARITY as int));
-                    assert((size as int) <= idx.block_size_range().start());
-                } else {
-                    floor.fl_non_zero();
-                    idx.fl_non_zero();
-                    assert(floor.block_size_range().end() == idx.block_size_range().start());
-                    assert((size as int) < floor.block_size_range().end());
-                    assert((size as int) <= idx.block_size_range().start());
-                }
-            } else if fl < FLLEN - 1 {
-                assert(floor.wf());
-                assert(idx.wf());
-                assert(floor.block_index_lt(idx));
-                assert(floor.0 == 0 ==> idx.0 != 0);
-                BlockIndex::<FLLEN, SLLEN>::lemma_block_size_range_mono(floor, idx);
-                assert(floor.block_size_range().end() <= idx.block_size_range().start());
-                assert((size as int) < floor.block_size_range().end());
-                assert((size as int) <= idx.block_size_range().start());
-            } else {
-                assert(idx == floor);
-                assert(floor == BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize));
+        // if sl[SLI] { fl += 1; sl = 0; }
+        fl += (sl >> Self::sli()) as u32;
+
+        // `fl` must be in a valid range
+        if fl as usize >= FLLEN {
+            proof {
+                // Prove this branch is unreachable (contradiction).
+                // Establish: fl = fl_floor + (sl >> sli), where sl = sl_floor_usize + needs_ceil.
+                let ghost carry: u32 = (sl >> Self::sli()) as u32;
+                assert(fl == fl_floor + carry);
+                assert(carry <= 1);
+
+                // fl >= FLLEN and fl_floor < FLLEN, so carry == 1.
+                assert(carry == 1);
+                assert(fl_floor + 1 >= FLLEN);
+                assert(fl_floor == FLLEN - 1);
+
+                // carry == 1 means sl >> sli >= 1, i.e., sl >= SLLEN.
+                // sl = sl_floor_usize + needs_ceil, sl_floor_usize < SLLEN, needs_ceil ∈ {0,1}.
+                // So needs_ceil == 1 and sl_floor_usize == SLLEN - 1.
+                assert(sl >> Self::sli() >= 1usize);
+                Self::sli_pow2_is_sllen();
+                lemma_usize_shr_is_div(sl, Self::sli() as usize);
+                assert(sl as nat / pow2(Self::sli_spec() as nat) >= 1);
+                vstd::arithmetic::power2::lemma_pow2_pos(Self::sli_spec() as nat);
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(sl as int, pow2(Self::sli_spec() as nat) as int);
+                assert(sl >= SLLEN);
+                assert(sl == sl_floor_usize + needs_ceil);
+                assert(sl_floor_usize < SLLEN);
+                assert(needs_ceil == 1);
+                assert(sl_floor_usize == (SLLEN - 1) as usize);
+                assert(sl_floor_val == SLLEN - 1);
+
+                // The floor index is the last bin.
+                let floor_idx = BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize);
+
+                // floor.start == max_allocatable_size
                 Self::lemma_last_index_start_is_max_allocatable();
-                assert(idx.wf());
-                assert(idx.block_size_range().start() == Self::max_allocatable_size());
-                assert((size as int) <= Self::max_allocatable_size());
-                assert((size as int) <= idx.block_size_range().start());
+                assert(floor_idx.block_size_range().start() == Self::max_allocatable_size());
+
+                // floor contains size => floor.start <= size
+                // (already established above via lemma_floor_index_contains_size)
+                assert(floor_idx.block_size_range().contains(size as int));
+                assert(floor_idx.block_size_range().start() <= size);
+
+                // Combined with size <= max_allocatable_size:
+                assert(size as int == Self::max_allocatable_size());
+                assert(size as int == floor_idx.block_size_range().start());
+
+                // Now show needs_ceil == 0 (contradiction with needs_ceil == 1).
+                // size == floor.start means size is at an exact bin boundary.
+                // In the non-fl_zero case: floor.start = flb + slb * sl_floor
+                // where flb = slb * SLLEN, so floor.start % slb == 0, hence size % slb == 0.
+                if fl_floor + Self::granularity_log2_spec() >= Self::sli_spec() {
+                    let flb = pow2((fl_floor + Self::granularity_log2_spec()) as nat) as int;
+                    let slb = flb / SLLEN as int;
+
+                    assert(pow2((fl_floor + Self::granularity_log2_spec()) as nat) >= SLLEN) by {
+                        Self::sli_pow2_is_sllen();
+                        lemma_pow2_increases(Self::sli_spec() as nat, (fl_floor + Self::granularity_log2_spec()) as nat);
+                    };
+                    floor_idx.fl_non_zero();
+                    assert(floor_idx.block_size_range().start()
+                        == flb + slb * (SLLEN - 1) as int);
+
+                    // size = flb + slb * (SLLEN - 1), and flb = slb * SLLEN
+                    assert(slb > 0) by {
+                        vstd::arithmetic::div_mod::lemma_div_non_zero(flb, SLLEN as int);
+                    };
+
+                    assert(slb * SLLEN == flb) by {
+                        Self::sli_pow2_is_sllen();
+                        lemma_div_before_mult_pow2(
+                            fl_floor + Self::granularity_log2_spec(),
+                            Self::sli_spec());
+                    };
+
+                    assert((size as int) % slb == 0) by (nonlinear_arith)
+                        requires
+                            size as int == flb + slb * (SLLEN - 1) as int,
+                            flb == slb * SLLEN as int,
+                            slb > 0,
+                    ;
+
+                    // Establish slb == pow2(fl_floor + g_log2 - sli)
+                    assert(slb == pow2((fl_floor + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
+                        Self::sli_pow2_is_sllen();
+                        lemma_pow2_div_sub(
+                            Self::sli_spec() as nat,
+                            (fl_floor + Self::granularity_log2_spec()) as nat
+                        );
+                    };
+                    assert(is_power_of_two(slb));
+                    bit_mask_is_mod_for_pow2(size, slb as usize);
+                    assert(size & (slb - 1) as usize == 0usize);
+
+                    assert(sl_shift_amount == fl_floor + Self::granularity_log2_spec() - Self::sli_spec());
+                    assert(sl_shift_amount >= 0);
+                    assert(slb == pow2(sl_shift_amount as nat));
+                    assert(low_mask_usize(sl_shift_amount as nat) == (slb - 1) as usize) by {
+                        assert(low_mask_usize(sl_shift_amount as nat)
+                            == (pow2(sl_shift_amount as nat) - 1) as usize);
+                    };
+                    assert(size & low_mask_usize(sl_shift_amount as nat) as usize == 0usize);
+
+                    // With lower sa bits of size == 0, rotate_right == shift_right.
+                    // usize_rotate_right(size, sa) for sa > 0:
+                    //   = ((size & high_mask(sa)) >> sa) | ((size & low_mask(sa)) << (64-sa))
+                    //   = ((size & high_mask(sa)) >> sa) | (0 << (64-sa))
+                    //   = (size & high_mask(sa)) >> sa
+                    //   = size >> sa
+                    // And size >> sa = size / slb < 2*SLLEN = pow2(sli+1).
+                    // So sl_raw < pow2(sli+1), hence needs_ceil == 0.
+
+                    // From lemma_usize_rotr_mask_lower:
+                    lemma_usize_rotr_mask_lower(size, sl_shift_amount);
+                    assert(sl_raw & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize
+                        == (size >> sl_shift_amount) & low_mask_usize((usize::BITS - sl_shift_amount) as nat) as usize);
+
+                    // size >> sa < pow2(sli+1)
+                    assert(size >> sl_shift_amount < pow2(Self::sli_spec() as nat + 1)) by {
+                        lemma_usize_shr_is_div(size, sl_shift_amount as usize);
+                        assert(size >> sl_shift_amount == size as nat / pow2(sl_shift_amount as nat));
+                        log2_power_in_range(size as int);
+                        assert(size < pow2(log(2, size as int) as nat + 1));
+                        assert(log(2, size as int) == fl_floor + Self::granularity_log2_spec());
+                        assert(size < pow2((fl_floor + Self::granularity_log2_spec() + 1) as nat));
+                        let p = pow2(sl_shift_amount as nat) as int;
+                        let q = pow2((Self::sli_spec() + 1) as nat) as int;
+                        vstd::arithmetic::power2::lemma_pow2_pos(sl_shift_amount as nat);
+                        vstd::arithmetic::power2::lemma_pow2_pos((Self::sli_spec() + 1) as nat);
+                        assert(p > 0 && q > 0);
+                        assert(p * q == pow2((fl_floor + Self::granularity_log2_spec() + 1) as nat)) by {
+                            vstd::arithmetic::power2::lemma_pow2_adds(
+                                sl_shift_amount as nat,
+                                (Self::sli_spec() + 1) as nat
+                            );
+                        };
+                        // size < p * q, so size / p < q
+                        assert(size as int / p < q) by {
+                            vstd::arithmetic::div_mod::lemma_div_is_ordered(
+                                size as int, p * q - 1, p);
+                            // (p*q-1)/p = q-1: use div_multiples_vanish
+                            // p*q/p = q, and (p*q-1)/p = q - 1 (since p*q-1 = p*(q-1) + (p-1))
+                            vstd::arithmetic::div_mod::lemma_div_multiples_vanish(q - 1, p);
+                            assert(p * (q - 1) / p == q - 1);
+                            // (p*q - 1) / p: p*q-1 = p*(q-1) + (p-1), and 0 <= p-1 < p
+                            // By fundamental_div_mod on p*(q-1):
+                            //   p*(q-1) = p * ((p*(q-1))/p) + (p*(q-1)) % p
+                            //   = p * (q-1) + 0
+                            // p*q - 1 = p*(q-1) + (p-1)
+                            assert(p * q - 1 == p * (q - 1) + (p - 1)) by (nonlinear_arith)
+                                requires p > 0, q > 0;
+                            // p*q-1 = p*(q-1) + (p-1), 0 <= p-1 < p
+                            // So (p*q-1)/p <= (p*(q-1) + p - 1)/p
+                            // Use: for any a >= 0 and 0 <= b < p: (a*p + b)/p = a
+                            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(p * q - 1, p);
+                            // The remainder (p*q-1)%p should be p-1
+                            // Let's show (p*q-1) - p*(q-1) = p-1
+                            assert((p * q - 1) - p * (q - 1) == p - 1) by (nonlinear_arith)
+                                requires p > 0, q > 0;
+                            // From fundamental_div_mod: p*q-1 = p * ((p*q-1)/p) + (p*q-1)%p
+                            // Also: p*q-1 = p*(q-1) + (p-1)
+                            // Since 0 <= p-1 < p and 0 <= (p*q-1)%p < p, and quotients are unique:
+                            // (p*q-1)/p = q-1
+                            vstd::arithmetic::div_mod::lemma_mod_bound(p * q - 1, p);
+                            // p * ((p*q-1)/p) + (p*q-1)%p = p*(q-1) + (p-1)
+                            // => p*((p*q-1)/p - (q-1)) = (p-1) - (p*q-1)%p
+                            // Both sides must be 0 (since |rhs| < p and lhs is multiple of p)
+                            assert((p * q - 1) / p == q - 1) by (nonlinear_arith)
+                                requires p > 0, q > 0,
+                                    p * q - 1 == p * ((p * q - 1) / p) + (p * q - 1) % p,
+                                    0 <= (p * q - 1) % p < p,
+                                    p * q - 1 == p * (q - 1) + (p - 1);
+                        };
+                    };
+
+                    assert(Self::sli_spec() + 1 <= usize::BITS - sl_shift_amount);
+
+                    // Since sl_raw < pow2(sli+1) would mean sl_raw == sl_raw & low_mask(64-sa) == size >> sa,
+                    // and we want to show sl_raw < pow2(sli+1).
+                    // Use contrapositive: size % slb != 0 => needs_ceil == 1.
+                    // We proved size % slb == 0, so if needs_ceil were 1,
+                    // sl_raw >= pow2(sli+1) >= SLLEN + SLLEN > SLLEN.
+                    // But let's show directly that sl_raw == size >> sa < pow2(sli+1).
+
+                    // sl_raw = usize_rotate_right(size, sa).
+                    // When size & low_mask(sa) == 0:
+                    // The wrapped part (size & low_mask(sa)) << (64-sa) == 0.
+                    // So sl_raw = (size >> sa) (the shift part only).
+                    // We need: sl_raw == size >> sa.
+                    // We already have: sl_raw & low_mask(64-sa) == size >> sa.
+                    // And: the wrapped part contributes to bits [64-sa, 63] of sl_raw,
+                    // which are NOT in low_mask(64-sa). Since wrapped part == 0,
+                    // those bits are 0. So sl_raw == sl_raw & low_mask(64-sa) == size >> sa.
+                    assert(sl_raw == size >> sl_shift_amount) by {
+                        if sl_shift_amount == 0 {
+                            // rotate_right(x, 0) = x, and x >> 0 = x
+                            assert(usize_rotate_right(size, 0i32) == size);
+                            assert(size >> 0int == size) by {
+                                lemma_usize_shr_is_div(size, 0usize);
+                                lemma_pow2_values();
+                            };
+                        } else {
+                        assert(sl_shift_amount > 0);
+                        let sa = sl_shift_amount;
+                        let sa_ctr = (usize::BITS as int - sa) as int;
+                        assert(sl_raw == usize_rotate_right(size, sa as i32));
+
+                        // rotate_right for n > 0:
+                        //   shifted = (x & high_mask(sa)) >> sa
+                        //   wrapped = (x & low_mask(sa)) << sa_ctr
+                        //   result = shifted | wrapped
+                        let shifted = (size as u64 & high_mask_u64(sa as nat)) >> sa;
+                        let wrapped = (size as u64 & low_mask_u64(sa as nat)) << sa_ctr;
+                        assert(sl_raw as u64 == shifted | wrapped);
+
+                        // size & low_mask(sa) == 0, so wrapped == 0
+                        assert(size & low_mask_usize(sa as nat) as usize == 0usize);
+                        assert(low_mask_usize(sa as nat) == low_mask_u64(sa as nat) as usize);
+                        assert(size as u64 & low_mask_u64(sa as nat) == 0u64);
+                        assert(wrapped == 0u64) by {
+                            let sa_ctr_u64 = sa_ctr as u64;
+                            assert((0u64 << sa_ctr_u64) == 0u64) by(bit_vector);
+                        };
+
+                        // shifted | 0 == shifted
+                        assert(sl_raw as u64 == shifted) by {
+                            assert((shifted | 0u64) == shifted) by(bit_vector);
+                        };
+
+                        // (x & high_mask(sa)) >> sa == x >> sa for any x
+                        // This holds because >> sa discards the lower sa bits,
+                        // and high_mask only zeros those same lower sa bits.
+                        assert(shifted == size as u64 >> sa) by {
+                            let x = size as u64;
+                            let n = sa as u64;
+                            // high_mask_u64(sa) = !low_mask_u64(sa)
+                            assert(!low_mask_u64(sa as nat) == high_mask_u64(sa as nat));
+                            // (x & !low_mask(n)) >> n == x >> n
+                            // This is because the bits masked out by !low_mask are exactly
+                            // the bits discarded by >> n.
+                            // Use the fact: x >> n == (x & high_mask(n)) >> n + (x & low_mask(n)) >> n
+                            // and (x & low_mask(n)) >> n == 0 when n > 0.
+                            assert(((x & low_mask_u64(sa as nat)) >> n) == 0u64) by {
+                                assert(x & low_mask_u64(sa as nat) == 0);
+                                assert((0u64 >> n) == 0u64) by(bit_vector);
+                            };
+                            // x & low_mask == 0, so x == x & high_mask == (x >> sa) << sa
+                            assert(x & low_mask_u64(sa as nat) == 0u64);
+                            // Therefore (x & high_mask) >> sa == x >> sa
+                            // since x has no bits in the low_mask region
+                            // Simplest: x >> sa drops low bits, & high_mask also drops low bits
+                            // (x & high_mask) >> sa = x >> sa always (high_mask keeps bits >= sa, >> sa shifts them down)
+                            // Just use arithmetic: both equal x / pow2(sa)
+                            vstd::bits::lemma_u64_shr_is_div(x, sa as u64);
+                            vstd::bits::lemma_u64_shr_is_div(x & high_mask_u64(sa as nat), sa as u64);
+                            // x & high_mask = x - (x & low_mask) = x - 0 = x
+                            assert(x & high_mask_u64(sa as nat) == x) by {
+                                assert(!low_mask_u64(sa as nat) == high_mask_u64(sa as nat));
+                                let lm = low_mask_u64(sa as nat);
+                                assert(x & lm == 0u64);
+                                assert((x & !lm) == x) by {
+                                    // x & !lm = x when x & lm == 0
+                                    // (because x = (x & !lm) | (x & lm) = (x & !lm) | 0 = x & !lm)
+                                    assert(forall|a: u64, b: u64| a & b == 0u64 ==> a & !b == a) by(bit_vector);
+                                };
+                            };
+                        };
+
+                        // usize >> sa == u64 >> sa
+                        assert(size >> sl_shift_amount == (size as u64 >> sa) as usize) by {
+                            vstd::bits::lemma_u64_shr_is_div(size as u64, sa as u64);
+                            lemma_usize_shr_is_div(size, sa as usize);
+                        };
+                        } // end else (sl_shift_amount > 0)
+                    };
+
+                    // Now sl_raw == size >> sa < pow2(sli+1), so needs_ceil == 0.
+                    assert(sl_raw < pow2(Self::sli_spec() as nat + 1));
+
+                    Self::sli_pow2_is_sllen();
+                    assert(pow2(Self::sli_spec() as nat + 1) == 2 * SLLEN) by {
+                        vstd::arithmetic::power2::lemma_pow2_unfold((Self::sli_spec() as nat + 1) as nat);
+                    };
+                    assert(1usize << (Self::sli() + 1) == pow2(Self::sli_spec() as nat + 1)) by {
+                        assert(Self::sli() == Self::sli_spec());
+                        vstd::bits::lemma_u64_shl_is_mul(1, (Self::sli() + 1) as u64);
+                    };
+                    assert(!(sl_raw >= (1usize << (Self::sli() + 1))));
+                    assert(needs_ceil == 0);
+                } else {
+                    // fl_zero case: fl_floor == FLLEN - 1 but fl + g_log2 < sli.
+                    // This means FLLEN - 1 + g_log2 < sli, so FLLEN - 1 < sli - g_log2.
+                    // For GRANULARITY==32: g_log2=5, sli<=6, so FLLEN-1 < 1, FLLEN < 2, FLLEN == 1.
+                    // For GRANULARITY==16: g_log2=4, sli<=5, so FLLEN-1 < 1, FLLEN < 2, FLLEN == 1.
+                    // With FLLEN == 1 and fl_floor == 0: size == GRANULARITY (proven above).
+                    // sl_raw = rotate_right(GRANULARITY, -1) = 2*GRANULARITY = SLLEN.
+                    // needs_ceil check: SLLEN >= (1 << (sli+1))?
+                    // (1 << (sli+1)) = 2*SLLEN. So SLLEN < 2*SLLEN. needs_ceil == 0.
+                    if GRANULARITY == 32 {
+                        assert(SLLEN == 64) by { Self::sli_pow2_is_sllen(); };
+                        assert(sl_raw == 64usize);
+                        assert(Self::sli() == 6);
+                        assert(!(64usize >= (1usize << 7u32))) by(bit_vector);
+                    } else if GRANULARITY == 16 {
+                        assert(SLLEN == 32) by { Self::sli_pow2_is_sllen(); };
+                        assert(sl_raw == 32usize);
+                        assert(Self::sli() == 5);
+                        assert(!(32usize >= (1usize << 6u32))) by(bit_vector);
+                    }
+                    assert(needs_ceil == 0);
+                }
+
+                // In all cases: needs_ceil == 0, contradicting needs_ceil == 1.
+                assert(false);
+            }
+            return None;
+        }
+
+        proof { mask_higher_bits_leq_mask(sl, SLLEN); }
+        let idx = BlockIndex(fl as usize, sl & (SLLEN - 1));
+
+        // Main proof: size <= idx.start()
+        proof {
+            Self::granularity_basics();
+
+            let floor_idx = BlockIndex::<FLLEN, SLLEN>(fl_floor as usize, sl_floor_val as usize);
+            // floor_idx.wf() and floor_idx.block_size_range().contains(size) already established
+
+            if fl_floor + Self::granularity_log2_spec() >= Self::sli_spec() {
+                // Non-fl_zero case
+                let flb = pow2((fl_floor + Self::granularity_log2_spec()) as nat) as int;
+                let slb = flb / SLLEN as int;
+
+                assert(flb >= SLLEN) by {
+                    Self::sli_pow2_is_sllen();
+                    lemma_pow2_increases(
+                        Self::sli_spec() as nat,
+                        (fl_floor + Self::granularity_log2_spec()) as nat);
+                };
+
+                assert(slb > 0) by {
+                    vstd::arithmetic::div_mod::lemma_div_non_zero(flb, SLLEN as int);
+                };
+
+                assert(slb * SLLEN == flb) by {
+                    Self::sli_pow2_is_sllen();
+                    lemma_div_before_mult_pow2(
+                        fl_floor + Self::granularity_log2_spec(),
+                        Self::sli_spec());
+                };
+
+                floor_idx.fl_non_zero();
+                assert(floor_idx.block_size_range().start()
+                    == flb + slb * sl_floor_val);
+                assert(floor_idx.block_size_range().end()
+                    == flb + slb * (sl_floor_val + 1)) by {
+                    vstd::arithmetic::mul::lemma_mul_is_distributive_add(slb, sl_floor_val, 1);
+                };
+
+                assert(floor_idx.block_size_range().start() <= size);
+                assert(size < floor_idx.block_size_range().end());
+
+                // Case split on needs_ceil
+                if needs_ceil == 0 {
+                    // sl = sl_floor_usize + 0 = sl_floor_usize
+                    assert(sl == sl_floor_usize);
+                    // sl < SLLEN, so sl >> sli == 0, hence fl == fl_floor
+                    assert(sl < SLLEN);
+                    assert(sl >> Self::sli() == 0usize) by {
+                        Self::sli_pow2_is_sllen();
+                        lemma_usize_shr_is_div(sl, Self::sli() as usize);
+                        let m = pow2(Self::sli_spec() as nat) as int;
+                        vstd::arithmetic::power2::lemma_pow2_pos(Self::sli_spec() as nat);
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(sl as int, m);
+                        let q = sl as int / m;
+                        assert(q == 0) by (nonlinear_arith)
+                            requires sl as int == m * q + sl as int % m,
+                                     0 <= sl as int % m < m,
+                                     sl < m, m > 0;
+                    };
+                    assert(fl == fl_floor);
+                    // sl & (SLLEN-1) == sl_floor_usize since sl_floor_usize < SLLEN
+                    assert(sl & (SLLEN - 1) as usize == sl_floor_usize) by {
+                        bit_mask_is_mod_for_pow2(sl, SLLEN);
+                        assert(sl & (SLLEN - 1) as usize == sl % SLLEN);
+                        vstd::arithmetic::div_mod::lemma_small_mod(sl as nat, SLLEN as nat);
+                    };
+                    assert(idx.0 == floor_idx.0 && idx.1 == floor_idx.1);
+
+                    // needs_ceil == 0 => size % slb == 0 => size == floor.start
+                    // Contrapositive: size % slb != 0 => needs_ceil == 1
+                    // Prove slb == pow2(sa) where sa = sl_shift_amount
+                    assert(slb == pow2((fl_floor + Self::granularity_log2_spec() - Self::sli_spec()) as nat)) by {
+                        Self::sli_pow2_is_sllen();
+                        lemma_pow2_div_sub(
+                            Self::sli_spec() as nat,
+                            (fl_floor + Self::granularity_log2_spec()) as nat
+                        );
+                    };
+                    assert(sl_shift_amount == fl_floor + Self::granularity_log2_spec() - Self::sli_spec());
+                    assert(sl_shift_amount >= 0);
+                    assert(slb == pow2(sl_shift_amount as nat));
+                    assert(is_power_of_two(slb));
+
+                    assert((size as int) % slb == 0) by {
+                        if (size as int) % slb != 0 {
+                            bit_mask_is_mod_for_pow2(size, slb as usize);
+                            assert(size & (slb - 1) as usize != 0usize);
+
+                            // low_mask(sa) == slb - 1
+                            assert(low_mask_usize(sl_shift_amount as nat) == (slb - 1) as usize) by {
+                                assert(slb == pow2(sl_shift_amount as nat));
+                                assert(low_mask_usize(sl_shift_amount as nat)
+                                    == (pow2(sl_shift_amount as nat) - 1) as usize);
+                            };
+                            assert(size & low_mask_usize(sl_shift_amount as nat) as usize != 0usize);
+
+                            // The wrapped part B = (size & low_mask(sa)) << (64-sa)
+                            // is nonzero, so sl_raw >= B >= pow2(64-sa) >= pow2(sli+1).
+                            // Therefore needs_ceil == 1, contradicting needs_ceil == 0.
+                            let sa = sl_shift_amount;
+                            let sa_ctr = (usize::BITS as int - sa) as int;
+                            assert(sa > 0);
+                            assert(sa_ctr >= Self::sli_spec() + 1) by {
+                                assert(sa == fl_floor + Self::granularity_log2_spec() - Self::sli_spec());
+                                assert(fl_floor < FLLEN);
+                                assert(FLLEN <= usize::BITS);
+                            };
+
+                            // size & low_mask(sa) != 0, and it's shifted left by sa_ctr positions
+                            // So the result has a bit set at position >= sa_ctr
+                            let wrapped = (size as u64 & low_mask_u64(sa as nat)) << sa_ctr;
+                            let shifted = (size as u64 & high_mask_u64(sa as nat)) >> sa;
+                            assert(sl_raw == usize_rotate_right(size, sa as i32));
+                            assert(usize_rotate_right(size, sa as i32) == (shifted | wrapped) as usize);
+
+                            assert(size as u64 & low_mask_u64(sa as nat) != 0u64) by {
+                                assert(low_mask_usize(sa as nat) == low_mask_u64(sa as nat) as usize);
+                            };
+
+                            assert(wrapped >= pow2(sa_ctr as nat)) by {
+                                let low_bits = size as u64 & low_mask_u64(sa as nat);
+                                assert(low_bits != 0);
+                                assert(low_bits >= 1);
+                                assert(wrapped == low_bits << sa_ctr);
+                                let n = sa_ctr as u64;
+                                let sa_u64 = sa as u64;
+                                assert(0 < n && n < 64);
+                                assert(0 < sa_u64 && sa_u64 < 64);
+                                assert(n + sa_u64 == 64);
+                                // low_bits < pow2(sa) since it's masked with low_mask(sa)
+                                mask_higher_bits_leq_mask(low_bits as usize, pow2(sa as nat) as usize);
+                                assert(low_bits < pow2(sa as nat));
+                                // low_bits < 1 << sa (since pow2(sa) == 1 << sa for sa < 64)
+                                vstd::bits::lemma_u64_shl_is_mul(1u64, sa_u64);
+                                assert((1u64 << sa_u64) == pow2(sa as nat)) by {
+                                    vstd::arithmetic::mul::lemma_mul_basics(pow2(sa as nat) as int);
+                                };
+                                assert(low_bits < (1u64 << sa_u64));
+                                // With low_bits >= 1, low_bits < (1 << sa), and n + sa == 64:
+                                // low_bits << n >= 1 << n (no overflow since low_bits < 2^sa = 2^(64-n))
+                                assert((low_bits << n) >= (1u64 << n)) by(bit_vector)
+                                    requires low_bits >= 1u64, low_bits < (1u64 << sa_u64),
+                                             0 < n, n < 64u64, n + sa_u64 == 64u64;
+                                // 1u64 << n == pow2(n)
+                                vstd::bits::lemma_u64_shl_is_mul(1u64, n);
+                                assert((1u64 << n) == pow2(n as nat)) by {
+                                    vstd::arithmetic::mul::lemma_mul_basics(pow2(n as nat) as int);
+                                };
+                            };
+                            assert(sl_raw as u64 >= wrapped) by {
+                                assert(sl_raw as u64 == shifted | wrapped);
+                                assert((shifted | wrapped) >= wrapped) by(bit_vector)
+                                    requires shifted >= 0, wrapped >= 0;
+                            };
+                            assert(sl_raw >= pow2(sa_ctr as nat)) by {
+                                assert(sl_raw as u64 >= wrapped);
+                                assert(wrapped >= pow2(sa_ctr as nat));
+                            };
+
+                            assert(pow2(sa_ctr as nat) >= pow2((Self::sli_spec() + 1) as nat)) by {
+                                lemma_pow2_increases(
+                                    (Self::sli_spec() + 1) as nat,
+                                    sa_ctr as nat);
+                            };
+
+                            Self::sli_pow2_is_sllen();
+                            vstd::bits::lemma_u64_shl_is_mul(1, (Self::sli() + 1) as u64);
+                            assert(1usize << (Self::sli() + 1) == pow2((Self::sli_spec() + 1) as nat));
+                            assert(sl_raw >= (1usize << (Self::sli() + 1)));
+                            assert(needs_ceil == 1);
+                        }
+                    };
+
+                    // size == floor.start (since size % slb == 0 and floor.start <= size < floor.start + slb)
+                    assert(size as int == floor_idx.block_size_range().start()) by {
+                        let start = flb + slb * sl_floor_val;
+                        assert(floor_idx.block_size_range().start() == start);
+                        assert(floor_idx.block_size_range().contains(size as int));
+                        assert(start <= size);
+                        // floor.end = flb + slb * (sl_floor_val + 1) = start + slb
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(slb, sl_floor_val, 1int);
+                        assert(slb * (sl_floor_val + 1) == slb * sl_floor_val + slb);
+                        assert(floor_idx.block_size_range().end() == flb + slb * (sl_floor_val + 1));
+                        assert(size < floor_idx.block_size_range().end());
+                        assert(size < start + slb);
+                        // size % slb == 0, so size = slb * q
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, slb);
+                        let q = size as int / slb;
+                        assert(size == slb * q);
+                        // start = flb + slb * sl_floor_val = slb * SLLEN + slb * sl_floor_val
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(slb, SLLEN as int, sl_floor_val);
+                        let k = SLLEN as int + sl_floor_val;
+                        assert(start == slb * k);
+                        // slb * k <= slb * q < slb * (k + 1) => q == k
+                        assert(q == k) by {
+                            // size == slb * q, start == slb * k, start + slb == slb * (k+1)
+                            vstd::arithmetic::mul::lemma_mul_is_distributive_add(slb, k, 1int);
+                            assert(slb * (k + 1) == slb * k + slb);
+                            assert(slb * k <= slb * q);  // start <= size
+                            assert(slb * q < slb * (k + 1));  // size < start + slb
+                            // q == k follows from: slb*k <= slb*q < slb*k + slb, slb > 0
+                            assert(q == k) by (nonlinear_arith)
+                                requires slb > 0, slb * k <= slb * q, slb * q < slb * k + slb;
+                        };
+                        assert(size == start);
+                    };
+
+                    assert(size as int <= idx.block_size_range().start());
+                } else {
+                    // needs_ceil == 1
+                    assert(needs_ceil == 1);
+
+                    if sl_floor_val < SLLEN - 1 {
+                        // No carry: sl = sl_floor_usize + 1 < SLLEN
+                        assert(sl == sl_floor_usize + 1);
+                        assert(sl < SLLEN);
+                        assert(sl >> Self::sli() == 0usize) by {
+                            Self::sli_pow2_is_sllen();
+                            lemma_usize_shr_is_div(sl, Self::sli() as usize);
+                            let m = pow2(Self::sli_spec() as nat) as int;
+                            vstd::arithmetic::power2::lemma_pow2_pos(Self::sli_spec() as nat);
+                            assert(m > 0);
+                            assert(0 <= sl as int && sl < m);
+                            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(sl as int, m);
+                            let q = sl as int / m;
+                            assert(sl == m * q + sl as int % m);
+                            assert(0 <= sl as int % m < m);
+                            // If q >= 1, then sl >= m, contradiction
+                            assert(q == 0) by (nonlinear_arith)
+                                requires sl as int == m * q + sl as int % m,
+                                         0 <= sl as int % m < m,
+                                         sl < m, m > 0;
+                        };
+                        assert(fl == fl_floor);
+                        assert(sl & (SLLEN - 1) as usize == sl as usize) by {
+                            bit_mask_is_mod_for_pow2(sl, SLLEN);
+                            vstd::arithmetic::div_mod::lemma_small_mod(sl as nat, SLLEN as nat);
+                        };
+                        assert(idx.0 == fl_floor as usize);
+                        assert(idx.1 == (sl_floor_val + 1) as usize);
+
+                        let ceil_idx = BlockIndex::<FLLEN, SLLEN>(fl_floor as usize, (sl_floor_val + 1) as usize);
+                        assert(idx.0 == ceil_idx.0 && idx.1 == ceil_idx.1);
+
+                        assert(pow2((fl_floor + Self::granularity_log2_spec()) as nat) >= SLLEN);
+                        ceil_idx.fl_non_zero();
+                        assert(ceil_idx.block_size_range().start()
+                            == flb + slb * (sl_floor_val + 1));
+
+                        // floor.end == ceil_idx.start
+                        assert(floor_idx.block_size_range().end()
+                            == ceil_idx.block_size_range().start());
+
+                        // size < floor.end == ceil_idx.start == idx.start
+                        assert(size < ceil_idx.block_size_range().start());
+                        assert(size as int <= idx.block_size_range().start());
+                    } else {
+                        // Carry: sl_floor_val == SLLEN - 1, idx = (fl_floor + 1, 0)
+                        assert(sl_floor_val == SLLEN - 1);
+                        // sl = sl_floor_usize + 1 = SLLEN
+                        assert(sl == SLLEN);
+                        assert(sl >> Self::sli() == 1usize) by {
+                            Self::sli_pow2_is_sllen();
+                            lemma_usize_shr_is_div(sl, Self::sli() as usize);
+                        };
+                        assert(fl == fl_floor + 1);
+                        assert(idx.0 == (fl_floor + 1) as usize);
+                        assert(idx.1 == 0usize) by {
+                            // SLLEN & (SLLEN - 1) == 0 for power of 2
+                            assert(SLLEN as usize & (SLLEN - 1) as usize == 0usize) by {
+                                Self::sli_pow2_is_sllen();
+                                bit_mask_is_mod_for_pow2(SLLEN, SLLEN);
+                            };
+                        };
+
+                        let ceil_idx = BlockIndex::<FLLEN, SLLEN>((fl_floor + 1) as usize, 0usize);
+                        assert(idx.0 == ceil_idx.0 && idx.1 == ceil_idx.1);
+
+                        // ceil_idx.start == 2*flb
+                        ceil_idx.fl_non_zero();
+                        assert(pow2(((fl_floor + 1) as int + Self::granularity_log2_spec()) as nat)
+                            == 2 * flb) by {
+                            vstd::arithmetic::power2::lemma_pow2_unfold(
+                                ((fl_floor + 1) as int + Self::granularity_log2_spec()) as nat);
+                        };
+                        assert(ceil_idx.block_size_range().start() == 2 * flb);
+
+                        // floor.end == flb + slb * SLLEN == flb + flb == 2*flb
+                        assert(floor_idx.block_size_range().end() == flb + slb * SLLEN as int);
+                        assert(slb * SLLEN as int == flb);
+                        assert(floor_idx.block_size_range().end() == 2 * flb);
+
+                        // size < floor.end == 2*flb == ceil_idx.start
+                        assert(size < ceil_idx.block_size_range().start());
+                        assert(size as int <= idx.block_size_range().start());
+                    }
+                }
+            } else {
+                // fl_zero case: size == GRANULARITY
+                assert(size == GRANULARITY);
+
+                // needs_ceil == 0 in fl_zero case (proven in the NONE branch analysis)
+                if GRANULARITY == 32 {
+                    assert(SLLEN == 64) by { Self::sli_pow2_is_sllen(); };
+                    assert(sl_raw == 64usize);
+                    assert(Self::sli() == 6);
+                    assert(!(64usize >= (1usize << 7u32))) by(bit_vector);
+                    assert(needs_ceil == 0);
+                } else if GRANULARITY == 16 {
+                    assert(SLLEN == 32) by { Self::sli_pow2_is_sllen(); };
+                    assert(sl_raw == 32usize);
+                    assert(Self::sli() == 5);
+                    assert(!(32usize >= (1usize << 6u32))) by(bit_vector);
+                    assert(needs_ceil == 0);
+                }
+
+                // With needs_ceil == 0: sl = sl_floor_usize, sl < SLLEN, carry == 0
+                assert(sl == sl_floor_usize);
+                assert(sl < SLLEN);
+                assert(sl >> Self::sli() == 0usize) by {
+                    Self::sli_pow2_is_sllen();
+                    lemma_usize_shr_is_div(sl, Self::sli() as usize);
+                };
+                assert(fl == fl_floor);
+                assert(idx.0 == 0usize);
+                assert(idx.1 == 0usize) by {
+                    bit_mask_is_mod_for_pow2(sl, SLLEN);
+                };
+
+                // idx.start() == GRANULARITY == size
+                floor_idx.fl_is_zero();
+                assert(floor_idx.block_size_range().start() == GRANULARITY);
+                assert(size as int <= idx.block_size_range().start());
             }
         }
 
