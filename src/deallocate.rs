@@ -100,6 +100,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let ghost block_size_val = block_perm.points_to.value().size;
         let block_hdr_ref = ptr_ref(block, Tracked(&block_perm.points_to));
         let block_prev_phys = block_hdr_ref.prev_phys_block;
+        proof {
+            assert(!block_perm.points_to.value().is_sentinel());
+        }
         let next_phys_block = BlockHdr::next_phys_block(block, Tracked(&block_perm));
         // Compute size from pointer difference to avoid SIZE_SIZE_MASK exec-spec mismatch.
         // next_phys_block@.addr == block@.addr + (block_size_val & SIZE_SIZE_MASK) by postcondition,
@@ -133,20 +136,37 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         let ghost next_phys_size_val = next_phys_perm.points_to.value().size;
         let next_phys_block_size_and_flags =
             ptr_ref(next_phys_block, Tracked(&next_phys_perm.points_to)).size;
-        let next_next_phys_block = BlockHdr::next_phys_block(
-            next_phys_block, Tracked(&next_phys_perm));
-        proof {
-            self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_perm);
-            // Connect ghost value to value_at
-            assert(next_phys_size_val == self.all_blocks.value_at(next_phys_block).size);
-            // Capture next_phys bound from glue facts
-            if !self.all_blocks.value_at(next_phys_block).is_sentinel() {
+        // next_next_phys_block is computed only when next is free (sentinel has SIZE_USED set)
+        let next_next_phys_block;
+        if (next_phys_block_size_and_flags & SIZE_USED) == 0 {
+            proof {
+                // Free block => size == size & SIZE_SIZE_MASK => low 5 bits are 0 => !is_sentinel()
+                assert(next_phys_perm.points_to.value().is_free());
+                assert(next_phys_perm.wf());
+                let s = next_phys_perm.points_to.value().size;
+                assert(s == s & SIZE_SIZE_MASK);
+                assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
+                assert((s & 2usize) == 0usize) by (bit_vector)
+                    requires s == s & !31usize;
+                assert(!next_phys_perm.points_to.value().is_sentinel());
+            }
+            next_next_phys_block = BlockHdr::next_phys_block(
+                next_phys_block, Tracked(&next_phys_perm));
+            proof {
+                self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_perm);
+                assert(next_phys_size_val == self.all_blocks.value_at(next_phys_block).size);
                 assert((next_phys_size_val as int) + (next_phys_block@.addr as int) < usize::MAX as int);
                 // Connect next_next_phys_block to ptrs@[block_i + 2]
                 let ghost nnp = self.all_blocks.phys_next_of(block_i + 1).unwrap();
                 AllBlocks::<FLLEN, SLLEN>::lemma_phys_next_matches_elim(
                     nnp, next_phys_block, next_phys_size_val);
                 assert(next_next_phys_block == nnp);
+            }
+        } else {
+            next_next_phys_block = next_phys_block; // unused dummy; sentinel/used never coalesced
+            proof {
+                self.all_blocks.perms.borrow_mut().tracked_insert(next_phys_block, next_phys_perm);
+                assert(next_phys_size_val == self.all_blocks.value_at(next_phys_block).size);
             }
         }
 

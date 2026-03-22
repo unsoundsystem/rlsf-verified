@@ -185,9 +185,27 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 self.all_blocks.lemma_wf_extract_node(block_id);
                 assert(self.all_blocks.wf_node(block_id));
                 assert(block == old(self).all_blocks.perms@[block].points_to.ptr());
+                // Establish selected_block_size >= GRANULARITY before tracked_remove
+                self.lemma_size_class_at(idx, 0);
+                assert(idx.block_size_range().contains(selected_block_size as int));
+                assert(search_size as int <= idx.block_size_range().start());
+                assert(selected_block_size as int >= GRANULARITY as int);
+                self.all_blocks.lemma_wf_glue_facts(block_id);
                 old_head_perm = self.all_blocks.perms.borrow_mut().tracked_remove(block);
                 assert(old_head_perm == old(self).all_blocks.perms@[block]);
                 assert(old_head_perm.wf());
+                // !is_sentinel() via SIZE_SIZE_MASK contrapositive
+                let s = old_head_perm.points_to.value().size;
+                assert(s == selected_block_size);
+                assert(s as int >= GRANULARITY as int);
+                reveal(usize_trailing_zeros);
+                reveal(u64_trailing_zeros);
+                assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
+                assert(GRANULARITY == 32usize) by (compute);
+                assert((s & !31usize) >= 32usize) by (bit_vector)
+                    requires s >= 32usize;
+                // is_sentinel() ==> (size & SIZE_SIZE_MASK) == 0, but we showed it's >= 32
+                assert(!old_head_perm.points_to.value().is_sentinel());
             }
 
             // NOTE: it is safe to assume that there is a block next to this `block`

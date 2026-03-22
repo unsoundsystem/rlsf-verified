@@ -229,6 +229,15 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 overhead_mem: PointsToRaw::empty(Provenance::null()),
                 pad_perm: None,
             };
+            proof {
+                // size = chunk_size - GRANULARITY, a multiple of GRANULARITY => low 5 bits are 0 => !is_sentinel()
+                let s = new_block_perm.points_to.value().size;
+                assert(s == (chunk_size - GRANULARITY) as usize);
+                assert(s as int % GRANULARITY as int == 0);
+                assert((s & 2usize) == 0usize) by (bit_vector)
+                    requires s % 32usize == 0, SIZE_SENTINEL == 2usize;
+                assert(!new_block_perm.points_to.value().is_sentinel());
+            }
             let mut sentinel_block = BlockHdr::next_phys_block(block, Tracked(&new_block_perm));
 
             #[cfg(feature = "std")]

@@ -23,6 +23,8 @@ verus! {
         }
 
         pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<&BlockPerm>) -> (r: *mut Self)
+            requires
+                !perm.points_to.value().is_sentinel(),
             ensures
                 r@.provenance == block@.provenance,
                 r@.addr == block@.addr + ((perm.points_to.value().size & SIZE_SIZE_MASK) as int),
