@@ -336,7 +336,8 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
             assert(0 < SLLEN as int);
             vstd::arithmetic::power2::lemma_pow2_pos((fl1 + Self::granularity_log2_spec()) as nat);
             assert(0 < fl_block_bytes);
-            vstd::arithmetic::div_mod::lemma_div_pos_is_pos(fl_block_bytes, SLLEN as int);
+            assert(fl_block_bytes >= SLLEN as int);
+            vstd::arithmetic::div_mod::lemma_div_non_zero(fl_block_bytes, SLLEN as int);
             assert(0 < sl_block_bytes);
             vstd::arithmetic::mul::lemma_mul_inequality(sl1 as int, sl2 as int, sl_block_bytes);
             assert(sl_block_bytes * (sl1 as int) <= sl_block_bytes * (sl2 as int));

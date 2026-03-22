@@ -9,9 +9,9 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 |function |porting |specification |proof
 
 | `insert_free_block_ptr_aligned`
-|✓
-|✓
-|✓
+| ✓
+| ✓
+| ✓
 
 | `search_suitable_free_block_list_for_allocation`
 | ✓ 
@@ -53,6 +53,73 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 
 == Verification
 
-To verify the whole codebase:
+Verify whole codebase with `misc/check.sh`
 
-    VERUS_SINGULAR_PATH=/usr/bin/Singular $VERUS_ROOT/source/target-verus/release/verus  --crate-type=lib src/lib.rs --expand-errors --verify-root --triggers-mode silent
+
+== File organization
+
+
+|===
+|file  | description |
+
+| `lib.rs`
+| Root module, contains definition of main structure `Tlsf`, well-formedness predicate and companion lemmas.
+
+| `all_blocks.rs`
+| Definition and lemmas about global permission store and singly linked list.
+
+| `allocate.rs`
+| Verification of `Tlsf::allocate`
+
+| `bitmap.rs`
+| Verification of bitmap structures.
+
+| `bits.rs`
+| Lemmas for bitwise operations.
+
+| `block.rs`
+| Definitions and lemmas for verifying operations on block headers.
+
+| `block_index.rs`
+| Specifications and lemmas for segregated free lists indices (incl. uniqueness and existance).
+
+| `deallocate.rs`
+| Verification of `Tlsf::deallocate` and `Tlsf::deallocate_block`
+
+| `initialize.rs`
+| Verification of `Tlsf::insert_free_block_ptr_aligned`.
+
+| `linked_list.rs`
+| Formalization of overlaid linked list data structure used in rlsf.
+
+| `mapping.rs`
+| Verification of `Tlsf::map_floor` and `Tlsf::map_ceil`.
+
+| `ordered_pointer_list.rs`
+| Formalization of ordered pointer list, used for verifying intrusive data structures.
+
+| `parameters.rs`
+| Formalization of requirements on Tlsf type parameters.
+
+| `search_block.rs`
+| Verification of `Tlsf::search_suitable_free_block_list_for_allocation`.
+
+| `unverified_api.rs`
+| Interface for Rust user.
+
+| `utils.rs`
+| Utility functions and lemmas.
+
+| `rational_numbers.rs`
+| 
+
+| `ghost_tlsf.rs`
+|
+
+| `half_open_range.rs`
+|
+
+| `half_open_range_rat.rs`
+|
+
+|===

@@ -1980,20 +1980,28 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         assert(flb == q * d + r);
         assert(0 <= r);
         assert(r < d);
-        assert(q * d <= flb) by (nonlinear_arith);
-        assert(0 <= q) by (nonlinear_arith);
+        assert(q * d <= flb) by {
+            assert(flb == q * d + r);
+            assert(0 <= r);
+        };
+        vstd::arithmetic::div_mod::lemma_div_pos_is_pos(flb, d);
+        assert(0 <= q);
         assert((d - 1) * q < flb) by {
-            assert((d - 1) * q <= d * q) by (nonlinear_arith);
-            assert(d * q <= flb) by (nonlinear_arith);
+            vstd::arithmetic::mul::lemma_mul_inequality(d - 1, d, q);
+            assert((d - 1) * q <= d * q);
+            assert(d * q <= flb);
             if q == 0 {
-                assert((d - 1) * q == 0);
+                assert((d - 1) * q == 0) by {
+                    vstd::arithmetic::mul::lemma_mul_basics(d - 1);
+                };
                 assert(0 < flb);
             } else {
-                assert((d - 1) * q < d * q) by (nonlinear_arith);
+                vstd::arithmetic::mul::lemma_mul_strict_inequality(d - 1, d, q);
+                assert((d - 1) * q < d * q);
             }
         };
         assert(Self::max_allocatable_size() == flb + (d - 1) * q);
-        assert(Self::max_allocatable_size() < flb + flb) by (nonlinear_arith);
+        assert(Self::max_allocatable_size() < flb + flb);
         assert(flb + flb == (pow2(FLLEN as nat) as int) * (GRANULARITY as int)) by {
             assert(GRANULARITY as int == pow2(g as nat));
             assert(pow2((g + FLLEN as int) as nat) as int
@@ -2006,7 +2014,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             };
         };
         let max_valid = (pow2(FLLEN as nat) as int) * (GRANULARITY as int);
-        assert((size as int) < max_valid) by (nonlinear_arith);
+        assert(Self::max_allocatable_size() < max_valid);
+        assert((size as int) <= Self::max_allocatable_size());
+        assert((size as int) < max_valid);
         assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
     }
 

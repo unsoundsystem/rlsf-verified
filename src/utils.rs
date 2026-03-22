@@ -103,9 +103,6 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         requires x.checked_add(y) == Some(res)
         ensures res == x + y
     {
-        assert(x + y <= usize::MAX) by (nonlinear_arith);
-        assert(res == (x + y) as usize) by (bit_vector);
-        assert(res == x + y) by (bit_vector);
     }
 
     pub(crate) proof fn lemma_usize_add_le_mono(a: usize, b: usize, c: usize)

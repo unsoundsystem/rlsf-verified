@@ -138,6 +138,19 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
     {
         Self::plat_basics();
+        lemma_pow2_values();
+        if usize::BITS == 64 {
+            assert(GRANULARITY == 32);
+            assert(Self::granularity_log2_spec() == 5);
+            assert(pow2(5) == 32);
+            assert(pow2(Self::granularity_log2_spec() as nat) == GRANULARITY as int);
+        } else {
+            assert(usize::BITS == 32);
+            assert(GRANULARITY == 16);
+            assert(Self::granularity_log2_spec() == 4);
+            assert(pow2(4) == 16);
+            assert(pow2(Self::granularity_log2_spec() as nat) == GRANULARITY as int);
+        }
         usize_trailing_zeros_is_log2_when_pow2_given(
             GRANULARITY,
             Self::granularity_log2_spec() as nat

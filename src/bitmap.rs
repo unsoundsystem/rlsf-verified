@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[cfg(verus_keep_ghost)]
-use crate::bits::{lemma_bitmap_or, lemma_bit_clear_zero, lemma_bit_or_nonzero, lemma_bitmap_clear};
+use crate::bits::{lemma_bitmap_or, lemma_bit_clear_zero, lemma_bit_or_nonzero, lemma_bitmap_clear, lemma_nth_bit_out_of_range};
 
 use crate::block_index::BlockIndex;
 
@@ -40,6 +40,23 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             //println!("set bitmap {}, {}, {:b}", idx.0, idx.1, self.fl_bitmap);
         //}
         let BlockIndex(fl, sl) = idx;
+        proof {
+            assert(fl < FLLEN);
+            assert(sl < SLLEN);
+            Self::plat_basics();
+            if usize::BITS == 64 {
+                assert(Self::granularity_log2_spec() == 5);
+                assert(FLLEN < 64 - 5);
+                assert(FLLEN < usize::BITS as usize);
+            } else {
+                assert(usize::BITS == 32);
+                assert(Self::granularity_log2_spec() == 4);
+                assert(FLLEN < 32 - 4);
+                assert(FLLEN < usize::BITS as usize);
+            }
+            assert(fl < usize::BITS as usize);
+            assert(sl < usize::BITS as usize);
+        }
         self.fl_bitmap = self.fl_bitmap | (1usize << fl);
         // TODO: Confirm that this workaround not needed anymore
         //let tmp = self.sl_bitmap[fl] | (1usize << sl);
@@ -106,8 +123,58 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 implies (1 & self.sl_bitmap[i.0 as int] >> i.1 as usize)
                     == (1 & old(self).sl_bitmap[i.0 as int] >> i.1 as usize)
             by {
-                assert(nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
-                    == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize));
+                let BlockIndex(f, s) = i;
+                let BlockIndex(fl, sl) = idx;
+                if f == fl {
+                    assert(s != sl);
+                    lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+                    // lemma_bitmap_or gives us nth_bit preserve for s != sl
+                    // Bridge from bool <==> to usize ==
+                    let ghost bm_new = self.sl_bitmap[f as int];
+                    let ghost bm_old = old(self).sl_bitmap[f as int];
+                    let ghost v_new = 0x1usize & (bm_new >> s);
+                    let ghost v_old = 0x1usize & (bm_old >> s);
+                    assert((v_new == 1) == (v_old == 1));
+                    assert(v_new == 0 || v_new == 1) by (bit_vector)
+                        requires v_new == 0x1usize & (bm_new >> s);
+                    assert(v_old == 0 || v_old == 1) by (bit_vector)
+                        requires v_old == 0x1usize & (bm_old >> s);
+                } else {
+                    assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int]);
+                }
+            };
+
+            // bitmap_wf conjunct 2: no fl bits set beyond FLLEN
+            assert forall|f: usize| f >= FLLEN implies !nth_bit!(self.fl_bitmap, f) by {
+                assert(!nth_bit!(old(self).fl_bitmap, f));
+                // fl < FLLEN <= f, so fl != f
+                assert(fl < FLLEN);
+                assert(f != fl);
+                if f < usize::BITS as usize {
+                    lemma_bitmap_or(old(self).fl_bitmap, fl);
+                    assert(nth_bit!(self.fl_bitmap, f) == nth_bit!(old(self).fl_bitmap, f));
+                } else {
+                    lemma_nth_bit_out_of_range(self.fl_bitmap, f);
+                }
+            };
+
+            // bitmap_wf conjunct 3: no sl bits set beyond SLLEN
+            assert forall|f: usize, s: usize| f < FLLEN && s >= SLLEN implies !nth_bit!(self.sl_bitmap[f as int], s) by {
+                if f == fl {
+                    // sl < SLLEN <= s, so s != sl
+                    assert(sl < SLLEN);
+                    assert(s != sl);
+                    assert(!nth_bit!(old(self).sl_bitmap[f as int], s));
+                    if s < usize::BITS as usize {
+                        lemma_bitmap_or(old(self).sl_bitmap[fl as int], sl);
+                        assert(nth_bit!(self.sl_bitmap[f as int], s) == nth_bit!(old(self).sl_bitmap[f as int], s));
+                    } else {
+                        lemma_nth_bit_out_of_range(self.sl_bitmap[f as int], s);
+                    }
+                } else {
+                    assert(self.sl_bitmap[f as int] == old(self).sl_bitmap[f as int]);
+                    assert(!nth_bit!(old(self).sl_bitmap[f as int], s));
+                }
             };
         }
     }
