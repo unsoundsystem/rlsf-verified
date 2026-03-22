@@ -11,7 +11,7 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 | `insert_free_block_ptr_aligned`
 |✓
 |✓
-|
+|✓
 
 | `search_suitable_free_block_list_for_allocation`
 | ✓ 
@@ -36,7 +36,7 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 | `deallocate`
 | ✓
 | ✓
-|
+| ✓
 
 | `link_free_block`
 | ✓
@@ -44,9 +44,9 @@ Formal verification of https://github.com/yvt/rlsf[rlsf] crate using https://git
 | ✓
 
 | `unlink_free_block`
-|
 | ✓
-|
+| ✓
+| ✓
 
 |===
 
