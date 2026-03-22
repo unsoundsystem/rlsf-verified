@@ -23,7 +23,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             size % GRANULARITY == 0,
             Self::parameter_validity(),
-            size as int <= Self::max_allocatable_size(),
+            size as int <= Self::max_block_size(),
         ensures
         ({
             if BlockIndex::<FLLEN,SLLEN>::valid_block_size(size as int) {
@@ -342,17 +342,17 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 // The floor index is the last bin.
                 let floor_idx = BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize);
 
-                // floor.start == max_allocatable_size
+                // floor.start == max_block_size
                 Self::lemma_last_index_start_is_max_allocatable();
-                assert(floor_idx.block_size_range().start() == Self::max_allocatable_size());
+                assert(floor_idx.block_size_range().start() == Self::max_block_size());
 
                 // floor contains size => floor.start <= size
                 // (already established above via lemma_floor_index_contains_size)
                 assert(floor_idx.block_size_range().contains(size as int));
                 assert(floor_idx.block_size_range().start() <= size);
 
-                // Combined with size <= max_allocatable_size:
-                assert(size as int == Self::max_allocatable_size());
+                // Combined with size <= max_block_size:
+                assert(size as int == Self::max_block_size());
                 assert(size as int == floor_idx.block_size_range().start());
 
                 // Now show needs_ceil == 0 (contradiction with needs_ceil == 1).
@@ -1917,7 +1917,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             ({
                 let idx = BlockIndex::<FLLEN, SLLEN>((FLLEN - 1) as usize, (SLLEN - 1) as usize);
                 &&& idx.wf()
-                &&& idx.block_size_range().start() == Self::max_allocatable_size()
+                &&& idx.block_size_range().start() == Self::max_block_size()
             })
     {
         Self::lemma_parameter_validity_implies_block_index_parameter_validity();
@@ -1942,18 +1942,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(Self::granularity_log2_spec() + FLLEN as int - 1 == Self::granularity_log2_spec());
             };
             assert(flb / SLLEN as int == 0);
-            assert(Self::max_allocatable_size()
+            assert(Self::max_block_size()
                 == flb + (SLLEN as int - 1) * (flb / SLLEN as int));
-            assert(Self::max_allocatable_size() == flb);
+            assert(Self::max_block_size() == flb);
             assert(idx.block_size_range().start() == GRANULARITY);
-            assert(idx.block_size_range().start() == Self::max_allocatable_size());
+            assert(idx.block_size_range().start() == Self::max_block_size());
         } else {
             idx.fl_non_zero();
             assert(idx.block_size_range().start()
                 == flb + (flb / SLLEN as int) * ((SLLEN - 1) as int));
-            assert(Self::max_allocatable_size()
+            assert(Self::max_block_size()
                 == flb + (SLLEN as int - 1) * (flb / SLLEN as int));
-            assert(idx.block_size_range().start() == Self::max_allocatable_size());
+            assert(idx.block_size_range().start() == Self::max_block_size());
         }
     }
 
@@ -1962,7 +1962,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             size >= GRANULARITY,
             size % GRANULARITY == 0,
             Self::parameter_validity(),
-            size as int <= Self::max_allocatable_size(),
+            size as int <= Self::max_block_size(),
         ensures
             BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int)
     {
@@ -2000,8 +2000,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert((d - 1) * q < d * q);
             }
         };
-        assert(Self::max_allocatable_size() == flb + (d - 1) * q);
-        assert(Self::max_allocatable_size() < flb + flb);
+        assert(Self::max_block_size() == flb + (d - 1) * q);
+        assert(Self::max_block_size() < flb + flb);
         assert(flb + flb == (pow2(FLLEN as nat) as int) * (GRANULARITY as int)) by {
             assert(GRANULARITY as int == pow2(g as nat));
             assert(pow2((g + FLLEN as int) as nat) as int
@@ -2014,8 +2014,8 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             };
         };
         let max_valid = (pow2(FLLEN as nat) as int) * (GRANULARITY as int);
-        assert(Self::max_allocatable_size() < max_valid);
-        assert((size as int) <= Self::max_allocatable_size());
+        assert(Self::max_block_size() < max_valid);
+        assert((size as int) <= Self::max_block_size());
         assert((size as int) < max_valid);
         assert(BlockIndex::<FLLEN, SLLEN>::valid_block_size(size as int));
     }

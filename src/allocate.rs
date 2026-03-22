@@ -53,11 +53,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             align < pow2(FLLEN as nat) * GRANULARITY as int,
             // In the spec of GlobalAlloc, zero-sized allocation is UB, so we avoid it explicitly
             size > 0,
-            size as int <= Self::max_allocatable_size(),
-            size as int + align as int + mem::size_of::<UsedBlockHdr>() as int + (GRANULARITY as int - 1)
-                <= Self::max_allocatable_size(),
-            size as int + align.saturating_sub(GRANULARITY / 2) as int + mem::size_of::<UsedBlockHdr>() as int + (GRANULARITY as int - 1)
-                <= Self::max_allocatable_size(),
+            Self::max_allocatable_size(size as int, align as int),
         ensures
             r matches Some((ptr, points_to, tok)) ==> ({
                 /* NOTE: Allocation correctness
@@ -118,12 +114,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
             // aligned to `GRANULARITY / 2` bytes. Consequently, we need to insert
             // a padding containing at most `max(align - GRANULARITY / 2, 0)` bytes.
             proof {
-                //assert(forall|x: usize, y: usize| x.saturating_sub(y) <= usize::MAX - y);
-                // align is at most 2^63
-                //assert(GRANULARITY == size_of::<usize>() * 4);
-                //assert(size_of::<BlockHdr>() == size_of::<usize>() * 2);
-                //assert(size_of::<UsedBlockHdr>() == size_of::<usize>() * 2);
-                //assert(size_of::<UsedBlockHdr>() == GRANULARITY / 2);
+                // Derived from max_allocatable_size precondition:
+                // overhead >= 0, so size <= size + overhead <= max_block_size()
+                assert(size as int <= Self::max_block_size());
             }
 
             //self.print_stat();
@@ -150,9 +143,9 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     == size as int + align.saturating_sub(GRANULARITY / 2) as int + hdr as int + (GRANULARITY as int - 1));
                 assert(search_size as int
                     <= size as int + align.saturating_sub(GRANULARITY / 2) as int + hdr as int + (GRANULARITY as int - 1));
-                assert(search_size as int <= Self::max_allocatable_size()) by {
+                assert(search_size as int <= Self::max_block_size()) by {
                     assert(size as int + align.saturating_sub(GRANULARITY / 2) as int + hdr as int + (GRANULARITY as int - 1)
-                        <= Self::max_allocatable_size());
+                        <= Self::max_block_size());
                 };
 
                 assert(0 <= size_overhead + (GRANULARITY - 1) <= usize::MAX);

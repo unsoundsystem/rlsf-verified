@@ -124,10 +124,10 @@ macro_rules! gen_test {
                 }
             }
 
-            /// max_allocatable_size mirrors the Verus spec:
+            /// max_block_size mirrors the Verus spec:
             ///   flb = 2^(granularity_log2 + FLLEN - 1)
             ///   max = flb + (SLLEN - 1) * (flb / SLLEN)
-            fn max_allocatable_size() -> usize {
+            fn max_block_size() -> usize {
                 let g_log2 = GRANULARITY.trailing_zeros() as usize;
                 let shift = g_log2 + FLLEN - 1;
                 if shift >= usize::BITS as usize {
@@ -140,25 +140,18 @@ macro_rules! gen_test {
 
             /// Check allocate preconditions (Verus specs erased at runtime)
             fn alloc_preconditions_ok(size: usize, align: usize) -> bool {
-                let mas = max_allocatable_size();
+                let mas = max_block_size();
                 let hdr = 16usize; // size_of::<UsedBlockHdr>()
                 let gran_sub = GRANULARITY - 1;
-                // Both preconditions must hold:
-                //   size + align + hdr + (GRANULARITY-1) <= mas
+                // Precondition:
                 //   size + align.saturating_sub(GRANULARITY/2) + hdr + (GRANULARITY-1) <= mas
-                let overhead1 = match align.checked_add(hdr).and_then(|v| v.checked_add(gran_sub)) {
-                    Some(v) => v,
-                    None => return false,
-                };
-                let overhead2 = match align.saturating_sub(GRANULARITY / 2)
+                let overhead = match align.saturating_sub(GRANULARITY / 2)
                     .checked_add(hdr).and_then(|v| v.checked_add(gran_sub)) {
                     Some(v) => v,
                     None => return false,
                 };
                 size > 0
-                    && size <= mas
-                    && size.checked_add(overhead1).map_or(false, |v| v <= mas)
-                    && size.checked_add(overhead2).map_or(false, |v| v <= mas)
+                    && size.checked_add(overhead).map_or(false, |v| v <= mas)
                     && align < max_pool_size()
             }
 

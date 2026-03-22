@@ -174,11 +174,20 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         &&& usize::BITS == 32 ==> GRANULARITY == 16 // 32bit platform
     }
 
-    pub open spec fn max_allocatable_size() -> int
+    pub open spec fn max_block_size() -> int
         recommends Self::parameter_validity()
     {
         let flb = pow2((Self::granularity_log2_spec() + FLLEN as int - 1) as nat) as int;
         flb + (SLLEN as int - 1) * (flb / SLLEN as int)
+    }
+
+    pub open spec fn max_allocatable_size(size: int, align: int) -> bool
+        recommends Self::parameter_validity()
+    {
+        size + (if align >= GRANULARITY as int / 2 { align - GRANULARITY as int / 2 } else { 0int })
+            + core::mem::size_of::<crate::block::UsedBlockHdr>() as int
+            + (GRANULARITY as int - 1)
+            <= Self::max_block_size()
     }
 
     pub proof fn lemma_parameter_validity_implies_block_index_parameter_validity()
