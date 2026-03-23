@@ -13,3 +13,5 @@ target
 results_*
 __pycache__
 /.claude
+.idea
+.vscode
