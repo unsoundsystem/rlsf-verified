@@ -1488,8 +1488,6 @@ proof fn lemma_div2_trailing_zeros_dec(x: u64)
 {
     if x == 2 {
         //reveal(u64_trailing_zeros); // closed in newer vstd
-        assert(u64_trailing_zeros(2) == 1) by (compute);
-        assert(u64_trailing_zeros(1) == 0) by (compute);
         assert(x / 2 == 1);
         assert(u64_trailing_zeros(1) == 1 - 1) by (compute);
     } else {
