@@ -6,5 +6,5 @@ fn main() {
         .nth(1)
         .and_then(|s| s.parse().ok())
         .unwrap_or(5_000_000);
-    run_alt_original(16384, iters);
+    run_alt_original(512, iters);
 }

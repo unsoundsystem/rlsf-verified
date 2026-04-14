@@ -14,131 +14,154 @@ codegen-units = 1
 debug = true
 overflow-checks = true
 
-[[bin]]
-name = "alt8b-verified"
-path = "src/alt8b_verified.rs"
-
-[[bin]]
-name = "alt16b-verified"
-path = "src/alt16b_verified.rs"
-
+# alt: allocate-deallocate loop
 [[bin]]
 name = "alt32b-verified"
 path = "src/alt32b_verified.rs"
-
-[[bin]]
-name = "alt64b-verified"
-path = "src/alt64b_verified.rs"
-
-[[bin]]
-name = "alt256b-verified"
-path = "src/alt256b_verified.rs"
-
-[[bin]]
-name = "alt2k-verified"
-path = "src/alt2k_verified.rs"
-
-[[bin]]
-name = "alt16k-verified"
-path = "src/alt16k_verified.rs"
-
-
-[[bin]]
-name = "alt8b-original"
-path = "src/alt8b_original.rs"
-
-[[bin]]
-name = "alt16b-original"
-path = "src/alt16b_original.rs"
-
 [[bin]]
 name = "alt32b-original"
 path = "src/alt32b_original.rs"
-
+[[bin]]
+name = "alt64b-verified"
+path = "src/alt64b_verified.rs"
 [[bin]]
 name = "alt64b-original"
 path = "src/alt64b_original.rs"
-
 [[bin]]
-name = "alt256b-original"
-path = "src/alt256b_original.rs"
-
+name = "alt512b-verified"
+path = "src/alt512b_verified.rs"
+[[bin]]
+name = "alt512b-original"
+path = "src/alt512b_original.rs"
+[[bin]]
+name = "alt2k-verified"
+path = "src/alt2k_verified.rs"
 [[bin]]
 name = "alt2k-original"
 path = "src/alt2k_original.rs"
-
 [[bin]]
-name = "alt16k-original"
-path = "src/alt16k_original.rs"
-
+name = "alt4k-verified"
+path = "src/alt4k_verified.rs"
 [[bin]]
-name = "aaaddd8b-verified"
-path = "src/aaaddd8b_verified.rs"
-
+name = "alt4k-original"
+path = "src/alt4k_original.rs"
 [[bin]]
-name = "aaaddd16b-verified"
-path = "src/aaaddd16b_verified.rs"
+name = "alt8k-verified"
+path = "src/alt8k_verified.rs"
+[[bin]]
+name = "alt8k-original"
+path = "src/alt8k_original.rs"
 
+# aaaddd: 3x allocate then 3x deallocate
 [[bin]]
 name = "aaaddd32b-verified"
 path = "src/aaaddd32b_verified.rs"
-
-[[bin]]
-name = "aaaddd64b-verified"
-path = "src/aaaddd64b_verified.rs"
-
-[[bin]]
-name = "aaaddd256b-verified"
-path = "src/aaaddd256b_verified.rs"
-
-[[bin]]
-name = "aaaddd2k-verified"
-path = "src/aaaddd2k_verified.rs"
-
-[[bin]]
-name = "aaaddd16k-verified"
-path = "src/aaaddd16k_verified.rs"
-
-[[bin]]
-name = "aaaddd8b-original"
-path = "src/aaaddd8b_original.rs"
-
-[[bin]]
-name = "aaaddd16b-original"
-path = "src/aaaddd16b_original.rs"
-
 [[bin]]
 name = "aaaddd32b-original"
 path = "src/aaaddd32b_original.rs"
-
+[[bin]]
+name = "aaaddd64b-verified"
+path = "src/aaaddd64b_verified.rs"
 [[bin]]
 name = "aaaddd64b-original"
 path = "src/aaaddd64b_original.rs"
-
 [[bin]]
-name = "aaaddd256b-original"
-path = "src/aaaddd256b_original.rs"
-
+name = "aaaddd512b-verified"
+path = "src/aaaddd512b_verified.rs"
+[[bin]]
+name = "aaaddd512b-original"
+path = "src/aaaddd512b_original.rs"
+[[bin]]
+name = "aaaddd2k-verified"
+path = "src/aaaddd2k_verified.rs"
 [[bin]]
 name = "aaaddd2k-original"
 path = "src/aaaddd2k_original.rs"
-
 [[bin]]
-name = "aaaddd16k-original"
-path = "src/aaaddd16k_original.rs"
-
+name = "aaaddd4k-verified"
+path = "src/aaaddd4k_verified.rs"
 [[bin]]
-name = "ada8b"
-path = "src/ada8b.rs"
-
+name = "aaaddd4k-original"
+path = "src/aaaddd4k_original.rs"
 [[bin]]
-name = "ada16b"
-path = "src/ada16b.rs"
-
+name = "aaaddd8k-verified"
+path = "src/aaaddd8k_verified.rs"
 [[bin]]
-name = "ada32b"
-path = "src/ada32b.rs"
+name = "aaaddd8k-original"
+path = "src/aaaddd8k_original.rs"
 
+# deref: allocate, write+read full region, deallocate
 [[bin]]
-name = "ada64b"
-path = "src/ada64b.rs"
+name = "deref32b-verified"
+path = "src/deref32b_verified.rs"
+[[bin]]
+name = "deref32b-original"
+path = "src/deref32b_original.rs"
+[[bin]]
+name = "deref64b-verified"
+path = "src/deref64b_verified.rs"
+[[bin]]
+name = "deref64b-original"
+path = "src/deref64b_original.rs"
+[[bin]]
+name = "deref512b-verified"
+path = "src/deref512b_verified.rs"
+[[bin]]
+name = "deref512b-original"
+path = "src/deref512b_original.rs"
+[[bin]]
+name = "deref2k-verified"
+path = "src/deref2k_verified.rs"
+[[bin]]
+name = "deref2k-original"
+path = "src/deref2k_original.rs"
+[[bin]]
+name = "deref4k-verified"
+path = "src/deref4k_verified.rs"
+[[bin]]
+name = "deref4k-original"
+path = "src/deref4k_original.rs"
+[[bin]]
+name = "deref8k-verified"
+path = "src/deref8k_verified.rs"
+[[bin]]
+name = "deref8k-original"
+path = "src/deref8k_original.rs"
+
+# coalesce: fill pool, deallocate even then odd indices to maximise merge path
+[[bin]]
+name = "coalesce32b-verified"
+path = "src/coalesce32b_verified.rs"
+[[bin]]
+name = "coalesce32b-original"
+path = "src/coalesce32b_original.rs"
+[[bin]]
+name = "coalesce64b-verified"
+path = "src/coalesce64b_verified.rs"
+[[bin]]
+name = "coalesce64b-original"
+path = "src/coalesce64b_original.rs"
+[[bin]]
+name = "coalesce512b-verified"
+path = "src/coalesce512b_verified.rs"
+[[bin]]
+name = "coalesce512b-original"
+path = "src/coalesce512b_original.rs"
+[[bin]]
+name = "coalesce2k-verified"
+path = "src/coalesce2k_verified.rs"
+[[bin]]
+name = "coalesce2k-original"
+path = "src/coalesce2k_original.rs"
+[[bin]]
+name = "coalesce4k-verified"
+path = "src/coalesce4k_verified.rs"
+[[bin]]
+name = "coalesce4k-original"
+path = "src/coalesce4k_original.rs"
+[[bin]]
+name = "coalesce8k-verified"
+path = "src/coalesce8k_verified.rs"
+[[bin]]
+name = "coalesce8k-original"
+path = "src/coalesce8k_original.rs"
