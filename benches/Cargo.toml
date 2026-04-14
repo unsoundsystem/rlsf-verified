@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 vstd = { git = "https://github.com/verus-lang/verus.git" }
-rlsf-verified = { path = "..", features = ["std"] }
+rlsf-verified = { path = ".." }
 rlsf = "0.2.2"
 
 [profile.release]
