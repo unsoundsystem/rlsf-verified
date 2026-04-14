@@ -35,7 +35,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         unsafe { self.deallocate_block(block) };
     }
 
-    #[inline]
+    #[inline(always)]
     unsafe fn deallocate_block(&mut self, mut block: *mut BlockHdr)
     requires
         Self::parameter_validity(),
@@ -2438,7 +2438,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         })
     {}
 
-    #[inline]
+    #[inline(always)]
     unsafe fn used_block_hdr_for_allocation(
         &mut self,
         ptr: *mut u8,

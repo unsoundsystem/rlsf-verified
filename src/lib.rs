@@ -519,7 +519,7 @@ pub tracked struct DeallocToken {
 }
 
 
-#[inline]
+#[inline(always)]
 pub unsafe fn round_up(ptr: *mut u8, align: usize) -> (r: *mut u8)
     requires is_power_of_two(align as int)
     ensures

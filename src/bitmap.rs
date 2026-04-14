@@ -222,7 +222,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn clear_bit_for_sl(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
         ensures self.bitmap_wf(),

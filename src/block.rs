@@ -113,7 +113,7 @@ verus! {
 
     impl UsedBlockPad {
         //#[verifier::external_body] // debug
-        #[inline]
+        #[inline(always)]
         pub(crate) fn get_for_allocation(ptr: *mut u8) -> (r: *mut Self)
             ensures
                 r@.provenance == ptr@.provenance,

@@ -810,6 +810,7 @@ use crate::*;
         }
 
         //#[verifier::external_body] // debug
+        #[inline(always)]
         pub(crate) fn unlink_free_block(&mut self,
             node: *mut BlockHdr,
             size: usize,
@@ -1423,6 +1424,7 @@ use crate::*;
             }
         }
 
+        #[inline(always)]
         pub(crate) fn link_free_block(&mut self,
             size: usize,
             node: *mut BlockHdr)

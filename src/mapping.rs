@@ -1159,7 +1159,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn map_floor(size: usize) -> (r: Option<BlockIndex<FLLEN, SLLEN>>) //by (nonlinear_arith)
         requires
             // NOTE: in onriginal code following conditions are encoded as debug_assert!
