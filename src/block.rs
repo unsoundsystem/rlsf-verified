@@ -26,6 +26,7 @@ verus! {
             self.size & SIZE_USED == 0
         }
 
+        #[inline(always)]
         pub(crate) fn next_phys_block(block: *mut Self, Tracked(perm): Tracked<&BlockPerm>) -> (r: *mut Self)
             requires
                 perm.points_to.is_init(),
@@ -137,6 +138,7 @@ verus! {
         }) as *mut _
     }
 
+    #[inline(always)]
     pub fn get_freelink_ptr(ptr: *mut BlockHdr) -> (r: *mut FreeLink)
         requires
             (ptr as usize as int) + (size_of::<BlockHdr>() as int) <= usize::MAX as int,

@@ -863,7 +863,10 @@ use crate::*;
                 broadcast use VERUS_layout_of_BlockHdr;
                 assert(size_of::<BlockHdr>() as int <= GRANULARITY as int);
             }
-            let idx = Self::map_floor(size).unwrap();
+            let idx = match Self::map_floor(size) {
+                Some(v) => v,
+                None => unsafe { core::hint::unreachable_unchecked() },
+            };
             // Prove membership: node is in shadow_freelist@.m[idx]
             proof {
                 // Step 1: free block → in shadow_freelist (some bucket)
@@ -1472,7 +1475,10 @@ use crate::*;
                 ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
         {
             let _ = core::mem::size_of::<BlockHdr>();
-            let idx = Self::map_floor(size).unwrap();
+            let idx = match Self::map_floor(size) {
+                Some(v) => v,
+                None => unsafe { core::hint::unreachable_unchecked() },
+            };
             proof {
                 self.all_blocks.lemma_block_wf();
                 self.all_blocks.lemma_node_is_wf(node);
