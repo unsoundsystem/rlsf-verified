@@ -370,9 +370,105 @@ def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path, sizes: list[str], task:
     print(f"[*] Variability figures saved under: {fig_dir}")
 
 
-def write_violin_gallery_html(fig_dir: Path, out_html: Path) -> bool:
+def _build_summary_table_html(jitter_csv: Path) -> str:
     """
-    Write an HTML gallery listing violin plot PNGs grouped by task name.
+    Read jitter CSV and build an HTML summary table with median cycles,
+    median time_s, and regression ratios (verified / original) per size.
+    Returns empty string if the CSV is missing or has no data.
+    """
+    if not jitter_csv.exists():
+        return ""
+
+    df = pd.read_csv(jitter_csv)
+    if df.empty or "cycles" not in df.columns or "time_s" not in df.columns:
+        return ""
+
+    size_order = {s: i for i, s in enumerate(SIZES)}
+
+    med = df.groupby(["size", "kind"])[["cycles", "time_s"]].median()
+    med = med.reset_index()
+
+    orig = med[med["kind"] == "original"].set_index("size")
+    veri = med[med["kind"] == "verified"].set_index("size")
+
+    all_sizes = sorted(
+        set(orig.index) | set(veri.index),
+        key=lambda s: size_order.get(s, 9_999),
+    )
+
+    rows: list[str] = []
+    for s in all_sizes:
+        c_o = orig.loc[s, "cycles"] if s in orig.index else float("nan")
+        c_v = veri.loc[s, "cycles"] if s in veri.index else float("nan")
+        t_o = orig.loc[s, "time_s"] if s in orig.index else float("nan")
+        t_v = veri.loc[s, "time_s"] if s in veri.index else float("nan")
+
+        c_ratio = c_v / c_o if c_o else float("nan")
+        t_ratio = t_v / t_o if t_o else float("nan")
+
+        def fmt_cycles(v):
+            if v != v:  # NaN
+                return "&mdash;"
+            return f"{v:,.0f}"
+
+        def fmt_time(v):
+            if v != v:
+                return "&mdash;"
+            if v < 1e-6:
+                return f"{v * 1e9:.1f} ns"
+            if v < 1e-3:
+                return f"{v * 1e6:.1f} &micro;s"
+            if v < 1:
+                return f"{v * 1e3:.2f} ms"
+            return f"{v:.4f} s"
+
+        def fmt_ratio(v):
+            if v != v:
+                return "&mdash;"
+            pct = (v - 1) * 100
+            sign = "+" if pct >= 0 else ""
+            cls = "regress" if pct > 1 else "improve" if pct < -1 else "neutral"
+            return f'<span class="{cls}">{v:.3f}x ({sign}{pct:.1f}%)</span>'
+
+        rows.append(
+            f"<tr>"
+            f"<td>{escape(s)}</td>"
+            f"<td class='num'>{fmt_cycles(c_o)}</td>"
+            f"<td class='num'>{fmt_cycles(c_v)}</td>"
+            f"<td class='num'>{fmt_ratio(c_ratio)}</td>"
+            f"<td class='num'>{fmt_time(t_o)}</td>"
+            f"<td class='num'>{fmt_time(t_v)}</td>"
+            f"<td class='num'>{fmt_ratio(t_ratio)}</td>"
+            f"</tr>"
+        )
+
+    return f"""
+  <section>
+    <h2>Summary: cycles &amp; time (median, verified / original)</h2>
+    <table class="summary">
+      <thead>
+        <tr>
+          <th rowspan="2">Size</th>
+          <th colspan="3">Cycles</th>
+          <th colspan="3">Time</th>
+        </tr>
+        <tr>
+          <th>original</th><th>verified</th><th>ratio</th>
+          <th>original</th><th>verified</th><th>ratio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {"".join(rows)}
+      </tbody>
+    </table>
+  </section>
+"""
+
+
+def write_violin_gallery_html(fig_dir: Path, out_html: Path, jitter_csv: Path | None = None) -> bool:
+    """
+    Write an HTML gallery listing violin plot PNGs grouped by task name,
+    plus a summary table of cycles/time regression if jitter_csv is provided.
     Expects filenames like: variability_violin_{task}_{size}.png
     """
     import re as _re
@@ -421,6 +517,10 @@ def write_violin_gallery_html(fig_dir: Path, out_html: Path) -> bool:
             f'<section><h2>{escape(task_name)}</h2><div class="grid">{"".join(cards)}</div></section>'
         )
 
+    summary_html = ""
+    if jitter_csv is not None:
+        summary_html = _build_summary_table_html(jitter_csv)
+
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -467,10 +567,34 @@ def write_violin_gallery_html(fig_dir: Path, out_html: Path) -> bool:
       border-top: 1px solid #eee;
       background: #f7f7f7;
     }}
+    table.summary {{
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 960px;
+      margin: 12px 0 24px 0;
+      font-size: 0.9rem;
+    }}
+    table.summary th, table.summary td {{
+      border: 1px solid #ccc;
+      padding: 6px 10px;
+      text-align: center;
+    }}
+    table.summary th {{
+      background: #f0f0f0;
+      font-weight: 600;
+    }}
+    table.summary td.num {{
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }}
+    .regress {{ color: #c0392b; font-weight: 600; }}
+    .improve {{ color: #27ae60; font-weight: 600; }}
+    .neutral {{ color: #555; }}
   </style>
 </head>
 <body>
   <h1>Variability violin plots (task-clock)</h1>
+  {summary_html}
   {"".join(sections)}
 </body>
 </html>
@@ -577,7 +701,7 @@ def main():
         build_project(selected_task, selected_lto)
         measure_jitter(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         if args.violin_html:
-            write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html")
+            write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html", paths.jitter_csv)
         run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
@@ -586,7 +710,7 @@ def main():
         setup_common()
         measure_jitter(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         if args.violin_html:
-            write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html")
+            write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html", paths.jitter_csv)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
@@ -594,7 +718,7 @@ def main():
         setup_common()
         run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         if args.violin_html:
-            write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html")
+            write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html", paths.jitter_csv)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
