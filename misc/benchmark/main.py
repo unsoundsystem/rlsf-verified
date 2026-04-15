@@ -27,7 +27,7 @@ TASKS = ["alt", "aaaddd", "deref", "coalesce"]
 LTO_MODES = ["none", "fat"]
 
 # Jitter probe: minimum events
-JITTER_EVENTS = "cycles,instructions,task-clock,L1-dcache-loads,L1-dcache-load-misses"
+JITTER_EVENTS = "cycles,instructions,task-clock,L1-dcache-loads,L1-dcache-load-misses,cache-misses,branch-misses,dTLB-load-misses"
 
 # Main measurement: richer events
 MAIN_EVENTS = (
@@ -310,6 +310,7 @@ def measure_jitter(num_iter: int, runs: int, paths: Paths, sizes: list[str], tas
                     "kind": k,
                     "size": s,
                     "run": i,
+                    "num_iter": num_iter,
                     "return_code": rc,
                     "time_s": t_s,  # task-clock converted to seconds
                     "task_clock": task_clock_val,
@@ -318,6 +319,9 @@ def measure_jitter(num_iter: int, runs: int, paths: Paths, sizes: list[str], tas
                     "instructions": perf_map["instructions"][0],
                     "L1-dcache-loads": perf_map["L1-dcache-loads"][0],
                     "L1-dcache-load-misses": perf_map["L1-dcache-load-misses"][0],
+                    "cache-misses": perf_map.get("cache-misses", (0, ""))[0],
+                    "branch-misses": perf_map.get("branch-misses", (0, ""))[0],
+                    "dTLB-load-misses": perf_map.get("dTLB-load-misses", (0, ""))[0],
                 })
 
     df = pd.DataFrame.from_records(records)
@@ -383,6 +387,8 @@ def _build_summary_table_html(jitter_csv: Path) -> str:
     if df.empty or "cycles" not in df.columns or "time_s" not in df.columns:
         return ""
 
+    num_iter = int(df["num_iter"].iloc[0]) if "num_iter" in df.columns else None
+
     size_order = {s: i for i, s in enumerate(SIZES)}
 
     med = df.groupby(["size", "kind"])[["cycles", "time_s"]].median()
@@ -442,9 +448,10 @@ def _build_summary_table_html(jitter_csv: Path) -> str:
             f"</tr>"
         )
 
+    iter_note = f" (num_iter={num_iter})" if num_iter is not None else ""
     return f"""
   <section>
-    <h2>Summary: cycles &amp; time (median, verified / original)</h2>
+    <h2>Summary: cycles &amp; time (median, verified / original){iter_note}</h2>
     <table class="summary">
       <thead>
         <tr>
