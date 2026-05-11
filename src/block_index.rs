@@ -53,7 +53,7 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
 
     //TODO: DRY
     pub open spec fn parameter_validity() -> bool {
-        &&& 0 < FLLEN <= usize::BITS
+        &&& 0 < FLLEN < usize::BITS - Self::granularity_log2_spec()
         &&& 0 < SLLEN <= usize::BITS
             && is_power_of_two(SLLEN as int)
         &&& usize::BITS == 64 ==> GRANULARITY == 32 // 64bit platform
@@ -368,15 +368,17 @@ impl<const FLLEN: usize, const SLLEN: usize> BlockIndex<FLLEN, SLLEN> {
     }
 
 
-    //TODO: proof
     /// There is at least one index for valid size.
-    pub proof fn index_exists_for_valid_size(size: usize) by (nonlinear_arith)
-        requires Self::valid_block_size(size as int)
+    pub proof fn index_exists_for_valid_size(size: usize)
+        requires
+            Self::parameter_validity(),
+            Self::valid_block_size(size as int),
         ensures exists|idx: Self| idx.wf()
             && #[trigger] idx.block_size_range().contains(size as int)
     {
-        // size == GRANULARITY ==> (0, 0)
-        // else fl = log2(size / GRANULARITY), sl = (size - pow2(fl)) / SLLEN
+        let idx = crate::Tlsf::<'static, FLLEN, SLLEN>::map_floor_spec(size);
+        crate::Tlsf::<'static, FLLEN, SLLEN>::lemma_map_floor_spec_range_contains(size);
+        assert(idx.wf() && idx.block_size_range().contains(size as int));
     }
 
     pub open spec fn valid_block_size(size: int) -> bool {
