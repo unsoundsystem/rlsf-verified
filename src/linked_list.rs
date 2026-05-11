@@ -1521,7 +1521,11 @@ use crate::*;
                 self.set_freelist(idx, node);
 
                 // update link
+                #[cfg(feature = "rdpmc-bench")]
+                perf_probe::begin(perf_probe::ProbeSlot::GetFreeLinkFirstFree);
                 let first_free_link = get_freelink_ptr(first_free);
+                #[cfg(feature = "rdpmc-bench")]
+                perf_probe::end(perf_probe::ProbeSlot::GetFreeLinkFirstFree);
                 assert(old(self).all_blocks.wf_node(old(self).all_blocks.get_ptr_internal_index(first_free))) by {
                     old(self).all_blocks.lemma_wf_extract_node(
                         old(self).all_blocks.get_ptr_internal_index(first_free));
@@ -1544,7 +1548,11 @@ use crate::*;
                 }
 
                 // update new node's link
+                #[cfg(feature = "rdpmc-bench")]
+                perf_probe::begin(perf_probe::ProbeSlot::GetFreeLinkNewNode);
                 let new_node_link = get_freelink_ptr(node);
+                #[cfg(feature = "rdpmc-bench")]
+                perf_probe::end(perf_probe::ProbeSlot::GetFreeLinkNewNode);
                 #[cfg(feature = "rdpmc-bench")]
                 perf_probe::begin(perf_probe::ProbeSlot::NewNodeWrite);
                 ptr_mut_write(new_node_link, Tracked(&mut node_fl_pt), FreeLink {

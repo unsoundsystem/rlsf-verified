@@ -125,9 +125,15 @@ pub enum ProbeSlot {
     FirstFreeWrite = 2,
     NewNodeWrite = 3,
     EmptyBranchWrite = 4,
+    // get_freelink_ptr(...) call sites — measures the address-computation
+    // (ptrtoint / add / inttoptr) cost of the verified pointer-from-int
+    // helper. Only attached in the verified non-empty branch (caller-visible
+    // `let X = get_freelink_ptr(Y);` sites at linked_list.rs L1522 / L1537).
+    GetFreeLinkFirstFree = 5,
+    GetFreeLinkNewNode = 6,
 }
 
-pub const NUM_SLOTS: usize = 5;
+pub const NUM_SLOTS: usize = 7;
 
 const SLOT_NAMES: [&str; NUM_SLOTS] = [
     "Whole",
@@ -135,6 +141,8 @@ const SLOT_NAMES: [&str; NUM_SLOTS] = [
     "FirstFreeWrite",
     "NewNodeWrite",
     "EmptyBranchWrite",
+    "GetFreeLinkFirstFree",
+    "GetFreeLinkNewNode",
 ];
 
 // ----- Per-slot accumulator -------------------------------------------------
