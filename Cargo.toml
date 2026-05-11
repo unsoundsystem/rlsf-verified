@@ -5,9 +5,14 @@ edition = "2018" #"2024"
 
 [dependencies]
 vstd = { git = "https://github.com/verus-lang/verus.git" }
+libc = { version = "0.2", optional = true }
 
 [features]
 default = []
 std = []
+# Feature for benches/microbench only. Compiles in rdpmc-based perf probes
+# inside link_free_block. Verified builds must NOT enable this; the verus
+# proofs depend on the cfg-gated probe code being absent.
+rdpmc-bench = ["std", "dep:libc"]
 
 [dev-dependencies]

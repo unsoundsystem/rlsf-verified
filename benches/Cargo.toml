@@ -7,6 +7,15 @@ edition = "2024"
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 rlsf-verified = { path = ".." }
 rlsf = "0.2.2"
+libc = "0.2"
+
+[features]
+default = []
+# Enables the rdpmc-based perf probes inside link_free_block. Only the
+# `link_free_block_rdpmc` binary requires this; the other benches (alt,
+# aaaddd, deref, coalesce) must stay free of probe overhead so perf stat
+# measurements are not polluted.
+rdpmc-bench = ["rlsf-verified/rdpmc-bench"]
 
 [profile.release]
 lto = false
@@ -165,3 +174,10 @@ path = "src/coalesce8k_verified.rs"
 [[bin]]
 name = "coalesce8k-original"
 path = "src/coalesce8k_original.rs"
+
+# rdpmc microbench: per-call cycles/cache for link_free_block. Requires the
+# rdpmc-bench feature so probe instrumentation is compiled into rlsf-verified.
+[[bin]]
+name = "link_free_block_rdpmc"
+path = "src/link_free_block_rdpmc.rs"
+required-features = ["rdpmc-bench"]

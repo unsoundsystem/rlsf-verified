@@ -1474,6 +1474,8 @@ use crate::*;
             forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
                 ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
         {
+            #[cfg(feature = "rdpmc-bench")]
+            crate::perf_probe::begin(crate::perf_probe::ProbeSlot::Whole);
             let _ = core::mem::size_of::<BlockHdr>();
             let idx = match Self::map_floor(size) {
                 Some(v) => v,
@@ -1526,19 +1528,31 @@ use crate::*;
                 };
                 assert(get_freelink_ptr_spec(first_free) == first_free_fl_pt.ptr());
                 {
+                    #[cfg(feature = "rdpmc-bench")]
+                    crate::perf_probe::begin(crate::perf_probe::ProbeSlot::FirstFreeRead);
                     let n = ptr_ref(first_free_link, Tracked(&first_free_fl_pt)).next_free;
+                    #[cfg(feature = "rdpmc-bench")]
+                    crate::perf_probe::end(crate::perf_probe::ProbeSlot::FirstFreeRead);
+                    #[cfg(feature = "rdpmc-bench")]
+                    crate::perf_probe::begin(crate::perf_probe::ProbeSlot::FirstFreeWrite);
                     ptr_mut_write(first_free_link, Tracked(&mut first_free_fl_pt), FreeLink {
                         next_free: n,
                         prev_free: node
                     });
+                    #[cfg(feature = "rdpmc-bench")]
+                    crate::perf_probe::end(crate::perf_probe::ProbeSlot::FirstFreeWrite);
                 }
 
                 // update new node's link
                 let new_node_link = get_freelink_ptr(node);
+                #[cfg(feature = "rdpmc-bench")]
+                crate::perf_probe::begin(crate::perf_probe::ProbeSlot::NewNodeWrite);
                 ptr_mut_write(new_node_link, Tracked(&mut node_fl_pt), FreeLink {
                     next_free: first_free,
                     prev_free: null_bhdr()
                 });
+                #[cfg(feature = "rdpmc-bench")]
+                crate::perf_probe::end(crate::perf_probe::ProbeSlot::NewNodeWrite);
 
                 // {{{ proof block
                 proof {
@@ -1697,10 +1711,14 @@ use crate::*;
                 // }}}
             } else {
                 self.set_freelist(idx, node);
+                #[cfg(feature = "rdpmc-bench")]
+                crate::perf_probe::begin(crate::perf_probe::ProbeSlot::EmptyBranchWrite);
                 ptr_mut_write(get_freelink_ptr(node), Tracked(&mut node_fl_pt), FreeLink {
                     next_free: null_bhdr(),
                     prev_free: null_bhdr()
                 });
+                #[cfg(feature = "rdpmc-bench")]
+                crate::perf_probe::end(crate::perf_probe::ProbeSlot::EmptyBranchWrite);
                 // {{{ proof block
                 proof {
                     self.all_blocks.perms.borrow_mut().tracked_insert(node, BlockPerm {
@@ -1927,6 +1945,8 @@ use crate::*;
                     }
                 };
             };
+            #[cfg(feature = "rdpmc-bench")]
+            crate::perf_probe::end(crate::perf_probe::ProbeSlot::Whole);
         }
 
         #[verifier::external_body]

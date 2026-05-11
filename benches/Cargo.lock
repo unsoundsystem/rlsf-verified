@@ -83,6 +83,7 @@ dependencies = [
 name = "rlsf-verified"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "vstd",
 ]
 
@@ -90,6 +91,7 @@ dependencies = [
 name = "rlsf-verified-benches"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rlsf",
  "rlsf-verified",
  "vstd",
