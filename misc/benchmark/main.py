@@ -1,12 +1,50 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import pwd
 import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from html import escape
 from pathlib import Path
+
+
+def _drop_privileges_for_cargo(cmd: list[str], env: dict) -> tuple[list[str], dict]:
+    """
+    When the script is run with sudo, cargo invocations break because rustup
+    is configured for the invoking user, not root. Detect sudo via SUDO_USER
+    and wrap the command with `sudo -u <SUDO_USER> env VAR=...` so cargo runs
+    as the original user and rustup can locate its toolchain.
+
+    The env vars (HOME / CARGO_HOME / RUSTUP_HOME / PATH / RUSTFLAGS / ...) are
+    passed via an explicit `env` prefix because sudoers' env_keep policy may
+    strip them otherwise.
+    """
+    sudo_user = os.environ.get("SUDO_USER")
+    if not (sudo_user and os.geteuid() == 0):
+        return cmd, env
+    try:
+        user = pwd.getpwnam(sudo_user)
+    except KeyError:
+        return cmd, env
+    env = dict(env)
+    env["HOME"] = user.pw_dir
+    env.setdefault("CARGO_HOME", f"{user.pw_dir}/.cargo")
+    env.setdefault("RUSTUP_HOME", f"{user.pw_dir}/.rustup")
+    cargo_bin = f"{user.pw_dir}/.cargo/bin"
+    existing_path = env.get("PATH", os.environ.get("PATH", ""))
+    if cargo_bin not in existing_path.split(":"):
+        env["PATH"] = cargo_bin + ":" + existing_path
+    # Variables to forward explicitly through `env VAR=...`. Pick keys that
+    # affect cargo/rustup so we don't depend on sudoers env_keep settings.
+    forward_keys = [
+        "HOME", "PATH", "CARGO_HOME", "RUSTUP_HOME",
+        "RUSTFLAGS", "CARGO_PROFILE_RELEASE_LTO", "RUSTC_BOOTSTRAP",
+        "RUSTUP_TOOLCHAIN",
+    ]
+    env_prefix = ["env"] + [f"{k}={env[k]}" for k in forward_keys if k in env]
+    return ["sudo", "-u", sudo_user, "--"] + env_prefix + cmd, env
 
 import pandas as pd
 import numpy as np
@@ -724,14 +762,11 @@ def build_rdpmc_bench(lto_mode: str):
         env["CARGO_PROFILE_RELEASE_LTO"] = "fat"
     else:
         env.pop("CARGO_PROFILE_RELEASE_LTO", None)
-    subprocess.run(
-        ["cargo", "build", "--release",
-         "--features", "rdpmc-bench",
-         "--bin", "link_free_block_rdpmc"],
-        cwd=str(BENCH_PROJ),
-        env=env,
-        check=True,
-    )
+    cmd = ["cargo", "build", "--release",
+           "--features", "rdpmc-bench",
+           "--bin", "link_free_block_rdpmc"]
+    cmd, env = _drop_privileges_for_cargo(cmd, env)
+    subprocess.run(cmd, cwd=str(BENCH_PROJ), env=env, check=True)
 
 
 def run_rdpmc_sweep(num_iter: int, paths: Paths,
