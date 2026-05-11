@@ -49,6 +49,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
+name = "perf_probe"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -69,12 +76,11 @@ dependencies = [
 [[package]]
 name = "rlsf"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1646a59a9734b8b7a0ac51689388a60fe1625d4b956348e9de07591a1478457a"
 dependencies = [
  "cfg-if",
  "const-default",
  "libc",
+ "perf_probe",
  "rustversion",
  "svgbobdoc",
 ]
@@ -83,7 +89,7 @@ dependencies = [
 name = "rlsf-verified"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "perf_probe",
  "vstd",
 ]
 
@@ -92,6 +98,7 @@ name = "rlsf-verified-benches"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "perf_probe",
  "rlsf",
  "rlsf-verified",
  "vstd",

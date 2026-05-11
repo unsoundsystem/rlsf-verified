@@ -1,34 +1,43 @@
 // rdpmc microbench harness for link_free_block.
 //
 // Usage:
-//   link_free_block_rdpmc <scenario> <size_bytes> <iters> --counter <name>
+//   link_free_block_rdpmc <scenario> <size_bytes> <iters>
+//         [--counter <name>] [--impl verified|original]
 //
 //   scenario  ∈ { coalesce, aaaddd, alt }
 //   size_bytes ∈ { 32, 64, 512, 2048, 4096, ... }
 //   counter   ∈ { cycles, instructions, l1d_loads, l1d_load_misses,
 //                 llc_load_misses, dtlb_load_misses, mem_loads, mem_stores }
+//   impl      ∈ { verified, original } (default: verified)
 //
-// Output: one CSV row per slot, plus a calibration row, on stdout.
+// Output: CSV header + one row per slot (+ calibration row) on stdout.
 
 mod common;
 
-use common::{run_aaaddd_verified, run_alt_verified, run_coalesce_verified};
-use rlsf_verified::perf_probe::{self, CounterKind};
+use common::{
+    run_aaaddd_original, run_aaaddd_verified, run_alt_original, run_alt_verified,
+    run_coalesce_original, run_coalesce_verified,
+};
+use perf_probe::CounterKind;
 
 fn usage_and_exit() -> ! {
     eprintln!(
-        "usage: link_free_block_rdpmc <scenario:coalesce|aaaddd|alt> <size> <iters> --counter <name>"
+        "usage: link_free_block_rdpmc <scenario:coalesce|aaaddd|alt> <size> <iters> \
+         [--counter <name>] [--impl verified|original]"
     );
     std::process::exit(2);
 }
 
-fn run_workload(scenario: &str, size: usize, iters: usize) {
-    match scenario {
-        "coalesce" => run_coalesce_verified(size, iters),
-        "aaaddd" => run_aaaddd_verified(size, iters),
-        "alt" => run_alt_verified(size, iters),
-        other => {
-            eprintln!("unknown scenario: {other}");
+fn run_workload(scenario: &str, impl_: &str, size: usize, iters: usize) {
+    match (scenario, impl_) {
+        ("coalesce", "verified") => run_coalesce_verified(size, iters),
+        ("coalesce", "original") => run_coalesce_original(size, iters),
+        ("aaaddd", "verified") => run_aaaddd_verified(size, iters),
+        ("aaaddd", "original") => run_aaaddd_original(size, iters),
+        ("alt", "verified") => run_alt_verified(size, iters),
+        ("alt", "original") => run_alt_original(size, iters),
+        _ => {
+            eprintln!("unknown scenario/impl combo: {scenario}/{impl_}");
             usage_and_exit();
         }
     }
@@ -50,12 +59,15 @@ fn main() {
     };
 
     let mut counter_name: Option<String> = None;
+    let mut impl_name: Option<String> = None;
     while let Some(arg) = args.next() {
-        if arg == "--counter" {
-            counter_name = args.next();
-        } else {
-            eprintln!("unrecognized arg: {arg}");
-            usage_and_exit();
+        match arg.as_str() {
+            "--counter" => counter_name = args.next(),
+            "--impl" => impl_name = args.next(),
+            other => {
+                eprintln!("unrecognized arg: {other}");
+                usage_and_exit();
+            }
         }
     }
 
@@ -67,6 +79,11 @@ fn main() {
             usage_and_exit();
         }
     };
+    let impl_ = impl_name.unwrap_or_else(|| "verified".to_string());
+    if impl_ != "verified" && impl_ != "original" {
+        eprintln!("--impl must be 'verified' or 'original' (got: {impl_})");
+        usage_and_exit();
+    }
 
     if let Err(e) = perf_probe::init(counter) {
         eprintln!("perf_probe::init failed: {e}");
@@ -77,18 +94,19 @@ fn main() {
     }
 
     let warmup_iters = (iters / 10).max(1);
-    run_workload(&scenario, size, warmup_iters);
+    run_workload(&scenario, &impl_, size, warmup_iters);
     perf_probe::reset_stats();
 
-    run_workload(&scenario, size, iters);
+    run_workload(&scenario, &impl_, size, iters);
 
     let stats = perf_probe::dump_stats();
     let overhead = perf_probe::overhead();
 
-    println!("scenario,size,iters,counter,slot,count,sum,min,max,mean,drops");
+    println!("impl,scenario,size,iters,counter,slot,count,sum,min,max,mean,drops");
     for s in &stats {
         println!(
-            "{},{},{},{},{},{},{},{},{},{:.3},{}",
+            "{},{},{},{},{},{},{},{},{},{},{:.3},{}",
+            impl_,
             scenario,
             size,
             iters,
@@ -103,7 +121,15 @@ fn main() {
         );
     }
     println!(
-        "{},{},{},{},overhead,1,{},{},{},{:.3},0",
-        scenario, size, iters, counter.as_str(), overhead, overhead, overhead, overhead as f64,
+        "{},{},{},{},{},overhead,1,{},{},{},{:.3},0",
+        impl_,
+        scenario,
+        size,
+        iters,
+        counter.as_str(),
+        overhead,
+        overhead,
+        overhead,
+        overhead as f64,
     );
 }

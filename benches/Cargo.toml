@@ -6,16 +6,17 @@ edition = "2024"
 [dependencies]
 vstd = { git = "https://github.com/verus-lang/verus.git" }
 rlsf-verified = { path = ".." }
-rlsf = "0.2.2"
+rlsf = { path = "../vendor/rlsf-0.2.2" }
 libc = "0.2"
+perf_probe = { path = "../perf_probe", optional = true }
 
 [features]
 default = []
-# Enables the rdpmc-based perf probes inside link_free_block. Only the
-# `link_free_block_rdpmc` binary requires this; the other benches (alt,
-# aaaddd, deref, coalesce) must stay free of probe overhead so perf stat
-# measurements are not polluted.
-rdpmc-bench = ["rlsf-verified/rdpmc-bench"]
+# Enables the rdpmc-based perf probes inside link_free_block (verified and
+# vendored original alike). Only the `link_free_block_rdpmc` binary requires
+# this; the other benches (alt, aaaddd, deref, coalesce) must stay free of
+# probe overhead so perf stat measurements are not polluted.
+rdpmc-bench = ["rlsf-verified/rdpmc-bench", "rlsf/rdpmc-bench", "dep:perf_probe"]
 
 [profile.release]
 lto = false

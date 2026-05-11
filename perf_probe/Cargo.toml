@@ -1,0 +1,12 @@
+[package]
+name = "perf_probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Shared rdpmc-based microbench probes. Used by both rlsf-verified and the
+# vendored rlsf 0.2.2 fork so that per-call cycle/cache measurements share the
+# same OnceLock<STATE> and accumulator.
+
+[dependencies]
+libc = "0.2"

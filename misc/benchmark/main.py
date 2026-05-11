@@ -26,6 +26,16 @@ KINDS = ["original", "verified"]
 TASKS = ["alt", "aaaddd", "deref", "coalesce"]
 LTO_MODES = ["none", "fat"]
 
+# rdpmc microbench dimensions (per-call link_free_block measurement)
+RDPMC_COUNTERS = [
+    "cycles", "instructions",
+    "l1d_loads", "l1d_load_misses",
+    "llc_load_misses", "dtlb_load_misses",
+    "mem_loads", "mem_stores",
+]
+RDPMC_SCENARIOS = ["coalesce", "aaaddd", "alt"]
+RDPMC_IMPLS = ["verified", "original"]
+
 # Jitter probe: minimum events
 JITTER_EVENTS = "cycles,instructions,task-clock,L1-dcache-loads,L1-dcache-load-misses,cache-misses,branch-misses,dTLB-load-misses"
 
@@ -158,6 +168,31 @@ def bin_name_for(task: str, size: str, kind: str) -> str:
     return f"{task}{size}-{kind}"
 
 
+def size_to_int(size_str: str) -> int:
+    """Convert SIZES-style tag ("32b", "512b", "2k", "4k", "8k") to bytes."""
+    s = size_str.strip().lower()
+    if s.endswith("b"):
+        return int(s[:-1])
+    if s.endswith("k"):
+        return int(s[:-1]) * 1024
+    return int(s)
+
+
+def parse_csv_subset(arg: str | None, valid: list[str], label: str) -> list[str]:
+    """Parse comma-separated subset of `valid`. None → all."""
+    if arg is None:
+        return list(valid)
+    raw = [s.strip() for s in arg.split(",") if s.strip()]
+    if not raw:
+        raise SystemExit(f"ERROR: --{label} is empty")
+    invalid = [s for s in raw if s not in valid]
+    if invalid:
+        raise SystemExit(
+            f"ERROR: unknown {label}: {', '.join(invalid)}. valid: {', '.join(valid)}"
+        )
+    return list(dict.fromkeys(raw))
+
+
 ########################################
 # perf -x, parsing helpers
 ########################################
@@ -276,6 +311,14 @@ def setup_common():
 
     # relax perf restrictions
     run(["sudo", "tee", "/proc/sys/kernel/perf_event_paranoid"], input_text="1\n")
+
+    # enable user-mode rdpmc (required by the rdpmc microbench).
+    # 2 = unconditional user-mode rdpmc; 1 = only when a perf event is mapped.
+    rdpmc_knob = Path("/sys/bus/event_source/devices/cpu/rdpmc")
+    if rdpmc_knob.exists():
+        run(["sudo", "tee", str(rdpmc_knob)], input_text="2\n")
+    else:
+        print(f"WARNING: {rdpmc_knob} not found; --rdpmc bench will fail at perf_event_open")
 
     # page size check (benchmark assumes 4KB pages)
     page_size = os.sysconf("SC_PAGESIZE")
@@ -670,6 +713,77 @@ def run_main_measurement(num_iter: int, runs: int, paths: Paths, sizes: list[str
 
 
 ########################################
+# rdpmc microbench (per-call link_free_block measurement)
+########################################
+def build_rdpmc_bench(lto_mode: str):
+    """Build the link_free_block_rdpmc binary with the rdpmc-bench feature."""
+    print(f"[*] Building link_free_block_rdpmc (--features rdpmc-bench, lto={lto_mode})")
+    env = os.environ.copy()
+    env["RUSTFLAGS"] = "-C target-cpu=native"
+    if lto_mode == "fat":
+        env["CARGO_PROFILE_RELEASE_LTO"] = "fat"
+    else:
+        env.pop("CARGO_PROFILE_RELEASE_LTO", None)
+    subprocess.run(
+        ["cargo", "build", "--release",
+         "--features", "rdpmc-bench",
+         "--bin", "link_free_block_rdpmc"],
+        cwd=str(BENCH_PROJ),
+        env=env,
+        check=True,
+    )
+
+
+def run_rdpmc_sweep(num_iter: int, paths: Paths,
+                    sizes: list[str], scenarios: list[str],
+                    counters: list[str], impls: list[str]):
+    """
+    Run the rdpmc microbench across the (impl, scenario, size, counter) grid.
+    Accumulates CSV rows into <outdir>/rdpmc_results.csv.
+    """
+    bin_path = BENCH_PROJ / "target/release/link_free_block_rdpmc"
+    if not bin_path.exists():
+        raise SystemExit(f"ERROR: {bin_path} not found. Run build_rdpmc_bench() first.")
+
+    out_csv = paths.outdir / "rdpmc_results.csv"
+    header_written = False
+    n_runs = len(impls) * len(scenarios) * len(sizes) * len(counters)
+    print(f"[*] RDPMC sweep: {n_runs} runs ({num_iter} iters each) -> {out_csv}")
+
+    with open(out_csv, "w") as f:
+        for impl_ in impls:
+            for sc in scenarios:
+                for size_str in sizes:
+                    size_bytes = size_to_int(size_str)
+                    for c in counters:
+                        cmd = [
+                            "sudo", "chrt", "-f", RT_PRIO,
+                            "taskset", "-c", CPU,
+                            str(bin_path), sc, str(size_bytes), str(num_iter),
+                            "--counter", c, "--impl", impl_,
+                        ]
+                        print(f"[*] RDPMC impl={impl_} sc={sc} size={size_str} counter={c}")
+                        p = subprocess.run(
+                            cmd, capture_output=True, text=True, check=False
+                        )
+                        if p.returncode != 0:
+                            print(f"  [!] returncode={p.returncode}: {p.stderr.strip()}")
+                            continue
+                        lines = p.stdout.splitlines()
+                        if not lines:
+                            print(f"  [!] empty stdout")
+                            continue
+                        # First line is the CSV header; emit once.
+                        if not header_written:
+                            f.write(lines[0] + "\n")
+                            header_written = True
+                        for ln in lines[1:]:
+                            f.write(ln + "\n")
+                        f.flush()
+    print(f"[*] Saved: {out_csv}")
+
+
+########################################
 # CLI
 ########################################
 def main():
@@ -679,6 +793,8 @@ def main():
     mode.add_argument("--jitter", action="store_true", help="Measure run-to-run variability + violin plots")
     mode.add_argument("--run", action="store_true", help="Main perf measurement (run equivalent)")
     mode.add_argument("--all", action="store_true", help="Setup + build + jitter + run")
+    mode.add_argument("--rdpmc", action="store_true",
+                      help="rdpmc per-call link_free_block microbench (verified vs original)")
 
     ap.add_argument("NUM_ITER", nargs="?", type=int, help="Iteration count passed to each benchmark binary")
     ap.add_argument("--runs", type=int, default=100)
@@ -687,6 +803,12 @@ def main():
     ap.add_argument("--sizes", default=None, help=f"Comma-separated sizes to run (default: all). valid: {','.join(SIZES)}")
     ap.add_argument("--violin-html", action="store_true", help="Write an HTML gallery for variability violin plots")
     ap.add_argument("--outdir", default=None)
+    ap.add_argument("--rdpmc-counters", default=None,
+                    help=f"Comma-separated rdpmc counters. Default: all. valid: {','.join(RDPMC_COUNTERS)}")
+    ap.add_argument("--rdpmc-scenarios", default=None,
+                    help=f"Comma-separated rdpmc scenarios. Default: all. valid: {','.join(RDPMC_SCENARIOS)}")
+    ap.add_argument("--rdpmc-impls", default=None,
+                    help=f"Comma-separated rdpmc impls. Default: all. valid: {','.join(RDPMC_IMPLS)}")
 
     args = ap.parse_args()
 
@@ -726,6 +848,16 @@ def main():
         run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         if args.violin_html:
             write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html", paths.jitter_csv)
+        print(f"[*] Done. Results in {paths.outdir}/")
+        return
+
+    if args.rdpmc:
+        setup_common()
+        build_rdpmc_bench(selected_lto)
+        counters = parse_csv_subset(args.rdpmc_counters, RDPMC_COUNTERS, "rdpmc-counters")
+        scenarios = parse_csv_subset(args.rdpmc_scenarios, RDPMC_SCENARIOS, "rdpmc-scenarios")
+        impls = parse_csv_subset(args.rdpmc_impls, RDPMC_IMPLS, "rdpmc-impls")
+        run_rdpmc_sweep(args.NUM_ITER, paths, selected_sizes, scenarios, counters, impls)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 

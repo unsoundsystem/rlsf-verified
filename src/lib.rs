@@ -24,9 +24,6 @@ mod search_block;
 pub mod unverified_api;
 mod utils;
 
-#[cfg(feature = "rdpmc-bench")]
-pub mod perf_probe;
-
 #[cfg(feature = "std")]
 extern crate std;
 
