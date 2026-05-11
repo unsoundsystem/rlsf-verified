@@ -1,0 +1,130 @@
+note: verifying root module
+
+note: Analyzing prover log for root module ...
+
+Z3 4.12.5
+note: Log analysis complete for root module
+
+note: Profile statistics for root module
+
+note: Observed 269 total instantiations of user-level quantifiers
+
+note: Cost * Instantiations: 13860 (Instantiated 99 times - 36% of the total, cost 140) top 1 of 13 user-level quantifiers.
+      
+  --> ./list_trigger.rs:25:22
+   |
+22 |               &&& forall|i: int, j: int|
+   |  _________________-
+23 | |                     0 <= i < self.l1@.len() &&
+24 | |                     0 <= j < self.l1@.len() && i < j
+25 | |                 ==> (self.l1@[i] as usize) < (self.l1@[j] as usize)
+   | |______________________^^^^^^^^^^^______________^^^^^^^^^^^_________- Triggers selected for this quantifier
+
+note: Cost * Instantiations: 8844 (Instantiated 44 times - 16% of the total, cost 201) top 2 of 13 user-level quantifiers.
+      
+ --> vstd/raw_ptr.rs:380:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 2860 (Instantiated 44 times - 16% of the total, cost 65) top 3 of 13 user-level quantifiers.
+      
+ --> vstd/raw_ptr.rs:366:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 2784 (Instantiated 24 times - 8% of the total, cost 116) top 4 of 13 user-level quantifiers.
+      
+  --> ./list_trigger.rs:17:29
+   |
+15 |               &&& forall|i: int| 0 <= i < self.l1@.len()
+   |  _________________-
+16 | |                 ==> {
+17 | |                     let k = #[trigger] self.l1@[i];
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^
+18 | |                     &&& self.m@.contains_key(k)
+19 | |                     &&& self.l1@[i] == self.m@[k].ptr()
+20 | |                     &&& self.m@[k].is_init()
+21 | |                 }
+   | |_________________- Triggers selected for this quantifier
+
+note: Cost * Instantiations: 351 (Instantiated 13 times - 4% of the total, cost 27) top 5 of 13 user-level quantifiers.
+      
+ --> vstd/map.rs:229:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 276 (Instantiated 4 times - 1% of the total, cost 69) top 6 of 13 user-level quantifiers.
+      
+ --> vstd/raw_ptr.rs:355:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 196 (Instantiated 14 times - 5% of the total, cost 14) top 7 of 13 user-level quantifiers.
+      
+ --> vstd/map.rs:250:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 169 (Instantiated 13 times - 4% of the total, cost 13) top 8 of 13 user-level quantifiers.
+      
+ --> vstd/map.rs:222:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 16 (Instantiated 4 times - 1% of the total, cost 4) top 9 of 13 user-level quantifiers.
+      
+  --> ./list_trigger.rs:35:21
+   |
+34 |               &&& forall|i: int| 0 <= i < self.l2@.len()
+   |  _________________-
+35 | |                 ==> self.wf_node_l2(i)
+   | |                     ^^^^^^^^^^^^^^^^^-
+   | |______________________________________|
+   |                                        Triggers selected for this quantifier
+
+note: Cost * Instantiations: 16 (Instantiated 4 times - 1% of the total, cost 4) top 10 of 13 user-level quantifiers.
+      
+  --> ./list_trigger.rs:66:20
+   |
+65 |               let ghost idx_l1 = choose|i: int| 0 <= i < self.l1@.len()
+   |  ________________________________-
+66 | |                 && self.l1@[i] == node;
+   | |____________________^^^^^^^^^^^_______- Triggers selected for this quantifier
+
+note: automatically chose triggers for this expression:
+  --> ./list_trigger.rs:22:17
+   |
+22 |               &&& forall|i: int, j: int|
+   |  _________________^
+23 | |                     0 <= i < self.l1@.len() &&
+24 | |                     0 <= j < self.l1@.len() && i < j
+25 | |                 ==> (self.l1@[i] as usize) < (self.l1@[j] as usize)
+   | |___________________________________________________________________^
+
+note:   trigger 1 of 1:
+  --> ./list_trigger.rs:25:22
+   |
+25 |                 ==> (self.l1@[i] as usize) < (self.l1@[j] as usize)
+   |                      ^^^^^^^^^^^              ^^^^^^^^^^^
+
+note: Verus printed one or more automatically chosen quantifier triggers
+      because it had low confidence in the chosen triggers.
+      To suppress these messages, do one of the following:
+        (1) manually annotate a single desired trigger using #[trigger]
+            (example: forall|i: int, j: int| f(i) && #[trigger] g(i) && #[trigger] h(j)),
+        (2) manually annotate multiple desired triggers using #![trigger ...]
+            (example: forall|i: int| #![trigger f(i)] #![trigger g(i)] f(i) && g(i)),
+        (3) accept the automatically chosen trigger using #![auto]
+            (example: forall|i: int, j: int| #![auto] f(i) && g(i) && h(j))
+        (4) use the --triggers-mode silent command-line option to suppress all printing of triggers.
+      (Note: triggers are used by the underlying SMT theorem prover to instantiate quantifiers;
+      the theorem prover instantiates a quantifier whenever some expression matches the
+      pattern specified by one of the quantifier's triggers.)
+  --> ./list_trigger.rs:22:17
+   |
+22 |               &&& forall|i: int, j: int|
+   |  _________________^
+23 | |                     0 <= i < self.l1@.len() &&
+24 | |                     0 <= j < self.l1@.len() && i < j
+25 | |                 ==> (self.l1@[i] as usize) < (self.l1@[j] as usize)
+   | |___________________________________________________________________^

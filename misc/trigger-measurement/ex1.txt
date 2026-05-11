@@ -1,0 +1,91 @@
+note: verifying root module
+
+note: Analyzing prover log for root module ...
+
+Z3 4.12.5
+note: Log analysis complete for root module
+
+note: Profile statistics for root module
+
+note: Observed 174 total instantiations of user-level quantifiers
+
+note: Cost * Instantiations: 9284 (Instantiated 44 times - 25% of the total, cost 211) top 1 of 12 user-level quantifiers.
+      
+ --> vstd/raw_ptr.rs:380:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 3080 (Instantiated 44 times - 25% of the total, cost 70) top 2 of 12 user-level quantifiers.
+      
+ --> vstd/raw_ptr.rs:366:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 3078 (Instantiated 27 times - 15% of the total, cost 114) top 3 of 12 user-level quantifiers.
+      
+  --> ./list_trigger.rs:17:29
+   |
+15 |               &&& forall|i: int| 0 <= i < self.l1@.len()
+   |  _________________-
+16 | |                 ==> {
+17 | |                     let k = #[trigger] self.l1@[i];
+   | |                             ^^^^^^^^^^^^^^^^^^^^^^
+18 | |                     &&& self.m@.contains_key(k)
+19 | |                     &&& self.l1@[i] == self.m@[k].ptr()
+20 | |                     &&& self.m@[k].is_init()
+21 | |                 }
+   | |_________________- Triggers selected for this quantifier
+
+note: Cost * Instantiations: 336 (Instantiated 12 times - 6% of the total, cost 28) top 4 of 12 user-level quantifiers.
+      
+ --> vstd/map.rs:229:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 256 (Instantiated 16 times - 9% of the total, cost 16) top 5 of 12 user-level quantifiers.
+      
+ --> vstd/map.rs:250:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 232 (Instantiated 4 times - 2% of the total, cost 58) top 6 of 12 user-level quantifiers.
+      
+ --> vstd/raw_ptr.rs:355:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 121 (Instantiated 11 times - 6% of the total, cost 11) top 7 of 12 user-level quantifiers.
+      
+ --> vstd/map.rs:222:0
+  |
+  = note: Triggers selected for this quantifier
+
+note: Cost * Instantiations: 36 (Instantiated 6 times - 3% of the total, cost 6) top 8 of 12 user-level quantifiers.
+      
+  --> ./list_trigger.rs:31:21
+   |
+30 |               &&& forall|i: int| 0 <= i < self.l2@.len()
+   |  _________________-
+31 | |                 ==> self.wf_node_l2(i)
+   | |                     ^^^^^^^^^^^^^^^^^-
+   | |______________________________________|
+   |                                        Triggers selected for this quantifier
+
+note: Cost * Instantiations: 16 (Instantiated 4 times - 2% of the total, cost 4) top 9 of 12 user-level quantifiers.
+      
+  --> ./list_trigger.rs:62:20
+   |
+61 |               let ghost idx_l1 = choose|i: int| 0 <= i < self.l1@.len()
+   |  ________________________________-
+62 | |                 && self.l1@[i] == node;
+   | |____________________^^^^^^^^^^^_______- Triggers selected for this quantifier
+
+note: Cost * Instantiations: 9 (Instantiated 3 times - 1% of the total, cost 3) top 10 of 12 user-level quantifiers.
+      
+  --> ./list_trigger.rs:26:21
+   |
+25 | /             forall|i: int| 0 <= i < self.l1@.len()
+26 | |                 ==> self.wf_node_l1(i)
+   | |                     ^^^^^^^^^^^^^^^^^-
+   | |______________________________________|
+   |                                        Triggers selected for this quantifier
