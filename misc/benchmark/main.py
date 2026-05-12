@@ -411,6 +411,7 @@ def measure_jitter(num_iter: int, runs: int, paths: Paths, sizes: list[str], tas
     print(f"[*] Saved variability CSV: {paths.jitter_csv}")
 
     plot_jitter_violins(df, paths.fig_dir, sizes, task)
+    plot_jitter_violin_paper(df, paths.fig_dir, sizes, task)
 
 
 def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path, sizes: list[str], task: str):
@@ -454,6 +455,134 @@ def plot_jitter_violins(df: pd.DataFrame, fig_dir: Path, sizes: list[str], task:
         title=f"[{task}] Run-to-run variability (task-clock) all sizes",
     )
     print(f"[*] Variability figures saved under: {fig_dir}")
+
+
+def plot_jitter_violin_paper(df: pd.DataFrame, fig_dir: Path,
+                              sizes: list[str], task: str):
+    """
+    Paper-grade combined violin plot of cycles per (allocate+free) iteration.
+    One subplot per size, sharing the y axis so cycle counts are visually
+    comparable across sizes. Output is a single SVG with svg.fonttype="none"
+    so text remains <text> elements (editable in Inkscape, small file).
+    """
+    required = {"kind", "size", "num_iter", "cycles"}
+    missing = required - set(df.columns)
+    if missing:
+        print(f"[!] Paper violin: jitter df missing columns {sorted(missing)}; skipping")
+        return
+    df = df[df["kind"].isin(KINDS) & df["size"].isin(sizes)].copy()
+    if df.empty:
+        print(f"[!] Paper violin: no rows match kind/size selection; skipping")
+        return
+    df["cycles_per_iter"] = df["cycles"] / df["num_iter"]
+
+    sizes_in_order = [s for s in SIZES if s in sizes and (df["size"] == s).any()]
+    if not sizes_in_order:
+        print(f"[!] Paper violin: no data for any selected size; skipping")
+        return
+    n = len(sizes_in_order)
+
+    impls = ["original", "verified"]
+    hatches = {"original": "..", "verified": "///"}
+    facecolor = (0.85, 0.85, 0.85)
+
+    stats: dict[tuple[str, str], dict] = {}
+    for k in impls:
+        for s in sizes_in_order:
+            vals = df[(df["kind"] == k) & (df["size"] == s)][
+                "cycles_per_iter"
+            ].to_numpy()
+            if vals.size == 0:
+                print(f"[!] Paper violin: no samples for kind={k} size={s}; skipping")
+                return
+            stats[(k, s)] = {
+                "median": float(np.median(vals)),
+                "p99":    float(np.percentile(vals, 99)),
+                "values": vals,
+            }
+
+    prev_rc = {
+        "font.size": plt.rcParams["font.size"],
+        "axes.labelsize": plt.rcParams["axes.labelsize"],
+        "xtick.labelsize": plt.rcParams["xtick.labelsize"],
+        "ytick.labelsize": plt.rcParams["ytick.labelsize"],
+        "legend.fontsize": plt.rcParams["legend.fontsize"],
+        "svg.fonttype": plt.rcParams["svg.fonttype"],
+    }
+    plt.rcParams.update({
+        "font.size": 8,
+        "axes.labelsize": 8,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
+        "legend.fontsize": 7,
+        # Keep <text> elements rather than path-converted glyphs; smaller
+        # file and trivially editable in Inkscape. Switch to "path" if the
+        # viewer may lack the renderer's font.
+        "svg.fonttype": "none",
+    })
+
+    # 1 row × n subplots, scaled to fit IEEE double-column (≤7 in wide).
+    per_w = max(0.9, 6.5 / n)
+    fig_w = min(7.0, per_w * n + 0.7)
+    fig, axes = plt.subplots(
+        1, n, sharey=True, figsize=(fig_w, 2.4), constrained_layout=True
+    )
+    if n == 1:
+        axes = [axes]
+
+    for i, s in enumerate(sizes_in_order):
+        ax = axes[i]
+        data = [stats[(k, s)]["values"] for k in impls]
+        positions = [0, 1]
+        parts = ax.violinplot(
+            data, positions=positions, widths=0.7,
+            showmedians=False, showextrema=False,
+            quantiles=[[0.25, 0.75]] * 2,
+        )
+        for j, body in enumerate(parts["bodies"]):
+            body.set_facecolor(facecolor)
+            body.set_edgecolor("black")
+            body.set_linewidth(0.5)
+            body.set_alpha(1.0)
+            body.set_hatch(hatches[impls[j]])
+        if "cquantiles" in parts:
+            parts["cquantiles"].set_color("gray")
+            parts["cquantiles"].set_linewidth(0.4)
+        for j, k in enumerate(impls):
+            ax.hlines(
+                stats[(k, s)]["median"],
+                positions[j] - 0.25, positions[j] + 0.25,
+                colors="white", linewidth=1.2, zorder=3,
+            )
+
+        m_o = stats[("original", s)]["median"]
+        m_v = stats[("verified", s)]["median"]
+        ratio = m_v / m_o if m_o > 0 else float("nan")
+        p99_pair = max(stats[(k, s)]["p99"] for k in impls)
+        ax.text(
+            0.5, p99_pair * 1.02, f"×{ratio:.2f}",
+            ha="center", va="bottom", fontsize=7,
+        )
+
+        ax.set_xticks(positions)
+        ax.set_xticklabels(impls, rotation=15)
+        ax.set_xlim(-0.6, 1.6)
+        ax.set_title(s, fontsize=8)
+        ax.yaxis.grid(True, linestyle=":", linewidth=0.4, color="gray")
+        ax.xaxis.grid(False)
+        ax.set_axisbelow(True)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
+
+    axes[0].set_ylabel("Cycles per allocate+free")
+
+    out_svg = fig_dir / f"variability_violin_paper_{task}.svg"
+    out_svg.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_svg, bbox_inches="tight")
+    plt.close(fig)
+    plt.rcParams.update(prev_rc)
+
+    print(f"[*] Saved paper violin SVG: {out_svg}")
 
 
 def _build_summary_table_html(jitter_csv: Path) -> str:
@@ -1047,7 +1176,7 @@ def main():
         if args.violin:
             plot_main_violin(
                 paths.outdir / "main_summary.csv",
-                paths.fig_dir / f"perf_violin_{selected_task}.pdf",
+                paths.fig_dir / violin_pdf_name(selected_task, selected_sizes),
                 selected_sizes, selected_task,
             )
         print(f"[*] Done. Results in {paths.outdir}/")
@@ -1069,7 +1198,7 @@ def main():
         if args.violin:
             plot_main_violin(
                 paths.outdir / "main_summary.csv",
-                paths.fig_dir / f"perf_violin_{selected_task}.pdf",
+                paths.fig_dir / violin_pdf_name(selected_task, selected_sizes),
                 selected_sizes, selected_task,
             )
         print(f"[*] Done. Results in {paths.outdir}/")
