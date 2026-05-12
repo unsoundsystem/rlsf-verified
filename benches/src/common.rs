@@ -229,3 +229,67 @@ pub fn run_coalesce_original(size: usize, iters: usize) {
         }
     }
 }
+
+// exhaust: per iteration, allocate blocks with sizes starting at GRANULARITY
+// and stepping by EXHAUST_STEP bytes until the pool is exhausted, then
+// deallocate all blocks in FIFO (allocation) order. Fresh Tlsf each iter.
+const EXHAUST_STEP: usize = 10;
+
+pub fn run_exhaust_verified(iters: usize) {
+    use rlsf_verified::{parameters::GRANULARITY, Tlsf};
+    let align = GRANULARITY;
+    let mut ptrs: Vec<*mut u8> = Vec::new();
+    for _ in 0..iters {
+        let mut pool = AlignedPool([MaybeUninit::uninit(); BUF_SIZE]);
+        let mut tlsf = Tlsf::<FLLEN, SLLEN>::new();
+        unsafe {
+            let start = pool.0.as_mut_ptr() as *mut u8;
+            tlsf.insert_free_block_ptr_aligned_test(start, BUF_SIZE);
+
+            ptrs.clear();
+            let mut size = GRANULARITY;
+            while let Some((p, _, _)) = tlsf.allocate(black_box(size), align) {
+                ptrs.push(p);
+                size += EXHAUST_STEP;
+            }
+            for i in 0..ptrs.len() {
+                tlsf.deallocate_ext(black_box(ptrs[i]), align);
+            }
+        }
+        black_box(&ptrs);
+    }
+}
+
+pub fn run_exhaust_original(iters: usize) {
+    use rlsf::Tlsf;
+    use std::alloc::Layout;
+    // Mirror the verified GRANULARITY constant (32). AlignedPool's
+    // #[repr(align(32))] at the top of this file also encodes this.
+    const G: usize = 32;
+    let mut ptrs: Vec<(std::ptr::NonNull<u8>, Layout)> = Vec::new();
+    for _ in 0..iters {
+        let mut pool = [MaybeUninit::uninit(); BUF_SIZE];
+        let mut tlsf: Tlsf<'_, u16, u16, FLLEN, SLLEN> = Tlsf::new();
+        tlsf.insert_free_block(&mut pool);
+
+        unsafe {
+            ptrs.clear();
+            let mut size = G;
+            loop {
+                let layout = Layout::from_size_align(size, G).unwrap();
+                match tlsf.allocate(layout) {
+                    Some(p) => {
+                        ptrs.push((p, layout));
+                        size += EXHAUST_STEP;
+                    }
+                    None => break,
+                }
+            }
+            for i in 0..ptrs.len() {
+                let (p, layout) = ptrs[i];
+                tlsf.deallocate(black_box(p), layout.align());
+            }
+        }
+        black_box(&ptrs);
+    }
+}

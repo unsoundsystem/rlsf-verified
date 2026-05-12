@@ -62,8 +62,19 @@ RT_PRIO = "99"
 BENCH_PROJ = Path(__file__).resolve().parent.parent.parent / "benches"
 SIZES = ["32b", "64b", "512b", "2k", "4k", "8k"]
 KINDS = ["original", "verified"]
-TASKS = ["alt", "aaaddd", "deref", "coalesce"]
+TASKS = ["alt", "aaaddd", "deref", "coalesce", "exhaust"]
 LTO_MODES = ["none", "fat"]
+
+# Per-task size variants. Tasks whose workload sweeps allocation sizes
+# internally (e.g. "exhaust": fill pool with G, G+10, G+20, ... until None)
+# have no per-size binary variants — their bin name has no size token.
+TASK_SIZES: dict[str, list[str]] = {
+    "alt": SIZES,
+    "aaaddd": SIZES,
+    "deref": SIZES,
+    "coalesce": SIZES,
+    "exhaust": ["all"],
+}
 
 # rdpmc microbench dimensions (per-call link_free_block measurement)
 RDPMC_COUNTERS = [
@@ -129,7 +140,7 @@ def build_project(task: str, lto_mode: str):
         raise SystemExit(f"ERROR: BENCH_PROJ not found: {BENCH_PROJ}")
     print(f"[*] Build config: task={task} lto={lto_mode}")
 
-    for s in SIZES:
+    for s in TASK_SIZES[task]:
         for k in KINDS:
             bin_name = bin_name_for(task, s, k)
             print(f"  - build {bin_name}")
@@ -160,19 +171,29 @@ def ensure_binaries(task: str, sizes: list[str], lto_mode: str = "none"):
         build_project(task, lto_mode)
 
 
-def parse_sizes_arg(sizes_arg: str | None) -> list[str]:
+def parse_sizes_arg(sizes_arg: str | None, task: str) -> list[str]:
+    valid = TASK_SIZES[task]
+
+    # Tasks with a single synthetic size (e.g. "all" for "exhaust") have no
+    # per-size variants; --sizes is ignored.
+    if len(valid) == 1:
+        if sizes_arg is not None:
+            print(f"[!] --sizes ignored for task={task} (no per-size variants)")
+        return list(valid)
+
     if sizes_arg is None:
-        return SIZES
+        return list(valid)
 
     raw = [s.strip() for s in sizes_arg.split(",")]
     selected = [s for s in raw if s]
     if not selected:
         raise SystemExit("ERROR: --sizes is empty")
 
-    invalid = [s for s in selected if s not in SIZES]
+    invalid = [s for s in selected if s not in valid]
     if invalid:
         raise SystemExit(
-            f"ERROR: unknown size(s): {', '.join(invalid)}. valid: {', '.join(SIZES)}"
+            f"ERROR: unknown size(s) for task={task}: {', '.join(invalid)}. "
+            f"valid: {', '.join(valid)}"
         )
 
     # keep user order, drop duplicates
@@ -204,7 +225,26 @@ def parse_lto_arg(lto_arg: str | None) -> str:
 
 
 def bin_name_for(task: str, size: str, kind: str) -> str:
+    # Synthetic "all" tag means the task has no per-size binary variant;
+    # its [[bin]] is registered as e.g. "exhaust-verified" (no size token).
+    if size == "all":
+        return f"{task}-{kind}"
     return f"{task}{size}-{kind}"
+
+
+def violin_pdf_name(task: str, sizes: list[str]) -> str:
+    """Filename for the paper violin PDF (instructions per cycle)."""
+    if sizes == ["all"]:
+        return f"violin_paper_{task}.pdf"
+    return f"violin_paper_{task}_{'_'.join(sizes)}.pdf"
+
+
+def _sizes_in_order(task: str, sizes: list[str], present_in_df) -> list[str]:
+    """Order `sizes` according to the task's canonical size list, keeping only
+    entries that actually have data. `present_in_df` is a callable taking a
+    size tag and returning True if the dataframe contains any row for it."""
+    canonical = TASK_SIZES.get(task, SIZES)
+    return [s for s in canonical if s in sizes and present_in_df(s)]
 
 
 def size_to_int(size_str: str) -> int:
@@ -476,11 +516,14 @@ def plot_jitter_violin_paper(df: pd.DataFrame, fig_dir: Path,
         return
     df["cycles_per_iter"] = df["cycles"] / df["num_iter"]
 
-    sizes_in_order = [s for s in SIZES if s in sizes and (df["size"] == s).any()]
+    sizes_in_order = _sizes_in_order(
+        task, sizes, lambda s: (df["size"] == s).any()
+    )
     if not sizes_in_order:
         print(f"[!] Paper violin: no data for any selected size; skipping")
         return
     n = len(sizes_in_order)
+    single_panel = sizes_in_order == ["all"]
 
     impls = ["original", "verified"]
     hatches = {"original": "..", "verified": "///"}
@@ -567,22 +610,27 @@ def plot_jitter_violin_paper(df: pd.DataFrame, fig_dir: Path,
         ax.set_xticks(positions)
         ax.set_xticklabels(impls, rotation=15)
         ax.set_xlim(-0.6, 1.6)
-        ax.set_title(s, fontsize=8)
+        if not single_panel:
+            ax.set_title(s, fontsize=8)
         ax.yaxis.grid(True, linestyle=":", linewidth=0.4, color="gray")
         ax.xaxis.grid(False)
         ax.set_axisbelow(True)
         for spine in ("top", "right"):
             ax.spines[spine].set_visible(False)
 
-    axes[0].set_ylabel("Cycles per allocate+free")
+    ylabel = "Cycles per fill+drain" if single_panel else "Cycles per allocate+free"
+    axes[0].set_ylabel(ylabel)
 
     out_svg = fig_dir / f"variability_violin_paper_{task}.svg"
+    out_png = fig_dir / f"variability_violin_paper_{task}.png"
     out_svg.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_svg, bbox_inches="tight")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
     plt.rcParams.update(prev_rc)
 
     print(f"[*] Saved paper violin SVG: {out_svg}")
+    print(f"[*] Saved paper violin PNG: {out_png}")
 
 
 def _build_summary_table_html(jitter_csv: Path) -> str:
@@ -912,10 +960,13 @@ def plot_main_violin(summary_csv: Path, out_pdf: Path, sizes: list[str], task: s
 
     df["instructions_per_cycle"] = df["instructions"] / df["num_iter"]
 
-    sizes_in_order = [s for s in SIZES if s in sizes and (df["size"] == s).any()]
+    sizes_in_order = _sizes_in_order(
+        task, sizes, lambda s: (df["size"] == s).any()
+    )
     if not sizes_in_order:
         print("[!] Violin: no data for any selected size; skipping")
         return
+    single_panel = sizes_in_order == ["all"]
 
     impls = ["original", "verified"]
     hatches = {"original": "..", "verified": "///"}
@@ -995,10 +1046,15 @@ def plot_main_violin(summary_csv: Path, out_pdf: Path, sizes: list[str], task: s
                 ha="center", va="bottom", fontsize=7)
 
     ax.set_xticks(range(n))
-    ax.set_xticklabels(sizes_in_order)
+    ax.set_xticklabels([task] if single_panel else sizes_in_order)
     ax.set_xlim(-0.5, n - 0.5)
-    ax.set_xlabel("Allocation size")
-    ax.set_ylabel("Instructions per allocate+free cycle")
+    ax.set_xlabel("" if single_panel else "Allocation size")
+    ylabel_main = (
+        "Instructions per fill+drain"
+        if single_panel
+        else "Instructions per allocate+free cycle"
+    )
+    ax.set_ylabel(ylabel_main)
     ax.set_ylim(0, y_clip)
     ax.yaxis.grid(True, linestyle=":", linewidth=0.4, color="gray")
     ax.xaxis.grid(False)
@@ -1020,11 +1076,14 @@ def plot_main_violin(summary_csv: Path, out_pdf: Path, sizes: list[str], task: s
 
     fig.tight_layout()
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
+    out_png = out_pdf.with_suffix(".png")
     fig.savefig(out_pdf, dpi=300, bbox_inches="tight")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
     plt.rcParams.update(prev_rc)
 
     print(f"[*] Saved violin PDF: {out_pdf}")
+    print(f"[*] Saved violin PNG: {out_png}")
     _print_violin_summary(stats, sizes_in_order, impls)
 
 
@@ -1157,7 +1216,7 @@ def main():
     paths = make_outdir(args.outdir)
     selected_task = parse_task_arg(args.task)
     selected_lto = parse_lto_arg(args.lto)
-    selected_sizes = parse_sizes_arg(args.sizes)
+    selected_sizes = parse_sizes_arg(args.sizes, selected_task)
 
     if args.build:
         build_project(selected_task, selected_lto)

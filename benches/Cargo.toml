@@ -176,6 +176,16 @@ path = "src/coalesce8k_verified.rs"
 name = "coalesce8k-original"
 path = "src/coalesce8k_original.rs"
 
+# exhaust: per iteration, allocate sizes G, G+10, G+20, ... until pool is
+# exhausted, then deallocate all in FIFO order. No per-size variant — the
+# size sweep is internal to the workload.
+[[bin]]
+name = "exhaust-verified"
+path = "src/exhaust_verified.rs"
+[[bin]]
+name = "exhaust-original"
+path = "src/exhaust_original.rs"
+
 # rdpmc microbench: per-call cycles/cache for link_free_block. Requires the
 # rdpmc-bench feature so probe instrumentation is compiled into rlsf-verified.
 [[bin]]
