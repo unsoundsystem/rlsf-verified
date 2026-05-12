@@ -1367,8 +1367,9 @@ def plot_paper_violin(df: "pd.DataFrame", fig_dir: Path,
                bbox_to_anchor=(0.5, 1.05), ncol=2,
                frameon=False, fontsize=7)
 
-    out_svg = fig_dir / f"paper_violin_{task}.svg"
-    out_pdf = fig_dir / f"paper_violin_{task}.pdf"
+    stem = f"{task}_panels" if task == "coalesce" else task
+    out_svg = fig_dir / f"{stem}.svg"
+    out_pdf = fig_dir / f"{stem}.pdf"
     out_svg.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_svg, bbox_inches="tight")
     fig.savefig(out_pdf, dpi=300, bbox_inches="tight")
@@ -1378,10 +1379,12 @@ def plot_paper_violin(df: "pd.DataFrame", fig_dir: Path,
     print(f"[*] Saved figure: {out_svg}")
     print(f"[*] Saved figure: {out_pdf}")
 
-    # Stats summary table
-    print()
-    print("| impl     | size    | metric         | median      | IQR         |")
-    print("|----------|---------|----------------|-------------|-------------|")
+    # Stats summary table (printed and saved as <task>_stats.md next to the figures)
+    lines: list[str] = []
+    lines.append(f"# Paper stats: task={task}  iters/run={num_iter}")
+    lines.append("")
+    lines.append("| impl     | size    | metric         | median      | IQR         |")
+    lines.append("|----------|---------|----------------|-------------|-------------|")
     for k in KINDS:
         for s in sizes_in_order:
             for metric, label in [("cycles", "cycles/iter "),
@@ -1391,7 +1394,8 @@ def plot_paper_violin(df: "pd.DataFrame", fig_dir: Path,
                     continue
                 med = float(np.median(v))
                 iqr = float(np.percentile(v, 75) - np.percentile(v, 25))
-                print(f"| {k:<8} | {s:<7} | {label} | {med:>10.1f}  | {iqr:>10.1f}  |")
+                lines.append(f"| {k:<8} | {s:<7} | {label} | {med:>10.1f}  | {iqr:>10.1f}  |")
+    lines.append("")
     for s in sizes_in_order:
         for metric, label in [("cycles", "cycles"), ("instructions", "insn  ")]:
             m_o = float(np.median(
@@ -1399,7 +1403,13 @@ def plot_paper_violin(df: "pd.DataFrame", fig_dir: Path,
             m_v = float(np.median(
                 (df[(df["kind"] == "verified") & (df["size"] == s)][metric] / num_iter).to_numpy()))
             if m_o > 0:
-                print(f"  size={s}  {label} median ratio (verified/original) = {m_v / m_o:.3f}")
+                lines.append(f"  size={s}  {label} median ratio (verified/original) = {m_v / m_o:.3f}")
+    print()
+    for ln in lines:
+        print(ln)
+    stats_path = fig_dir / f"{task}_stats.md"
+    stats_path.write_text("\n".join(lines) + "\n")
+    print(f"[*] Saved stats: {stats_path}")
 
 
 def plot_paper_grouped(df: "pd.DataFrame", fig_dir: Path,
@@ -1518,8 +1528,8 @@ def plot_paper_grouped(df: "pd.DataFrame", fig_dir: Path,
     )
 
     fig.tight_layout()
-    out_svg = fig_dir / f"paper_violin_grouped_{task}.svg"
-    out_pdf = fig_dir / f"paper_violin_grouped_{task}.pdf"
+    out_svg = fig_dir / f"{task}.svg"
+    out_pdf = fig_dir / f"{task}.pdf"
     out_svg.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_svg, bbox_inches="tight")
     fig.savefig(out_pdf, dpi=300, bbox_inches="tight")
