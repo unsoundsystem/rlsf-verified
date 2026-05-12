@@ -1182,6 +1182,353 @@ def run_rdpmc_sweep(num_iter: int, paths: Paths,
 
 
 ########################################
+# Paper figure (--paper): standalone path that does not share code with the
+# jitter measurement. Uses sudo+chrt+taskset+perf when passwordless sudo is
+# available, else falls back to taskset+perf (no RT priority).
+########################################
+def _sudo_nopw_available() -> bool:
+    """True if `sudo -n true` succeeds (passwordless sudo for this user)."""
+    try:
+        p = subprocess.run(["sudo", "-n", "true"],
+                           capture_output=True, text=True, check=False)
+        return p.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _parse_perf_xcsv_paper(stderr_text: str) -> dict[str, tuple[float, str]]:
+    """Like parse_perf_xcsv, but strips the ':u' suffix that appears when
+    perf_event_paranoid >= 2 (userspace-only counters). Local to --paper so
+    the existing jitter parser stays unchanged."""
+    out: dict[str, tuple[float, str]] = {}
+    for line in stderr_text.splitlines():
+        cols = [c.strip() for c in line.split(",")]
+        if len(cols) < 3 or not cols[0] or cols[0].startswith("<"):
+            continue
+        try:
+            val = float(cols[0].replace(",", ""))
+        except ValueError:
+            continue
+        event = (cols[2] or "(unknown)").removesuffix(":u")
+        out[event] = (val, cols[1])
+    return out
+
+
+def _run_perf_stat_paper(bin_path: Path, num_iter: int, events: str,
+                         use_rt: bool) -> tuple[int, dict[str, tuple[float, str]], str]:
+    cmd: list[str] = []
+    if use_rt:
+        cmd += ["sudo", "-n", "chrt", "-f", RT_PRIO]
+    cmd += ["taskset", "-c", CPU,
+            "perf", "stat", "-x,", "-e", events,
+            str(bin_path), str(num_iter)]
+    p = subprocess.run(cmd, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE, text=True, check=False)
+    return p.returncode, _parse_perf_xcsv_paper(p.stderr), p.stderr
+
+
+PAPER_EVENTS = "cycles,instructions,task-clock"
+
+
+def measure_paper(num_iter: int, runs: int, paths: Paths,
+                  sizes: list[str], task: str, use_rt: bool) -> "pd.DataFrame":
+    """Sweep perf stat across (kind, size, run) for the paper figure.
+    Output: <outdir>/paper_perf.csv."""
+    ensure_binaries(task, sizes)
+    records: list[dict] = []
+    rt_label = "RT (sudo+chrt)" if use_rt else "no-RT (plain perf)"
+    print(f"[*] PAPER sweep: task={task} sizes={sizes} runs={runs}  [{rt_label}]")
+    for s in sizes:
+        for k in KINDS:
+            bin_path = BENCH_PROJ / f"target/release/{bin_name_for(task, s, k)}"
+            for i in range(1, runs + 1):
+                rc, m, raw = _run_perf_stat_paper(bin_path, num_iter, PAPER_EVENTS, use_rt)
+                if rc != 0:
+                    print(f"  [!] {bin_path.name} run {i}: rc={rc} stderr={raw.strip()[:200]}")
+                    continue
+                records.append({
+                    "task": task, "kind": k, "size": s, "run": i,
+                    "num_iter": num_iter,
+                    "cycles": m.get("cycles", (float("nan"), ""))[0],
+                    "instructions": m.get("instructions", (float("nan"), ""))[0],
+                    "task_clock": m.get("task-clock", (float("nan"), ""))[0],
+                })
+                if i == 1 or i == runs or i % max(1, runs // 5) == 0:
+                    cy = records[-1]["cycles"]
+                    print(f"  [{k} {s} run {i:>3}/{runs}] cycles={cy:.3e}", flush=True)
+    df = pd.DataFrame(records)
+    csv_path = paths.outdir / "paper_perf.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"[*] Saved CSV: {csv_path}")
+    return df
+
+
+def plot_paper_violin(df: "pd.DataFrame", fig_dir: Path,
+                      sizes: list[str], task: str, num_iter: int):
+    """Paper-grade violin. Single-size tasks (e.g. exhaust) get a 2-panel
+    (cycles, instructions) layout; multi-size tasks get one cycles panel
+    per size."""
+    df = df[df["kind"].isin(KINDS) & df["size"].isin(sizes)].copy()
+    if df.empty:
+        print("[!] Paper plot: no rows match; skipping")
+        return
+
+    canonical = TASK_SIZES.get(task, SIZES)
+    sizes_in_order = [s for s in canonical if s in sizes and (df["size"] == s).any()]
+    if not sizes_in_order:
+        print("[!] Paper plot: no matching sizes")
+        return
+
+    prev_rc = {kk: plt.rcParams[kk] for kk in [
+        "font.size", "axes.labelsize", "xtick.labelsize",
+        "ytick.labelsize", "legend.fontsize",
+        "pdf.fonttype", "ps.fonttype", "svg.fonttype",
+    ]}
+    plt.rcParams.update({
+        "font.size": 8, "axes.labelsize": 8,
+        "xtick.labelsize": 7, "ytick.labelsize": 7,
+        "legend.fontsize": 7,
+        "pdf.fonttype": 42, "ps.fonttype": 42,
+        "svg.fonttype": "none",
+    })
+    hatches = {"original": "..", "verified": "///"}
+    facecolor = (0.85, 0.85, 0.85)
+
+    def _draw_pair(ax, data_list, ymax_p99, ratio_text, ylabel, xticklabels):
+        parts = ax.violinplot(data_list, positions=[0, 1], widths=0.7,
+                              showmedians=False, showextrema=False,
+                              quantiles=[[0.25, 0.75]] * 2)
+        for j, body in enumerate(parts["bodies"]):
+            body.set_facecolor(facecolor)
+            body.set_edgecolor("black"); body.set_linewidth(0.5)
+            body.set_alpha(1.0); body.set_hatch(hatches[xticklabels[j]])
+        if "cquantiles" in parts:
+            parts["cquantiles"].set_color("gray")
+            parts["cquantiles"].set_linewidth(0.4)
+        for j, d in enumerate(data_list):
+            ax.hlines(float(np.median(d)),
+                      j - 0.25, j + 0.25,
+                      colors="white", linewidth=1.2, zorder=3)
+        ax.text(0.5, ymax_p99 * 1.03, ratio_text,
+                ha="center", va="bottom", fontsize=7)
+        ax.set_xticks([0, 1]); ax.set_xticklabels(xticklabels, rotation=15)
+        ax.set_xlim(-0.6, 1.6); ax.set_ylabel(ylabel)
+        ax.yaxis.grid(True, linestyle=":", linewidth=0.4, color="gray")
+        ax.xaxis.grid(False); ax.set_axisbelow(True)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+
+    if len(sizes_in_order) == 1:
+        s = sizes_in_order[0]
+        fig, axes = plt.subplots(1, 2, figsize=(6.5, 2.4),
+                                  constrained_layout=True)
+        for ax, (metric, ylabel) in zip(axes, [
+            ("cycles",       f"Cycles per {task} round"),
+            ("instructions", f"Instructions per {task} round"),
+        ]):
+            data = [
+                (df[(df["kind"] == k) & (df["size"] == s)][metric] / num_iter).to_numpy()
+                for k in KINDS
+            ]
+            meds = [float(np.median(d)) for d in data]
+            ratio = meds[1] / meds[0] if meds[0] > 0 else float("nan")
+            p99 = max(float(np.percentile(d, 99)) for d in data)
+            _draw_pair(ax, data, p99, f"×{ratio:.2f}", ylabel, KINDS)
+    else:
+        n = len(sizes_in_order)
+        per_w = max(0.9, 6.5 / n)
+        fig_w = min(7.0, per_w * n + 0.7)
+        fig, axes = plt.subplots(1, n, sharey=True, figsize=(fig_w, 2.4),
+                                  constrained_layout=True)
+        if n == 1:
+            axes = [axes]
+        for i, s in enumerate(sizes_in_order):
+            ax = axes[i]
+            data = [
+                (df[(df["kind"] == k) & (df["size"] == s)]["cycles"] / num_iter).to_numpy()
+                for k in KINDS
+            ]
+            meds = [float(np.median(d)) for d in data]
+            ratio = meds[1] / meds[0] if meds[0] > 0 else float("nan")
+            p99 = max(float(np.percentile(d, 99)) for d in data)
+            _draw_pair(ax, data, p99, f"×{ratio:.2f}",
+                       "Cycles per allocate+free" if i == 0 else "",
+                       KINDS)
+            ax.set_title(s, fontsize=8)
+
+    legend_handles = [
+        mpatches.Patch(facecolor=facecolor, edgecolor="black",
+                       hatch=hatches[k], label=k)
+        for k in KINDS
+    ]
+    fig.legend(handles=legend_handles, loc="upper center",
+               bbox_to_anchor=(0.5, 1.05), ncol=2,
+               frameon=False, fontsize=7)
+
+    out_svg = fig_dir / f"paper_violin_{task}.svg"
+    out_pdf = fig_dir / f"paper_violin_{task}.pdf"
+    out_svg.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_svg, bbox_inches="tight")
+    fig.savefig(out_pdf, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    plt.rcParams.update(prev_rc)
+
+    print(f"[*] Saved figure: {out_svg}")
+    print(f"[*] Saved figure: {out_pdf}")
+
+    # Stats summary table
+    print()
+    print("| impl     | size    | metric         | median      | IQR         |")
+    print("|----------|---------|----------------|-------------|-------------|")
+    for k in KINDS:
+        for s in sizes_in_order:
+            for metric, label in [("cycles", "cycles/iter "),
+                                   ("instructions", "insn/iter   ")]:
+                v = (df[(df["kind"] == k) & (df["size"] == s)][metric] / num_iter).to_numpy()
+                if v.size == 0:
+                    continue
+                med = float(np.median(v))
+                iqr = float(np.percentile(v, 75) - np.percentile(v, 25))
+                print(f"| {k:<8} | {s:<7} | {label} | {med:>10.1f}  | {iqr:>10.1f}  |")
+    for s in sizes_in_order:
+        for metric, label in [("cycles", "cycles"), ("instructions", "insn  ")]:
+            m_o = float(np.median(
+                (df[(df["kind"] == "original") & (df["size"] == s)][metric] / num_iter).to_numpy()))
+            m_v = float(np.median(
+                (df[(df["kind"] == "verified") & (df["size"] == s)][metric] / num_iter).to_numpy()))
+            if m_o > 0:
+                print(f"  size={s}  {label} median ratio (verified/original) = {m_v / m_o:.3f}")
+
+
+def plot_paper_grouped(df: "pd.DataFrame", fig_dir: Path,
+                       sizes: list[str], task: str, num_iter: int):
+    """Single-panel grouped violin: x-axis = size, two violins per size
+    (original / verified, offset by ±0.18), y-axis = cycles per iteration.
+    Companion to plot_paper_violin's per-size panel layout. Modeled after
+    plot_main_violin (instructions variant); adapted to read cycles directly
+    from the paper-perf dataframe."""
+    df = df[df["kind"].isin(KINDS) & df["size"].isin(sizes)].copy()
+    if df.empty:
+        print("[!] Paper grouped: no rows match; skipping")
+        return
+
+    df["cycles_per_iter"] = df["cycles"] / num_iter
+
+    canonical = TASK_SIZES.get(task, SIZES)
+    sizes_in_order = [s for s in canonical if s in sizes and (df["size"] == s).any()]
+    if not sizes_in_order:
+        print("[!] Paper grouped: no data for any selected size; skipping")
+        return
+
+    impls = ["original", "verified"]
+    hatches = {"original": "..", "verified": "///"}
+    facecolor = (0.85, 0.85, 0.85)
+
+    stats: dict[tuple[str, str], dict] = {}
+    for k in impls:
+        for s in sizes_in_order:
+            vals = df[(df["kind"] == k) & (df["size"] == s)]["cycles_per_iter"].to_numpy()
+            if vals.size == 0:
+                print(f"[!] Paper grouped: no samples for kind={k} size={s}")
+                return
+            stats[(k, s)] = {
+                "median": float(np.median(vals)),
+                "p99": float(np.percentile(vals, 99)),
+                "values": vals,
+            }
+    y_clip = max(v["p99"] for v in stats.values()) * 1.05
+
+    prev_rc = {kk: plt.rcParams[kk] for kk in [
+        "font.size", "axes.labelsize", "xtick.labelsize",
+        "ytick.labelsize", "legend.fontsize",
+        "pdf.fonttype", "ps.fonttype", "svg.fonttype",
+    ]}
+    plt.rcParams.update({
+        "font.size": 8, "axes.labelsize": 8,
+        "xtick.labelsize": 7, "ytick.labelsize": 7,
+        "legend.fontsize": 7,
+        "pdf.fonttype": 42, "ps.fonttype": 42,
+        "svg.fonttype": "none",
+    })
+
+    n = len(sizes_in_order)
+    fig_w = 3.5 if n <= 4 else max(3.5, 0.85 * n + 1.5)
+    fig, ax = plt.subplots(figsize=(fig_w, 2.5))
+
+    for j, k in enumerate(impls):
+        data = [stats[(k, s)]["values"] for s in sizes_in_order]
+        offset = -0.18 if j == 0 else 0.18
+        positions = [i + offset for i in range(n)]
+        parts = ax.violinplot(
+            data, positions=positions, widths=0.3,
+            showmedians=False, showextrema=False,
+            quantiles=[[0.25, 0.75]] * n,
+        )
+        for body in parts["bodies"]:
+            body.set_facecolor(facecolor)
+            body.set_edgecolor("black")
+            body.set_linewidth(0.5)
+            body.set_alpha(1.0)
+            body.set_hatch(hatches[k])
+        if "cquantiles" in parts:
+            parts["cquantiles"].set_color("gray")
+            parts["cquantiles"].set_linewidth(0.4)
+        for i, s in enumerate(sizes_in_order):
+            ax.hlines(
+                stats[(k, s)]["median"],
+                positions[i] - 0.12, positions[i] + 0.12,
+                colors="white", linewidth=1.2, zorder=3,
+            )
+
+    for i, s in enumerate(sizes_in_order):
+        m_o = stats[("original", s)]["median"]
+        m_v = stats[("verified", s)]["median"]
+        if m_o <= 0:
+            continue
+        ratio = m_v / m_o
+        p99_pair = max(stats[(k, s)]["p99"] for k in impls)
+        y_text = min(p99_pair * 1.02, y_clip * 0.98)
+        ax.text(i, y_text, f"×{ratio:.2f}",
+                ha="center", va="bottom", fontsize=7)
+
+    ax.set_xticks(range(n))
+    ax.set_xticklabels(sizes_in_order)
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_xlabel("Allocation size")
+    ax.set_ylabel("Cycles per allocate+free")
+    ax.set_ylim(0, y_clip)
+    ax.yaxis.grid(True, linestyle=":", linewidth=0.4, color="gray")
+    ax.xaxis.grid(False)
+    ax.set_axisbelow(True)
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+
+    legend_handles = [
+        mpatches.Patch(facecolor=facecolor, edgecolor="black",
+                       hatch=hatches[k], label=k)
+        for k in impls
+    ]
+    ax.legend(
+        handles=legend_handles, loc="lower center",
+        bbox_to_anchor=(0.5, 1.02), ncol=2,
+        frameon=False, fontsize=7,
+        handlelength=2.0, handleheight=1.2,
+    )
+
+    fig.tight_layout()
+    out_svg = fig_dir / f"paper_violin_grouped_{task}.svg"
+    out_pdf = fig_dir / f"paper_violin_grouped_{task}.pdf"
+    out_svg.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_svg, bbox_inches="tight")
+    fig.savefig(out_pdf, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    plt.rcParams.update(prev_rc)
+
+    print(f"[*] Saved figure: {out_svg}")
+    print(f"[*] Saved figure: {out_pdf}")
+
+
+########################################
 # CLI
 ########################################
 def main():
@@ -1193,6 +1540,9 @@ def main():
     mode.add_argument("--all", action="store_true", help="Setup + build + jitter + run")
     mode.add_argument("--rdpmc", action="store_true",
                       help="rdpmc per-call link_free_block microbench (verified vs original)")
+    mode.add_argument("--paper", action="store_true",
+                      help="Paper-grade violin figure via raw perf+taskset; "
+                           "uses sudo+chrt for RT priority if passwordless sudo is available")
 
     ap.add_argument("NUM_ITER", nargs="?", type=int, help="Iteration count passed to each benchmark binary")
     ap.add_argument("--runs", type=int, default=100)
@@ -1270,6 +1620,21 @@ def main():
         scenarios = parse_csv_subset(args.rdpmc_scenarios, RDPMC_SCENARIOS, "rdpmc-scenarios")
         impls = parse_csv_subset(args.rdpmc_impls, RDPMC_IMPLS, "rdpmc-impls")
         run_rdpmc_sweep(args.NUM_ITER, paths, selected_sizes, scenarios, counters, impls)
+        print(f"[*] Done. Results in {paths.outdir}/")
+        return
+
+    if args.paper:
+        use_rt = _sudo_nopw_available()
+        if not use_rt:
+            print("[!] passwordless sudo not available; running without RT priority. "
+                  "Configure NOPASSWD sudo for chrt to reduce jitter.")
+        df = measure_paper(args.NUM_ITER, args.runs, paths,
+                           selected_sizes, selected_task, use_rt)
+        plot_paper_violin(df, paths.fig_dir, selected_sizes,
+                          selected_task, args.NUM_ITER)
+        if selected_task == "coalesce":
+            plot_paper_grouped(df, paths.fig_dir, selected_sizes,
+                               selected_task, args.NUM_ITER)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
