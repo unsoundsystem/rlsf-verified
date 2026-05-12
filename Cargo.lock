@@ -49,6 +49,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "perf_probe"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "prettyplease_verus"
 version = "0.1.15"
 source = "git+https://github.com/verus-lang/verus.git#b8ed3665714a71433d8369fd97446db4f8692bb9"
@@ -79,7 +86,7 @@ dependencies = [
 name = "rlsf-verified"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "perf_probe",
  "vstd",
 ]
 

@@ -49,6 +49,7 @@ def _drop_privileges_for_cargo(cmd: list[str], env: dict) -> tuple[list[str], di
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 
 ########################################
@@ -732,6 +733,7 @@ def run_main_measurement(num_iter: int, runs: int, paths: Paths, sizes: list[str
                         "kind": k,
                         "size": s,
                         "run": i,
+                        "num_iter": num_iter,
                         "return_code": rc,
                         "time_s": t_s,
                     }
@@ -748,6 +750,179 @@ def run_main_measurement(num_iter: int, runs: int, paths: Paths, sizes: list[str
 
     finally:
         meta_fp.close()
+
+
+########################################
+# Paper figure: instructions-per-cycle violin (multi-size on one plot)
+########################################
+def plot_main_violin(summary_csv: Path, out_pdf: Path, sizes: list[str], task: str):
+    """
+    Render a single violin plot of instructions per allocate+free cycle,
+    side-by-side original vs verified across the given size set.
+
+    Reads main_summary.csv (must contain columns: kind, size, num_iter,
+    instructions). Per-run `instructions` is divided by `num_iter` to obtain
+    per-cycle counts. PDF is sized for IEEE single-column unless many sizes
+    are plotted (then widened).
+    """
+    if not summary_csv.exists():
+        print(f"[!] Violin: summary CSV not found: {summary_csv}")
+        return
+
+    df = pd.read_csv(summary_csv)
+    required = {"kind", "size", "num_iter", "instructions"}
+    missing = required - set(df.columns)
+    if missing:
+        print(f"[!] Violin: main_summary.csv missing columns {sorted(missing)}; skipping")
+        return
+
+    df = df[df["kind"].isin(KINDS) & df["size"].isin(sizes)].copy()
+    if df.empty:
+        print(f"[!] Violin: no rows match kind/size selection; skipping")
+        return
+
+    df["instructions_per_cycle"] = df["instructions"] / df["num_iter"]
+
+    sizes_in_order = [s for s in SIZES if s in sizes and (df["size"] == s).any()]
+    if not sizes_in_order:
+        print("[!] Violin: no data for any selected size; skipping")
+        return
+
+    impls = ["original", "verified"]
+    hatches = {"original": "..", "verified": "///"}
+    facecolor = (0.85, 0.85, 0.85)
+
+    stats: dict[tuple[str, str], dict] = {}
+    for k in impls:
+        for s in sizes_in_order:
+            vals = df[(df["kind"] == k) & (df["size"] == s)][
+                "instructions_per_cycle"
+            ].to_numpy()
+            if vals.size == 0:
+                print(f"[!] Violin: no samples for kind={k} size={s}")
+                return
+            stats[(k, s)] = {
+                "median": float(np.median(vals)),
+                "p99": float(np.percentile(vals, 99)),
+                "values": vals,
+            }
+    y_clip = max(v["p99"] for v in stats.values()) * 1.05
+
+    prev_rc = {
+        "font.size": plt.rcParams["font.size"],
+        "axes.labelsize": plt.rcParams["axes.labelsize"],
+        "xtick.labelsize": plt.rcParams["xtick.labelsize"],
+        "ytick.labelsize": plt.rcParams["ytick.labelsize"],
+        "legend.fontsize": plt.rcParams["legend.fontsize"],
+        "pdf.fonttype": plt.rcParams["pdf.fonttype"],
+        "ps.fonttype": plt.rcParams["ps.fonttype"],
+    }
+    plt.rcParams.update({
+        "font.size": 8,
+        "axes.labelsize": 8,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
+        "legend.fontsize": 7,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    })
+
+    n = len(sizes_in_order)
+    fig_w = 3.5 if n <= 4 else max(3.5, 0.85 * n + 1.5)
+    fig, ax = plt.subplots(figsize=(fig_w, 2.5))
+
+    for j, k in enumerate(impls):
+        data = [stats[(k, s)]["values"] for s in sizes_in_order]
+        offset = -0.18 if j == 0 else 0.18
+        positions = [i + offset for i in range(n)]
+        parts = ax.violinplot(
+            data, positions=positions, widths=0.3,
+            showmedians=False, showextrema=False,
+            quantiles=[[0.25, 0.75]] * n,
+        )
+        for body in parts["bodies"]:
+            body.set_facecolor(facecolor)
+            body.set_edgecolor("black")
+            body.set_linewidth(0.5)
+            body.set_alpha(1.0)
+            body.set_hatch(hatches[k])
+        if "cquantiles" in parts:
+            parts["cquantiles"].set_color("gray")
+            parts["cquantiles"].set_linewidth(0.4)
+        for i, s in enumerate(sizes_in_order):
+            ax.hlines(
+                stats[(k, s)]["median"],
+                positions[i] - 0.12, positions[i] + 0.12,
+                colors="white", linewidth=1.2, zorder=3,
+            )
+
+    for i, s in enumerate(sizes_in_order):
+        m_o = stats[("original", s)]["median"]
+        m_v = stats[("verified", s)]["median"]
+        ratio = m_v / m_o
+        p99_pair = max(stats[(k, s)]["p99"] for k in impls)
+        y_text = min(p99_pair * 1.02, y_clip * 0.98)
+        ax.text(i, y_text, f"×{ratio:.2f}",
+                ha="center", va="bottom", fontsize=7)
+
+    ax.set_xticks(range(n))
+    ax.set_xticklabels(sizes_in_order)
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_xlabel("Allocation size")
+    ax.set_ylabel("Instructions per allocate+free cycle")
+    ax.set_ylim(0, y_clip)
+    ax.yaxis.grid(True, linestyle=":", linewidth=0.4, color="gray")
+    ax.xaxis.grid(False)
+    ax.set_axisbelow(True)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+
+    legend_handles = [
+        mpatches.Patch(facecolor=facecolor, edgecolor="black",
+                       hatch=hatches[k], label=k)
+        for k in impls
+    ]
+    ax.legend(
+        handles=legend_handles, loc="lower center",
+        bbox_to_anchor=(0.5, 1.02), ncol=2,
+        frameon=False, fontsize=7,
+        handlelength=2.0, handleheight=1.2,
+    )
+
+    fig.tight_layout()
+    out_pdf.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_pdf, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    plt.rcParams.update(prev_rc)
+
+    print(f"[*] Saved violin PDF: {out_pdf}")
+    _print_violin_summary(stats, sizes_in_order, impls)
+
+
+def _print_violin_summary(stats: dict, sizes_in_order: list[str], impls: list[str]):
+    print()
+    print("| impl     | size    | median   | IQR      |")
+    print("|----------|---------|----------|----------|")
+    for k in impls:
+        for s in sizes_in_order:
+            vals = stats[(k, s)]["values"]
+            q25 = float(np.percentile(vals, 25))
+            q75 = float(np.percentile(vals, 75))
+            print(f"| {k:<8} | {s:<7} | "
+                  f"{stats[(k, s)]['median']:>8.1f} | {q75 - q25:>8.1f} |")
+
+    print()
+    print("| size    | median ratio (verified/original) |")
+    print("|---------|----------------------------------|")
+    ratios = []
+    for s in sizes_in_order:
+        r = stats[("verified", s)]["median"] / stats[("original", s)]["median"]
+        ratios.append(r)
+        print(f"| {s:<7} | {r:>32.3f} |")
+    if ratios:
+        geo = float(np.exp(np.mean(np.log(ratios))))
+        print()
+        print(f"Overall median ratio (geometric mean across sizes): {geo:.3f}")
 
 
 ########################################
@@ -837,6 +1012,8 @@ def main():
     ap.add_argument("--lto", default="none", help=f"Release LTO mode for build/all. valid: {','.join(LTO_MODES)}")
     ap.add_argument("--sizes", default=None, help=f"Comma-separated sizes to run (default: all). valid: {','.join(SIZES)}")
     ap.add_argument("--violin-html", action="store_true", help="Write an HTML gallery for variability violin plots")
+    ap.add_argument("--violin", action="store_true",
+                    help="After --run/--all, render a single violin PDF (instructions per allocate+free cycle) covering all selected sizes")
     ap.add_argument("--outdir", default=None)
     ap.add_argument("--rdpmc-counters", default=None,
                     help=f"Comma-separated rdpmc counters. Default: all. valid: {','.join(RDPMC_COUNTERS)}")
@@ -867,6 +1044,12 @@ def main():
         if args.violin_html:
             write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html", paths.jitter_csv)
         run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
+        if args.violin:
+            plot_main_violin(
+                paths.outdir / "main_summary.csv",
+                paths.fig_dir / f"perf_violin_{selected_task}.pdf",
+                selected_sizes, selected_task,
+            )
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
@@ -883,6 +1066,12 @@ def main():
         run_main_measurement(args.NUM_ITER, args.runs, paths, selected_sizes, selected_task)
         if args.violin_html:
             write_violin_gallery_html(paths.fig_dir, paths.outdir / "variability_violin_gallery.html", paths.jitter_csv)
+        if args.violin:
+            plot_main_violin(
+                paths.outdir / "main_summary.csv",
+                paths.fig_dir / f"perf_violin_{selected_task}.pdf",
+                selected_sizes, selected_task,
+            )
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
