@@ -1231,9 +1231,11 @@ PAPER_EVENTS = "cycles,instructions,task-clock"
 
 
 def measure_paper(num_iter: int, runs: int, paths: Paths,
-                  sizes: list[str], task: str, use_rt: bool) -> "pd.DataFrame":
+                  sizes: list[str], task: str, use_rt: bool,
+                  csv_name: str = "paper_perf.csv") -> "pd.DataFrame":
     """Sweep perf stat across (kind, size, run) for the paper figure.
-    Output: <outdir>/paper_perf.csv."""
+    Output: <outdir>/<csv_name>. The csv_name override lets callers run
+    multiple tasks in one invocation without clobbering each other."""
     ensure_binaries(task, sizes)
     records: list[dict] = []
     rt_label = "RT (sudo+chrt)" if use_rt else "no-RT (plain perf)"
@@ -1257,7 +1259,7 @@ def measure_paper(num_iter: int, runs: int, paths: Paths,
                     cy = records[-1]["cycles"]
                     print(f"  [{k} {s} run {i:>3}/{runs}] cycles={cy:.3e}", flush=True)
     df = pd.DataFrame(records)
-    csv_path = paths.outdir / "paper_perf.csv"
+    csv_path = paths.outdir / csv_name
     df.to_csv(csv_path, index=False)
     print(f"[*] Saved CSV: {csv_path}")
     return df
@@ -1546,7 +1548,10 @@ def main():
 
     ap.add_argument("NUM_ITER", nargs="?", type=int, help="Iteration count passed to each benchmark binary")
     ap.add_argument("--runs", type=int, default=100)
-    ap.add_argument("--task", default="alt", help=f"Benchmark task prefix. valid: {','.join(TASKS)}")
+    ap.add_argument("--task", default=None,
+                    help=f"Benchmark task prefix. valid: {','.join(TASKS)}. "
+                         f"For --paper, may be a comma-separated list (e.g. coalesce,exhaust); "
+                         f"if omitted, --paper defaults to 'coalesce,exhaust'.")
     ap.add_argument("--lto", default="none", help=f"Release LTO mode for build/all. valid: {','.join(LTO_MODES)}")
     ap.add_argument("--sizes", default=None, help=f"Comma-separated sizes to run (default: all). valid: {','.join(SIZES)}")
     ap.add_argument("--violin-html", action="store_true", help="Write an HTML gallery for variability violin plots")
@@ -1564,9 +1569,15 @@ def main():
 
     env_checks()
     paths = make_outdir(args.outdir)
-    selected_task = parse_task_arg(args.task)
     selected_lto = parse_lto_arg(args.lto)
-    selected_sizes = parse_sizes_arg(args.sizes, selected_task)
+    # --paper accepts a comma-separated --task and resolves it inside the
+    # branch; other modes still take a single task here.
+    if args.paper:
+        selected_task = None
+        selected_sizes = None
+    else:
+        selected_task = parse_task_arg(args.task)
+        selected_sizes = parse_sizes_arg(args.sizes, selected_task)
 
     if args.build:
         build_project(selected_task, selected_lto)
@@ -1628,13 +1639,28 @@ def main():
         if not use_rt:
             print("[!] passwordless sudo not available; running without RT priority. "
                   "Configure NOPASSWD sudo for chrt to reduce jitter.")
-        df = measure_paper(args.NUM_ITER, args.runs, paths,
-                           selected_sizes, selected_task, use_rt)
-        plot_paper_violin(df, paths.fig_dir, selected_sizes,
-                          selected_task, args.NUM_ITER)
-        if selected_task == "coalesce":
-            plot_paper_grouped(df, paths.fig_dir, selected_sizes,
-                               selected_task, args.NUM_ITER)
+        # Resolve task list. Default for --paper (when --task is omitted) is
+        # the pair coalesce + exhaust. Otherwise honor --task (single or
+        # comma-separated). --sizes is honored only when exactly one task is
+        # selected; for multi-task runs we use each task's canonical sizes.
+        if args.task is None:
+            paper_tasks = ["coalesce", "exhaust"]
+        else:
+            paper_tasks = [t.strip() for t in args.task.split(",") if t.strip()]
+            unknown = [t for t in paper_tasks if t not in TASKS]
+            if unknown:
+                raise SystemExit(f"ERROR: unknown task(s): {', '.join(unknown)}. "
+                                 f"valid: {', '.join(TASKS)}")
+        single_task = len(paper_tasks) == 1
+        for t in paper_tasks:
+            sizes_t = (parse_sizes_arg(args.sizes, t) if single_task
+                       else list(TASK_SIZES[t]))
+            df = measure_paper(args.NUM_ITER, args.runs, paths,
+                               sizes_t, t, use_rt,
+                               csv_name=f"paper_perf_{t}.csv")
+            plot_paper_violin(df, paths.fig_dir, sizes_t, t, args.NUM_ITER)
+            if t == "coalesce":
+                plot_paper_grouped(df, paths.fig_dir, sizes_t, t, args.NUM_ITER)
         print(f"[*] Done. Results in {paths.outdir}/")
         return
 
