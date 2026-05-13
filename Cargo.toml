@@ -2,6 +2,7 @@
 name = "rlsf-verified"
 version = "0.1.0"
 edition = "2018" #"2024"
+license = "MIT"
 
 [dependencies]
 vstd = { git = "https://github.com/verus-lang/verus.git" }
