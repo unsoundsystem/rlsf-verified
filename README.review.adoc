@@ -1,0 +1,419 @@
+= FMCAD 2026 Artifact: Verifying a Memory Allocator for Rust
+:toc: left
+:toclevels: 2
+:source-highlighter: rouge
+
+== Artifact summary
+
+This artifact accompanies the paper *"Verifying a Memory Allocator for Rust"*
+(FMCAD 2026). It contains a Verus-based verification of
+https://github.com/yvt/rlsf[`rlsf`], an existing Rust implementation of the
+Two-Level Segregated Fit (TLSF) real-time memory allocator. The verification
+establishes that `Tlsf::allocate` and `Tlsf::deallocate` satisfy the contract
+required by Rust's `core::alloc::Allocator` interface, while preserving an
+internal well-formedness invariant.
+
+This document is for FMCAD PC reviewers. It explains how to set up the
+environment, reproduce the verification, reproduce the performance evaluation,
+and map each claim in the paper to a concrete command and output file in this
+artifact.
+
+== License
+
+This artifact is distributed under the MIT License; see the `LICENSE` file at
+the artifact root for the full text. The license permits PC members to
+download, use, modify, and execute the artifact for review and any subsequent
+purposes.
+
+== Claims supported by this artifact
+
+The numbered claims below map to sections, figures, and tables in the paper.
+
+[cols="1,4,2",options="header"]
+|===
+| Claim | Description | Where in paper
+
+| V1
+| `allocate` and `deallocate` satisfy Rust's allocator interface and preserve
+  `self.wf()`. Reproduced by Verus-checking the eight main API functions:
+  `allocate`, `deallocate`, `link_free_block`, `unlink_free_block`,
+  `map_floor`, `map_ceil`,
+  `search_suitable_free_block_list_for_allocation`,
+  `insert_free_block_ptr_aligned`.
+| Sec. 4, Fig. 1 (`allocate` contract)
+
+| V2
+| The full Verus proof (78 functions and lemmas, including all supporting
+  modules) passes with `--rlimit=1000`.
+| Sec. 4--6
+
+| V3
+| Verification source size: 15,353 LOC across 16 modules, vs 981 LOC of
+  original rlsf.
+| Sec. 7.2, Table 1
+
+| B1
+| Coalescing-heavy workload: verified implementation is up to 3.17x slower
+  (at 64-byte allocations).
+| Sec. 7.1, Fig. 6
+
+| B2
+| Pool-exhaustion workload: verified implementation is up to 2.44x slower in
+  instructions and 2.18x slower in cycles.
+| Sec. 7.1, Fig. 7
+|===
+
+== Resource requirements
+
+[cols="1,3",options="header"]
+|===
+| Resource | Requirement
+
+| CPU | x86_64, any modern multi-core CPU. The included Docker image runs
+        single-threaded Verus checks sequentially; more cores do not speed up
+        `check.sh`. The benchmark step pins to one core by design and requires
+        a stable frequency-governor configuration.
+
+| RAM  | 8 GiB minimum for verification (Z3 can spike per-function);
+         16 GiB recommended.
+
+| Disk | ~6 GiB free for the Docker build (Verus toolchain, Z3, Singular,
+         build artifacts).
+
+| OS for verification | Any Linux that runs Docker. Tested on Arch Linux and
+         Ubuntu 24.04.
+
+| OS for benchmark | Linux with `perf`, `chrt`, `taskset`, `cpupower`, and
+         `sudo` available. Tested on Ubuntu 24.04 (paper) and Arch Linux.
+
+| Software | Docker (any recent version) for verification.
+             `uv` (https://docs.astral.sh/uv/) for the benchmark scripts.
+|===
+
+== Artifact contents
+
+[cols="2,5",options="header"]
+|===
+| Path | Description
+
+| `src/`                              | Verus source (specifications, proofs, and verified code).
+| `misc/check.sh`                     | Top-level verification driver. Runs Verus on every paper-relevant function. Used to reproduce V1, V2.
+| `misc/docker/Dockerfile`            | Reproducible build environment. Pins Verus to commit `e97969ef173a7165673ffbb48738c4a1b975daeb` and bundles Z3 and Singular.
+| `misc/docker/patch_vstd.py`         | Patch to `vstd` that exposes `u64_trailing_zeros` as `opaque` (required by `by(compute)` reveals in this proof).
+| `misc/benchmark/`                   | Performance evaluation harness (Python + `uv`). Used to reproduce B1, B2.
+| `misc/results_paper/` | Pre-bundled paper data and figures. Contains `paper_perf_coalesce.csv` (Fig. 6), `paper_perf_exhaust.csv` (Fig. 7), and `fig/paper_violin_*.{pdf,svg}` for both workloads (plus a grouped-coalesce variant). All CSVs follow the standard harness schema: `task,kind,size,run,num_iter,cycles,instructions,task_clock`.
+| `benches/`                          | Benchmark binary crates (one per workload x size). Built by the benchmark harness.
+| `docs/`                             | Supplementary technical notes (`verus.adoc`, `rlsf-index-calc.adoc`).
+| `README.adoc`                       | Original project README (file organization, proof status). Independent of this reviewer guide.
+| `README.review.adoc`                | This document.
+|===
+
+== Setup (Docker, recommended)
+
+The supplied `Dockerfile` is the authoritative installation recipe. It pins all
+toolchain versions and applies the required `vstd` patch.
+
+[source,bash]
+----
+cd /path/to/artifact-root
+docker build -f misc/docker/Dockerfile -t rlsf-verified .
+----
+
+Build time: roughly 15--25 minutes on a fast machine with a warm Docker cache,
+dominated by building Verus itself.
+
+Inside the image:
+
+* `verus` is at `/opt/verus/source/target-verus/release/verus`
+  (also reachable through `/verus`, a symlink created so that
+  `misc/check.sh`'s `../../verus/...` relative path works).
+* `Singular` (a computer algebra system used by Verus for nonlinear arithmetic
+  obligations) is at `/usr/bin/Singular`.
+* The working directory is `/work`, populated with a copy of the artifact.
+
+== Quick smoke test (~30 seconds)
+
+To confirm that the toolchain is functional without running the full proof:
+
+[source,bash]
+----
+docker run --rm rlsf-verified bash -c '
+  cd /work && \
+  VERUS_SINGULAR_PATH=/usr/bin/Singular \
+  /opt/verus/source/target-verus/release/verus src/lib.rs \
+    --verify-only-module parameters \
+    --crate-type=lib \
+    --rlimit=1000
+'
+----
+
+Expected output (representative tail):
+
+----
+note: verifying module parameters (selected functions)
+
+verification results:: 4 verified, 0 errors (partial verification with `--verify-*`)
+----
+
+The command exits with status `0`. Any line of the form
+`verification results:: <N> verified, <M> errors` with `M > 0`, or any
+`error:` line preceding it, indicates a failure to reproduce the toolchain.
+
+== Full verification reproduction (V1, V2)
+
+[source,bash]
+----
+docker run --rm rlsf-verified
+----
+
+(The default `CMD` is `bash misc/check.sh`.)
+
+Wall-clock time on our reference machine
+(AMD Ryzen 7 7735HS, 16 cores, 30 GiB RAM, Arch Linux, Docker 29.4): *7
+minutes 17 seconds* (78/78 functions and lemmas reported `0 errors`). Verus is
+single-threaded per function, so wall-clock scales with single-core
+performance, not core count. Reviewers on slower single-thread hardware
+should budget proportionally.
+
+Expected output: for each of the 78 entries, a banner line followed by a
+Verus result line, for example:
+
+----
+=== Verifying lib::Tlsf::allocate at allocate ===
+note: verifying module allocate (selected functions)
+
+verification results:: 1 verified, 0 errors (partial verification with `--verify-*`)
+----
+
+A successful full run ends with the script returning exit code `0` and every
+Verus invocation reporting `0 errors`. Any line containing `error:` or a
+`verification results:: ... <M> errors` with `M > 0` indicates that the
+artifact failed to reproduce V1/V2 on the reviewer's machine. Please report
+this; see `Troubleshooting` below.
+
+For convenience, to redirect the full log:
+
+[source,bash]
+----
+docker run --rm rlsf-verified 2>&1 | tee check_sh.log
+----
+
+== Proof-effort cross-check (V3)
+
+The per-module LOC numbers in Table 1 are counted over `src/*.rs`. Reviewers can
+sanity-check them with `cloc` or `wc -l`:
+
+[source,bash]
+----
+docker run --rm rlsf-verified bash -c 'cd /work/src && wc -l *.rs'
+----
+
+Note that this counts physical lines (including blank/comment lines), and so
+matches the "LOC" column in Table 1, which is reported as physical lines of the
+verification source.
+
+== Benchmark reproduction (B1, B2) -- host required
+
+The benchmark *cannot* run inside the supplied Docker image. It requires:
+
+* `perf` performance counters (kernel-level access).
+* Real-time priority (`chrt -f 99`).
+* CPU affinity (`taskset -c 1`).
+* Tuning kernel knobs: disabling ASLR (`/proc/sys/kernel/randomize_va_space`),
+  disabling transparent hugepages
+  (`/sys/kernel/mm/transparent_hugepage/enabled`), relaxing
+  `perf_event_paranoid`, and setting the CPU governor to `performance` via
+  `cpupower`.
+* `sudo` (preferably passwordless) to apply the above.
+
+These knobs cannot be exposed cleanly from inside an unprivileged container,
+and the paper's numbers were collected with these settings in place.
+
+=== Host prerequisites
+
+* Linux (Ubuntu 24.04 used in the paper; any recent Linux with the listed
+  tools works).
+* Packages: `linux-tools-common` / `linux-tools-generic` (for `perf`),
+  `util-linux` (for `chrt`, `taskset`), `linux-cpupower` (or distro
+  equivalent), `python3`, https://docs.astral.sh/uv/[`uv`].
+* A toolchain that can build the benchmark binaries (the same `rustup`
+  toolchain used by Verus, or any reasonably recent stable Rust).
+* `sudo` permission for the tools above.
+
+=== Running the benchmark
+
+[source,bash]
+----
+cd misc/benchmark
+uv sync
+uv run python main.py --all <NUM_ITER>
+----
+
+`<NUM_ITER>` is the per-binary iteration count. The paper used
+`NUM_ITER=10000` with `--runs=100` (100 repeated runs per workload/kind/size);
+see `misc/results_paper/paper_perf_{coalesce,exhaust}.csv` for the
+exact data behind Fig. 6 and Fig. 7. A reviewer-time reproduction at the same
+settings takes approximately ~30 minutes total on the paper's reference
+machine.
+
+CLI modes:
+
+* `--build`   -- compile all benchmark binaries (with optional `--lto fat`).
+* `--jitter`  -- run-to-run variability measurement; produces violin plots.
+* `--run`     -- main `perf`-driven measurement; produces `perf_*.csv` and
+                 `main_summary.csv`.
+* `--all`     -- setup + build + jitter + run, end-to-end.
+
+The harness produces a timestamped `results_YYYYMMDD_HHMMSS/` directory
+containing:
+
+* `meta.log`                            -- environment metadata.
+* `jitter_time_distribution.csv`        -- jitter measurements per size/kind.
+* `fig/variability_violin_*.png`        -- per-size violin plots.
+* `perf_original.csv`, `perf_verified.csv` -- raw `perf stat -x` output.
+* `main_summary.csv`                    -- structured summary (cycles,
+                                           instructions, task-clock).
+
+=== Mapping outputs to paper figures and tables
+
+[cols="1,2,2",options="header"]
+|===
+| Paper element | Workload | How to reproduce / verify
+
+| Fig. 6 (coalescing)
+| `task=coalesce`
+| Bundled: `misc/results_paper/paper_perf_coalesce.csv`
+  and `misc/results_paper/fig/paper_violin_coalesce.{pdf,svg}`.
+  To regenerate from a fresh run on the reviewer's machine:
+  `cd misc/benchmark && uv run python main.py --all <N> --task coalesce`.
+  Verify that for each size the verified/original *cycles* ratio is
+  broadly consistent with the paper (max ~3.17x at 64 B).
+
+| Fig. 7 (pool-exhaustion)
+| Exhaust-style workload
+| Bundled: `misc/results_paper/paper_perf_exhaust.csv`
+  and `misc/results_paper/fig/paper_violin_exhaust.{pdf,svg}`.
+  To regenerate: select the exhaust-style task in the harness (see
+  `main.py --task <name>` for the task name used in the paper). Verify
+  max instruction-count slowdown ~2.44x and cycle slowdown ~2.18x.
+
+| Table 1 (LOC)
+| --
+| See `Proof-effort cross-check` above.
+|===
+
+== Caveats and special requirements
+
+* *Singular dependency.* The proof uses Verus's nonlinear-arithmetic backend,
+  which calls out to https://www.singular.uni-kl.de/[Singular]. The Docker
+  image installs `singular` via apt and sets `VERUS_SINGULAR_PATH`. If
+  building outside Docker, this must be installed and the env var set
+  manually.
+
+* *vstd patch.* The proof requires `u64_trailing_zeros` in `vstd` to be
+  declared `opaque` (revealable on demand) instead of `closed`. The patch
+  is applied automatically by the Dockerfile (see
+  `misc/docker/patch_vstd.py`). This is a property of the upstream Verus
+  standard library, not a custom modification to the verifier itself.
+
+* *Path assumption in `check.sh`.* The script expects the Verus binary at
+  `../../verus/source/target-verus/release/verus` relative to the artifact
+  root. The Docker image satisfies this with a symlink (`/verus ->
+  /opt/verus`). Outside Docker, reviewers must arrange their checkout
+  layout accordingly, or set `VERUS_PATH` and edit the script.
+
+* *Bundled paper data and figures.* `misc/results_paper/`
+  contains the CSVs and PDF/SVG figures that appear in the paper
+  (Fig. 6 and Fig. 7), produced by `main.py` on the paper's reference
+  machine. Reviewers wishing to inspect the figures can open the
+  bundled PDF/SVG directly. The CSV columns
+  (`task,kind,size,run,num_iter,cycles,instructions,task_clock`) are
+  also amenable to ad-hoc plotting with pandas/matplotlib.
+
+* *Figure regeneration on the reviewer's machine.* The `main.py`
+  harness produces CSVs and violin plots together; there is no
+  standalone "render from existing CSV" entry point. To regenerate
+  figures of the same form on the reviewer's machine, run the harness
+  end-to-end. Exact numbers will differ from the paper because the
+  hardware is different, but the qualitative shape of the
+  verified-vs-original distribution is the property under test.
+
+* *Target architecture.* The proof is parametric in pointer-size constants
+  and is instantiated for 32-bit and 64-bit targets only. Other Rust
+  targets are out of scope (see paper Sec. 8).
+
+* *Verus version is load-bearing.* The proof was authored against Verus
+  commit `e97969ef173a7165673ffbb48738c4a1b975daeb` (2026-03-06), which is
+  the commit pinned in `misc/docker/Dockerfile`. We have observed that newer
+  Verus revisions (e.g. `9f269aa`, 2026-04-14) fail one assertion in
+  `src/mapping.rs` due to changes in SMT encoding for `>>`-related goals.
+  Reviewers are therefore strongly advised to use the supplied Docker image
+  rather than an arbitrary host installation of Verus.
+
+* *Trusted computing base.* Verus, Z3, axiomatic specifications for
+  `rotate_right` and `leading_zeros`, and platform-layout axioms for
+  `BlockHdr` and `FreeLink` are trusted. See paper Sec. 8.
+
+== Native (non-Docker) setup
+
+Strongly discouraged for review, but documented for completeness. The
+Dockerfile is the authoritative recipe; the steps below are a paraphrase.
+
+1. Install Rust via `rustup` (toolchain pinned by Verus's own toolchain file).
+2. Install `singular`, `cmake`, `build-essential`, `libssl-dev`,
+   `pkg-config`, `python3`, `unzip`.
+3. Clone Verus at commit `e97969ef173a7165673ffbb48738c4a1b975daeb`.
+4. Apply `misc/docker/patch_vstd.py` to
+   `<verus>/source/vstd/std_specs/bits.rs`.
+5. From `<verus>/source`, run `bash tools/get-z3.sh`, then
+   `cargo install --locked --path tools/vargo`, then
+   `vargo build --release --features singular`.
+6. Either place the artifact at `<verus>/../tlsf-allocator-verification-progress-report` (matching `check.sh`'s relative path), or set `VERUS_PATH` and edit the script.
+7. Export `VERUS_SINGULAR_PATH=/usr/bin/Singular` (or the local Singular path).
+8. Run `bash misc/check.sh`.
+
+== Troubleshooting
+
+[cols="1,3",options="header"]
+|===
+| Symptom | Likely cause / fix
+
+| `verus: command not found`
+| You are running `check.sh` outside Docker without the expected layout.
+  Use Docker, or set `VERUS_PATH` and adjust the script's first line.
+
+| `Singular: command not found` / Verus errors about Singular
+| `VERUS_SINGULAR_PATH` is not set, or `singular` is not installed.
+  Inside Docker this is preconfigured.
+
+| Verus reports `rlimit exceeded` on a specific function
+| Possible flaky SMT timing. Re-run the failing function with a higher
+  `--rlimit`. Report the function name; we have not observed timeouts at
+  `--rlimit=1000` on our reference machine.
+
+| Verus reports an `assertion failed` in `src/mapping.rs` (around line 508)
+| You are running with a Verus version newer than the pinned one. See
+  *Verus version is load-bearing* under *Caveats*. The supplied Docker image
+  uses the correct pinned commit; please reproduce through Docker.
+
+| `perf: permission denied`
+| `perf_event_paranoid` is too restrictive. The benchmark harness adjusts
+  this through `sudo`; ensure `sudo` is configured to allow these writes.
+
+| Benchmark numbers very noisy
+| Confirm THP is disabled, the CPU governor is `performance`, and ASLR is
+  off. The harness's `meta.log` records these values at run start.
+
+| Docker build fails fetching Verus
+| Network restrictions. Re-run with a working connection; the `RUN git
+  clone https://github.com/verus-lang/verus.git` step needs GitHub access.
+|===
+
+== Submission metadata
+
+* Paper title: *Verifying a Memory Allocator for Rust*.
+* Verus commit: `e97969ef173a7165673ffbb48738c4a1b975daeb`.
+* Z3: bundled by Verus's `tools/get-z3.sh` at the same commit.
+* Singular: Ubuntu 24.04 packaged version inside the Docker image.
+* Reference machine for the times quoted in this README: AMD Ryzen 7 7735HS, 16 cores, 30 GiB RAM, Arch Linux (rolling).
+* Reference machine in the paper for benchmark numbers: AMD Ryzen 9 9950X, Ubuntu 24.04.
