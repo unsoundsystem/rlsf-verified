@@ -205,7 +205,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(s == selected_block_size);
                 assert(s as int >= GRANULARITY as int);
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                //reveal(u64_trailing_zeros);
                 assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                 assert(GRANULARITY == 32usize) by (compute);
                 assert((s & !31usize) >= 32usize) by (bit_vector)
@@ -237,7 +237,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(block_size >= GRANULARITY);
                 assert((block_size & SIZE_SIZE_MASK) != 0usize) by {
                     reveal(usize_trailing_zeros);
-                    reveal(u64_trailing_zeros);
+                    //reveal(u64_trailing_zeros);
                     assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                     assert(GRANULARITY == 32usize) by (compute);
                     assert((block_size & !31usize) >= 32usize) by (bit_vector)

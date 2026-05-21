@@ -1025,7 +1025,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert((size & !31usize) == size) by (bit_vector)
                     requires size as int % 32 == 0;
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                //reveal(u64_trailing_zeros);
                 assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
             };
 

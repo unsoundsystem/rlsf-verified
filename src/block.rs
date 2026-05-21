@@ -47,7 +47,7 @@ verus! {
 
             proof {
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                //reveal(u64_trailing_zeros);
                 assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                 assert(size == perm.points_to.value().size);
             }
