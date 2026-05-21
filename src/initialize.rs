@@ -49,7 +49,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         size as int <= Self::max_pool_size_spec() as int,
         (start as usize as int) + (size as int) < (usize::MAX as int) + 1,
     ensures
-        self.wf(),
+        final(self).wf(),
     {
         let tracked mut mem_remains = points_to_block;
 

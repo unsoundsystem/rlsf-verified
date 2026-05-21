@@ -18,21 +18,21 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     pub fn set_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
         ensures
-            self.bitmap_wf(),
+            final(self).bitmap_wf(),
             idx matches BlockIndex(fl, sl)
-                && nth_bit!(self.sl_bitmap[fl as int], sl),
+                && nth_bit!(final(self).sl_bitmap[fl as int], sl),
             forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
-                ==> nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                ==> nth_bit!(final(self).sl_bitmap[i.0 as int], i.1 as usize)
                     == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize),
             forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
-                ==> (1 & self.sl_bitmap[i.0 as int] >> i.1 as usize)
+                ==> (1 & final(self).sl_bitmap[i.0 as int] >> i.1 as usize)
                     == (1 & old(self).sl_bitmap[i.0 as int] >> i.1 as usize),
-            self.first_free == old(self).first_free,
-            self.shadow_freelist == old(self).shadow_freelist,
-            self.all_blocks == old(self).all_blocks,
-            self.user_block_map == old(self).user_block_map,
-            self.valid_range == old(self).valid_range,
-            self.root_provenances == old(self).root_provenances,
+            final(self).first_free == old(self).first_free,
+            final(self).shadow_freelist == old(self).shadow_freelist,
+            final(self).all_blocks == old(self).all_blocks,
+            final(self).user_block_map == old(self).user_block_map,
+            final(self).valid_range == old(self).valid_range,
+            final(self).root_provenances == old(self).root_provenances,
     {
         //#[cfg(feature = "std")]
         //{
@@ -184,10 +184,10 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[inline(always)]
     pub fn clear_bit_for_index(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
-        ensures self.bitmap_wf(),
+        ensures final(self).bitmap_wf(),
             idx matches BlockIndex(fl, sl)
-                && !nth_bit!(self.sl_bitmap[fl as int], sl)
-                && !nth_bit!(self.fl_bitmap, fl),
+                && !nth_bit!(final(self).sl_bitmap[fl as int], sl)
+                && !nth_bit!(final(self).fl_bitmap, fl),
     {
         let BlockIndex(fl, sl) = idx;
         self.fl_bitmap = self.fl_bitmap & !(1usize << fl);
@@ -225,18 +225,18 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
     #[inline(always)]
     pub fn clear_bit_for_sl(&mut self, idx: BlockIndex<FLLEN, SLLEN>)
         requires Self::parameter_validity(), idx.wf(), old(self).bitmap_wf()
-        ensures self.bitmap_wf(),
-            self.all_blocks == old(self).all_blocks,
-            self.first_free == old(self).first_free,
-            self.shadow_freelist == old(self).shadow_freelist,
-            self.user_block_map == old(self).user_block_map,
-            self.valid_range == old(self).valid_range,
-            self.root_provenances == old(self).root_provenances,
+        ensures final(self).bitmap_wf(),
+            final(self).all_blocks == old(self).all_blocks,
+            final(self).first_free == old(self).first_free,
+            final(self).shadow_freelist == old(self).shadow_freelist,
+            final(self).user_block_map == old(self).user_block_map,
+            final(self).valid_range == old(self).valid_range,
+            final(self).root_provenances == old(self).root_provenances,
             forall|i: BlockIndex<FLLEN, SLLEN>| i.wf() && i != idx
-                ==> nth_bit!(self.sl_bitmap[i.0 as int], i.1 as usize)
+                ==> nth_bit!(final(self).sl_bitmap[i.0 as int], i.1 as usize)
                     == nth_bit!(old(self).sl_bitmap[i.0 as int], i.1 as usize),
             idx matches BlockIndex(fl, sl)
-                && !nth_bit!(self.sl_bitmap[fl as int], sl)
+                && !nth_bit!(final(self).sl_bitmap[fl as int], sl)
     {
         let BlockIndex(fl, sl) = idx;
         proof {
