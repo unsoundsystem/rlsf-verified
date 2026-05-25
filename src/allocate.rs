@@ -66,7 +66,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                  *      - TODO: resulting size is multiple of GRANULARITY
                  *      - TODO: if GRANULARITY <= align, UsedBlockPad works properly
                  * */
-                &&& self.wf_dealloc(tok@)
+                &&& final(self).wf_dealloc(tok@)
                 &&& ptr@.provenance == points_to@.provenance()
                 //&&& ptr@.metadata == Metadata::Thin
                 &&& {
@@ -75,11 +75,11 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                     &&& exists|s: int| s >= size as int && #[trigger] points_to@.is_range(ptr as usize as int, s)
                  }
                 &&& ptr.addr() % align == 0
-                &&& self.is_root_provenance(ptr)
+                &&& final(self).is_root_provenance(ptr)
             }),
             // TODO: state that if allocation failes, there is no bitmap present for it
-            r matches None ==> *old(self) == *self,
-            self.wf(),
+            r matches None ==> *old(self) == *final(self),
+            final(self).wf(),
     {
         vstd::layout::layout_for_type_is_valid::<BlockHdr>();
         vstd::layout::layout_for_type_is_valid::<FreeLink>();
@@ -205,7 +205,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(s == selected_block_size);
                 assert(s as int >= GRANULARITY as int);
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                //reveal(u64_trailing_zeros);
                 assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                 assert(GRANULARITY == 32usize) by (compute);
                 assert((s & !31usize) >= 32usize) by (bit_vector)
@@ -237,7 +237,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 assert(block_size >= GRANULARITY);
                 assert((block_size & SIZE_SIZE_MASK) != 0usize) by {
                     reveal(usize_trailing_zeros);
-                    reveal(u64_trailing_zeros);
+                    //reveal(u64_trailing_zeros);
                     assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                     assert(GRANULARITY == 32usize) by (compute);
                     assert((block_size & !31usize) >= 32usize) by (bit_vector)

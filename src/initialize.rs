@@ -49,7 +49,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         size as int <= Self::max_pool_size_spec() as int,
         (start as usize as int) + (size as int) < (usize::MAX as int) + 1,
     ensures
-        self.wf(),
+        final(self).wf(),
     {
         let tracked mut mem_remains = points_to_block;
 
@@ -281,7 +281,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
                 let free_size: usize = (chunk_size - GRANULARITY) as usize;
                 assert((free_size & SIZE_SIZE_MASK) == free_size) by {
                     reveal(usize_trailing_zeros);
-                    reveal(u64_trailing_zeros);
+                    //reveal(u64_trailing_zeros);
                     assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                     assert((free_size & !31usize) == free_size) by (bit_vector)
                         requires free_size % 32 == 0;
@@ -403,7 +403,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
 
                 assert(((SIZE_USED | SIZE_SENTINEL) & SIZE_SIZE_MASK) == 0usize) by {
                     reveal(usize_trailing_zeros);
-                    reveal(u64_trailing_zeros);
+                    //reveal(u64_trailing_zeros);
                     assert(SPEC_SIZE_SIZE_MASK == !31usize) by (compute);
                     assert(SIZE_USED == 1usize) by (compute);
                     assert(SIZE_SENTINEL == 2usize) by (compute);

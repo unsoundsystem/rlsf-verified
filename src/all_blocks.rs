@@ -170,7 +170,7 @@ verus! {
             assert(s == (s & SIZE_SIZE_MASK));
             assert(!self.value_at(ptr).is_sentinel()) by {
                 reveal(usize_trailing_zeros);
-                reveal(u64_trailing_zeros);
+                //reveal(u64_trailing_zeros);
                 assert(SIZE_SIZE_MASK == !31usize) by (compute);
                 assert(SIZE_SENTINEL == 2usize) by (compute);
                 assert(((s & !31usize) & 2usize) == 0usize) by (bit_vector);

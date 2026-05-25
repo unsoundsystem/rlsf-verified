@@ -11,3 +11,9 @@ default = []
 std = []
 
 [dev-dependencies]
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ["cfg(verus_keep_ghost)"] }
+
+[package.metadata.verus]
+verify = true
