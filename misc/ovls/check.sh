@@ -32,6 +32,16 @@ funcs=(
     "ovlist OVList::pop_front_2"
     "ovlist OVList::remove_1"
     "ovlist OVList::remove_2"
+
+    # ========== brittleness reproduction ==========
+    "brittle OVList::touch_and_reprove_list2"
+    "brittle OVList::port_multi_atom_intro"
+    "brittle OVList::port_many_callsites"
+    "brittle OVList::port_case_split"
+    "brittle OVList::port_cross_firing"
+    "brittle OVList::port_combined"
+    "brittle OVList::port_two_foralls"
+    "brittle OVList::port_coupled_forall"
 )
 
 run() {
