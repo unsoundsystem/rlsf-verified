@@ -46,9 +46,8 @@ impl<'pool> OVList<'pool> {
         }
     }
 
-    /// Push `node` onto list1 (singly-linked).  Inserts a fresh perm into
-    /// the shared map.  `node` must not already be in either list nor in
-    /// the perms map.
+    /// Push `node` onto list1 (singly-linked).
+    #[verifier::external_body]
     pub fn push_front_1(
         &mut self,
         node: *mut BlockHdr,
@@ -68,34 +67,11 @@ impl<'pool> OVList<'pool> {
             self.list2.head == old(self).list2.head,
             self.perms@.dom() == old(self).perms@.dom().insert(node),
     {
-        self.list1.push_front(node, Tracked(perm), Tracked(self.perms.borrow_mut()));
-
-        proof {
-            // list2 invariants preserved: ptrs/head unchanged, and the new
-            // perms entry is at `node`, which is not in list2.ptrs (since
-            // node ∉ old perms.dom() ⊇ list2.ptrs.to_set()).
-            assert(self.list2.ptrs@ =~= old(self).list2.ptrs@);
-            assert forall|p: *mut BlockHdr| #[trigger] self.list2.ptrs@.contains(p)
-                implies p != node
-            by {
-                assert(old(self).list2.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-            };
-            assert forall|i: int| 0 <= i < self.list2.ptrs@.len()
-                implies #[trigger] self.list2.wf_node(self.perms@, i)
-            by {
-                assert(old(self).list2.wf_node(old(self).perms@, i));
-                assert(self.list2.ptrs@[i] == old(self).list2.ptrs@[i]);
-                assert(self.list2.ptrs@.contains(self.list2.ptrs@[i]));
-                assert(self.list2.ptrs@[i] != node);
-                assert(self.perms@[self.list2.ptrs@[i]]
-                    == old(self).perms@[self.list2.ptrs@[i]]);
-            };
-        }
+        unimplemented!()
     }
 
-    /// Pop the head of list1.  Returns the popped pointer and its perm.
-    /// Caller must ensure the popped node is not currently in list2.
+    /// Pop the head of list1.
+    #[verifier::external_body]
     pub fn pop_front_1(&mut self) -> (r: (*mut BlockHdr, Tracked<BlockPerm>))
         requires
             old(self).wf(),
@@ -110,31 +86,11 @@ impl<'pool> OVList<'pool> {
             self.list2.head == old(self).list2.head,
             self.perms@.dom() == old(self).perms@.dom().remove(r.0),
     {
-        let r = self.list1.pop_front(Tracked(self.perms.borrow_mut()));
-
-        proof {
-            // list2 invariants preserved: ptrs/head unchanged, the removed
-            // perms entry is at `r.0`, which is not in list2.ptrs by precondition.
-            let popped = r.0;
-            assert(self.list2.ptrs@ =~= old(self).list2.ptrs@);
-            assert forall|i: int| 0 <= i < self.list2.ptrs@.len()
-                implies #[trigger] self.list2.wf_node(self.perms@, i)
-            by {
-                assert(old(self).list2.wf_node(old(self).perms@, i));
-                assert(self.list2.ptrs@[i] == old(self).list2.ptrs@[i]);
-                assert(self.list2.ptrs@.contains(self.list2.ptrs@[i]));
-                assert(self.list2.ptrs@[i] != popped);
-                assert(self.perms@[self.list2.ptrs@[i]]
-                    == old(self).perms@[self.list2.ptrs@[i]]);
-            };
-        }
-
-        r
+        unimplemented!()
     }
 
-    /// Push `node` onto list2 (doubly-linked).  Requires the perm for
-    /// `node` already lives in `perms` with wf_freelink (typically because
-    /// the caller pushed it onto list1 first, then promoted to list2).
+    /// Push `node` onto list2 (doubly-linked).
+    #[verifier::external_body]
     pub fn push_front_2(&mut self, node: *mut BlockHdr)
         requires
             old(self).wf(),
@@ -154,41 +110,11 @@ impl<'pool> OVList<'pool> {
             self.list1.head == old(self).list1.head,
             self.perms@.dom() == old(self).perms@.dom(),
     {
-        self.list2.push_front(node, Tracked(self.perms.borrow_mut()));
-
-        proof {
-            // list1 invariants preserved: ptrs/head unchanged.  list2's
-            // push_front modifies perms[node] (BlockHdr.next is unchanged,
-            // FreeLink is rewritten) and perms[old list2 head] (FreeLink only).
-            // For list1.wf_node we only need BlockHdr.next, which is
-            // untouched by list2.push_front.
-            assert(self.list1.ptrs@ =~= old(self).list1.ptrs@);
-            assert forall|i: int| 0 <= i < self.list1.ptrs@.len()
-                implies #[trigger] self.list1.wf_node(self.perms@, i)
-            by {
-                assert(old(self).list1.wf_node(old(self).perms@, i));
-                let p = self.list1.ptrs@[i];
-                assert(self.list1.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-                // perms[p].points_to is preserved by list2.push_front
-                // (which only modifies free_link_perm).  Need an extensional
-                // check: BlockHdr.next at p didn't change.
-                assert(self.perms@.contains_key(p));
-                assert(self.perms@[p].points_to.value().next
-                    == old(self).perms@[p].points_to.value().next);
-                assert(self.perms@[p].wf(p));
-            };
-            assert forall|p: *mut BlockHdr| #[trigger] self.list1.ptrs@.contains(p)
-                implies self.perms@.contains_key(p) && p@.addr != 0
-            by {
-                assert(old(self).list1.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-            };
-        }
+        unimplemented!()
     }
 
-    /// Pop the head of list2.  Returns the popped pointer; the corresponding
-    /// perm stays in the shared map (it may still be owned by list1).
+    /// Pop the head of list2.
+    #[verifier::external_body]
     pub fn pop_front_2(&mut self) -> (r: *mut BlockHdr)
         requires
             old(self).wf(),
@@ -203,37 +129,11 @@ impl<'pool> OVList<'pool> {
             self.list1.head == old(self).list1.head,
             self.perms@.dom() == old(self).perms@.dom(),
     {
-        let r = self.list2.pop_front(Tracked(self.perms.borrow_mut()));
-
-        proof {
-            // list1 preserved analogously: list2.pop_front does not touch
-            // BlockHdr fields.
-            assert(self.list1.ptrs@ =~= old(self).list1.ptrs@);
-            assert forall|i: int| 0 <= i < self.list1.ptrs@.len()
-                implies #[trigger] self.list1.wf_node(self.perms@, i)
-            by {
-                assert(old(self).list1.wf_node(old(self).perms@, i));
-                let p = self.list1.ptrs@[i];
-                assert(self.list1.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-                assert(self.perms@.contains_key(p));
-                assert(self.perms@[p].points_to.value().next
-                    == old(self).perms@[p].points_to.value().next);
-                assert(self.perms@[p].wf(p));
-            };
-            assert forall|p: *mut BlockHdr| #[trigger] self.list1.ptrs@.contains(p)
-                implies self.perms@.contains_key(p) && p@.addr != 0
-            by {
-                assert(old(self).list1.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-            };
-        }
-
-        r
+        unimplemented!()
     }
 
-    /// Remove `node` from list1.  Delegates to OVList1::remove (currently
-    /// external_body — TODO).
+    /// Remove `node` from list1.
+    #[verifier::external_body]
     pub fn remove_1(&mut self, node: *mut BlockHdr) -> (r: Tracked<BlockPerm>)
         requires
             old(self).wf(),
@@ -247,27 +147,11 @@ impl<'pool> OVList<'pool> {
             self.list2.head == old(self).list2.head,
             self.perms@.dom() == old(self).perms@.dom().remove(node),
     {
-        let r = self.list1.remove(node, Tracked(self.perms.borrow_mut()));
-
-        proof {
-            assert(self.list2.ptrs@ =~= old(self).list2.ptrs@);
-            assert forall|i: int| 0 <= i < self.list2.ptrs@.len()
-                implies #[trigger] self.list2.wf_node(self.perms@, i)
-            by {
-                assert(old(self).list2.wf_node(old(self).perms@, i));
-                assert(self.list2.ptrs@[i] == old(self).list2.ptrs@[i]);
-                assert(self.list2.ptrs@.contains(self.list2.ptrs@[i]));
-                assert(self.list2.ptrs@[i] != node);
-                assert(self.perms@[self.list2.ptrs@[i]]
-                    == old(self).perms@[self.list2.ptrs@[i]]);
-            };
-        }
-
-        r
+        unimplemented!()
     }
 
-    /// Remove `node` from list2.  Delegates to OVList2::remove (currently
-    /// external_body — TODO).
+    /// Remove `node` from list2.
+    #[verifier::external_body]
     pub fn remove_2(&mut self, node: *mut BlockHdr)
         requires
             old(self).wf(),
@@ -280,29 +164,7 @@ impl<'pool> OVList<'pool> {
             self.list1.head == old(self).list1.head,
             self.perms@.dom() == old(self).perms@.dom(),
     {
-        self.list2.remove(node, Tracked(self.perms.borrow_mut()));
-
-        proof {
-            assert(self.list1.ptrs@ =~= old(self).list1.ptrs@);
-            assert forall|i: int| 0 <= i < self.list1.ptrs@.len()
-                implies #[trigger] self.list1.wf_node(self.perms@, i)
-            by {
-                assert(old(self).list1.wf_node(old(self).perms@, i));
-                let p = self.list1.ptrs@[i];
-                assert(self.list1.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-                assert(self.perms@.contains_key(p));
-                assert(self.perms@[p].points_to.value().next
-                    == old(self).perms@[p].points_to.value().next);
-                assert(self.perms@[p].wf(p));
-            };
-            assert forall|p: *mut BlockHdr| #[trigger] self.list1.ptrs@.contains(p)
-                implies self.perms@.contains_key(p) && p@.addr != 0
-            by {
-                assert(old(self).list1.ptrs@.contains(p));
-                assert(old(self).perms@.contains_key(p));
-            };
-        }
+        unimplemented!()
     }
 }
 
