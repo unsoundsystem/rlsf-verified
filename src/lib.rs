@@ -20,6 +20,7 @@ mod initialize;
 mod mapping;
 mod ordered_pointer_list;
 pub mod parameters;
+mod reallocate;
 mod search_block;
 pub mod unverified_api;
 mod utils;
