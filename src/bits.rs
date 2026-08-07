@@ -1517,8 +1517,9 @@ proof fn lemma_low_mask_pow2_pred(m: int, n: nat)
     requires m > 0, m == pow2(n) as int
     ensures low_mask_usize(n) == m - 1
 {
-    // TODO
-    admit()
+    vstd::layout::unsigned_int_max_values();
+    vstd::arithmetic::power2::lemma_pow2_strictly_increases(n, usize::BITS as nat);
+    assert(low_mask_usize(n) == vstd::bits::low_bits_mask(n) as usize);
 }
 
 proof fn lemma_low_mask_pow2_pred_u64(m: u64, n: nat)
