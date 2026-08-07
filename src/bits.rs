@@ -124,15 +124,27 @@ pub proof fn u64_trailing_zeros_is_log2_when_pow2_given(x: u64, e: nat)
 
     vstd::arithmetic::power2::lemma_pow2_pos(e);
     if x == pow2(0) {
-        assert(pow2(0) == 1) by (compute);
-        assume(u64_trailing_zeros(1) == 0);
-        assert(log(2, 1) == 0) by (compute);
+        assert(pow2(0) == 1) by {
+            vstd::arithmetic::power2::lemma_pow2(0);
+            vstd::arithmetic::power::lemma_pow0(2);
+        };
+        assert(u64_trailing_zeros(1) == 0) by {
+            reveal(u64_trailing_zeros);
+            assert(1u64 & 1 != 0) by (bit_vector);
+        };
+        assert(log(2, 1) == 0) by {
+            vstd::arithmetic::logarithm::lemma_log_pow(2, 0);
+            vstd::arithmetic::power::lemma_pow0(2);
+        };
     } else {
         assert(x / 2 == pow2((e - 1) as nat)) by {
             assert(e > 0) by {
                 assert(x != pow2(0));
                 if e == 0 {
-                    assert(pow2(0) == 1) by (compute);
+                    assert(pow2(0) == 1) by {
+                        vstd::arithmetic::power2::lemma_pow2(0);
+                        vstd::arithmetic::power::lemma_pow0(2);
+                    };
                     assert(x as int == 1);
                 }
             };
@@ -145,7 +157,10 @@ pub proof fn u64_trailing_zeros_is_log2_when_pow2_given(x: u64, e: nat)
             assert(x > 0);
             lemma_u64_last_bit_zero_iff_mul_of_two(x, e);
         };
-        assume(u64_trailing_zeros(x) == 1 + u64_trailing_zeros(x / 2));
+        assert(u64_trailing_zeros(x) == 1 + u64_trailing_zeros(x / 2)) by {
+            reveal(u64_trailing_zeros);
+            axiom_u64_trailing_zeros(x / 2);
+        };
         assert(log(2, x as int) == 1 + log(2, x as int / 2)) by {
             vstd::arithmetic::logarithm::lemma_log_s(2, x as int);
         };
