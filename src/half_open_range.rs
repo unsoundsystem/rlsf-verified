@@ -1,9 +1,9 @@
+use vstd::calc;
 use vstd::prelude::*;
-use vstd::{seq::*, seq_lib::*};
+use vstd::set::Set;
 #[cfg(verus_keep_ghost)]
 use vstd::set_lib::set_int_range;
-use vstd::set::Set;
-use vstd::calc;
+use vstd::{seq::*, seq_lib::*};
 
 verus! {
 
@@ -90,7 +90,7 @@ impl HalfOpenRange {
     pub open spec fn to_set(self) -> Set<int>
         recommends self.wf()
     {
-        Set::new(|p: int| self.start() <= p < self.end())
+        Set::new(|p: int| self.start() <= p < self.end()).unwrap()
     }
 
     pub open spec fn lt(self, rhs: Self) -> bool {

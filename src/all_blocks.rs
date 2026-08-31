@@ -1,19 +1,19 @@
+#[cfg(verus_keep_ghost)]
+use crate::bits::usize_trailing_zeros;
 use crate::block::*;
 use crate::block_index::BlockIndex;
 use crate::block_index::GRANULARITY;
 use crate::ordered_pointer_list::*;
-use crate::parameters::SIZE_SIZE_MASK;
 use crate::parameters::SIZE_SENTINEL;
+use crate::parameters::SIZE_SIZE_MASK;
 #[cfg(verus_keep_ghost)]
 use vstd::arithmetic::power2::pow2;
-#[cfg(verus_keep_ghost)]
-use vstd::std_specs::bits::u64_trailing_zeros;
-#[cfg(verus_keep_ghost)]
-use crate::bits::usize_trailing_zeros;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 #[cfg(verus_keep_ghost)]
 use vstd::relations::injective;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::bits::u64_trailing_zeros;
 
 verus! {
 
@@ -856,13 +856,13 @@ verus! {
                 // self.pi[(i, n)] = ┤  self.pi[(i, n - 1)]      if i == idx and n > 0
                 //                   └  new_node_ai              if i == idx and n == 0
                 pi: Map::new(
-                    |k: (BlockIndex<FLLEN, SLLEN>, int)| {
+                    Set::new(|k: (BlockIndex<FLLEN, SLLEN>, int)| {
                         if k.0 == new_node_bi {
                             0 <= k.1 < old_len + 1
                         } else {
                             self.pi.contains_key(k)
                         }
-                    },
+                    }).unwrap(),
                     |k: (BlockIndex<FLLEN, SLLEN>, int)| {
                         if k.0 == new_node_bi {
                             if k.1 == 0 {
