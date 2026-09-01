@@ -69,40 +69,40 @@ pub proof fn axiom_usize_trailing_zeros(x: usize) {
 //pub proof fn power2_log2(x: int)
     //requires is_power_of_two(x)
     //ensures x >> log(2, x) >= 1
-pub proof fn pow2_is_single_bit(x: usize, y: nat)
-    requires pow(2, y) == x, x > 0,
-    ensures x == 1 << y,
-    decreases y,
-{
-    // TODO
-    assert((x as int) < pow(2, usize::BITS as nat)) by (compute);
-    assert(pow(2, y) < pow(2, usize::BITS as nat));
-    lemma_pow_strictly_increases_converse(2, y, usize::BITS as nat);
-    assert(y < usize::BITS as nat);
-    assert(y < 64);
-    if x == 1 {
-        assert(y == 0);
-        assert(pow(2, 0) == 1) by (compute);
-        assert(1 == 1 << 0) by (bit_vector);
-        assert(x == 1 << y);
-    } else {
-        pow2_is_single_bit(x / 2, (y - 1) as nat);
-        assert((x / 2) == 1 << (y - 1));
-        vstd::bits::lemma_u64_shl_is_mul(1, y as u64);
-        assert(1 << y == pow(2, y));
-        assert(1 << (y - 1) == pow(2, (y - 1) as nat));
-        assert(2*pow(2, (y - 1) as nat) == pow(2, y));
-        assert(2*(1 << (y - 1)) == 1 << y);
-        //assert(y > 0);
-        //assert(pow(2, (y - 1) as nat + 1) == pow(2, y));
-        //lemma_pow_adds(2, (y - 1) as nat, 1);
-        //assert(pow(2, y) == pow(2, (y - 1) as nat) * pow(2, 1));
-        //assert(pow(2, y) == pow(2, (y - 1) as nat) * 2);
-        //assert(pow(2, y) == pow(2, (y - 1) as nat) * 2);
-        //assert(x / 2 == pow(2, (y - 1) as nat));
-
-    }
-}
+//pub proof fn pow2_is_single_bit(x: usize, y: nat)
+//    requires pow(2, y) == x, x > 0,
+//    ensures x == 1 << y,
+//    decreases y,
+//{
+//    // TODO
+//    assert((x as int) < pow(2, usize::BITS as nat)) by (compute);
+//    assert(pow(2, y) < pow(2, usize::BITS as nat));
+//    lemma_pow_strictly_increases_converse(2, y, usize::BITS as nat);
+//    assert(y < usize::BITS as nat);
+//    assert(y < 64);
+//    if x == 1 {
+//        assert(y == 0);
+//        assert(pow(2, 0) == 1) by (compute);
+//        assert(1 == 1 << 0) by (bit_vector);
+//        assert(x == 1 << y);
+//    } else {
+//        pow2_is_single_bit(x / 2, (y - 1) as nat);
+//        assert((x / 2) == 1 << (y - 1));
+//        vstd::bits::lemma_u64_shl_is_mul(1, y as u64);
+//        assert(1 << y == pow(2, y));
+//        assert(1 << (y - 1) == pow(2, (y - 1) as nat));
+//        assert(2*pow(2, (y - 1) as nat) == pow(2, y));
+//        assert(2*(1 << (y - 1)) == 1 << y);
+//        //assert(y > 0);
+//        //assert(pow(2, (y - 1) as nat + 1) == pow(2, y));
+//        //lemma_pow_adds(2, (y - 1) as nat, 1);
+//        //assert(pow(2, y) == pow(2, (y - 1) as nat) * pow(2, 1));
+//        //assert(pow(2, y) == pow(2, (y - 1) as nat) * 2);
+//        //assert(pow(2, y) == pow(2, (y - 1) as nat) * 2);
+//        //assert(x / 2 == pow(2, (y - 1) as nat));
+//
+//    }
+//}
 
 #[cfg(target_pointer_width = "64")]
 pub proof fn usize_trailing_zeros_is_log2_when_pow2_given(x: usize, e: nat)
