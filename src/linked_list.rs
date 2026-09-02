@@ -2199,6 +2199,110 @@ use crate::*;
             reveal(Tlsf::shadow_freelist_nodup);
         }
 
+        proof fn lemma_ii_push_for_index_carrier_equiv(
+            sfl: ShadowFreelist<FLLEN, SLLEN>,
+            new_node_bi: BlockIndex<FLLEN, SLLEN>,
+        )
+            ensures ({
+                let old_len = sfl.m[new_node_bi].len();
+                let positions = Set::<int>::range(0int, old_len as int + 1);
+                let target = positions.map_by(
+                    |n: int| (new_node_bi, n),
+                    |k: (BlockIndex<FLLEN, SLLEN>, int)| k.1,
+                );
+                let others = sfl.pi.dom().filter(
+                    |k: (BlockIndex<FLLEN, SLLEN>, int)| k.0 != new_node_bi,
+                );
+                let carrier = target.union(others);
+                forall|k: (BlockIndex<FLLEN, SLLEN>, int)|
+                    carrier.contains(k) <==> if k.0 == new_node_bi {
+                        0 <= k.1 < old_len + 1
+                    } else {
+                        sfl.pi.contains_key(k)
+                    }
+            })
+        {
+            let old_len = sfl.m[new_node_bi].len();
+            let positions = Set::<int>::range(0int, old_len as int + 1);
+            let fwd = |n: int| (new_node_bi, n);
+            let rev = |k: (BlockIndex<FLLEN, SLLEN>, int)| k.1;
+            let target = positions.map_by(fwd, rev);
+            let other_pred = |k: (BlockIndex<FLLEN, SLLEN>, int)| k.0 != new_node_bi;
+            let others = sfl.pi.dom().filter(other_pred);
+            let carrier = target.union(others);
+
+            vstd::set_lib::range_set_properties::<int>(0int, old_len as int + 1);
+            assert forall|k: (BlockIndex<FLLEN, SLLEN>, int)|
+                carrier.contains(k) <==> if k.0 == new_node_bi {
+                    0 <= k.1 < old_len + 1
+                } else {
+                    sfl.pi.contains_key(k)
+                }
+            by {
+                positions.lemma_map_by_contains(fwd, rev, k);
+                vstd::set::lemma_set_filter(sfl.pi.dom(), other_pred, k);
+                vstd::set::lemma_set_union(target, others, k);
+                if k.0 == new_node_bi {
+                    assert(k == fwd(rev(k)));
+                }
+            };
+        }
+
+        proof fn lemma_ii_push_for_index_transition(
+            sfl: ShadowFreelist<FLLEN, SLLEN>,
+            all_blocks: AllBlocks<FLLEN, SLLEN>,
+            new_node_bi: BlockIndex<FLLEN, SLLEN>,
+            new_node_ai: int,
+        )
+            requires
+                ptrs_no_duplicates(all_blocks.ptrs@),
+                !sfl.pi.values().contains(new_node_ai),
+                0 <= new_node_ai < all_blocks.ptrs@.len(),
+                new_node_bi.wf(),
+                sfl.shadow_freelist_has_all_wf_index(),
+                is_identity_injection(sfl, all_blocks.ptrs@),
+                all_blocks.wf_node(new_node_ai),
+            ensures ({
+                let new_sfl = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai);
+                &&& new_sfl.shadow_freelist_has_all_wf_index()
+                &&& forall|idx: BlockIndex<FLLEN, SLLEN>, n: int|
+                    new_sfl.pi.contains_key((idx, n)) <==>
+                        idx.wf() && 0 <= n < new_sfl.m[idx].len()
+                &&& new_sfl.m[new_node_bi][0] == all_blocks.ptrs@[new_node_ai]
+                &&& new_sfl.pi[(new_node_bi, 0)] == new_node_ai
+                &&& forall|i: int| 0 <= i < sfl.m[new_node_bi].len() ==> {
+                    &&& new_sfl.m[new_node_bi][i + 1] == sfl.m[new_node_bi][i]
+                    &&& new_sfl.pi[(new_node_bi, i + 1)] == sfl.pi[(new_node_bi, i)]
+                }
+                &&& forall|idx: BlockIndex<FLLEN, SLLEN>| idx != new_node_bi ==>
+                    new_sfl.m[idx] == sfl.m[idx]
+                &&& forall|idx: BlockIndex<FLLEN, SLLEN>, n: int|
+                    idx != new_node_bi && sfl.pi.contains_key((idx, n)) ==>
+                        new_sfl.pi[(idx, n)] == sfl.pi[(idx, n)]
+            })
+        {
+            Self::lemma_ii_push_for_index_carrier_equiv(sfl, new_node_bi);
+            reveal(ShadowFreelist::ii_push_for_index);
+            broadcast use vstd::map::group_map_lemmas;
+            broadcast use vstd::seq::group_seq_lemmas;
+
+            let new_sfl = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai);
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>, n: int|
+                new_sfl.pi.contains_key((idx, n)) <==>
+                    idx.wf() && 0 <= n < new_sfl.m[idx].len()
+            by {
+                if idx == new_node_bi {
+                } else {
+                    assert(new_sfl.m[idx] == sfl.m[idx]);
+                }
+            };
+            assert(new_sfl.shadow_freelist_has_all_wf_index());
+            assert forall|i: int| 0 <= i < sfl.m[new_node_bi].len() implies {
+                &&& new_sfl.m[new_node_bi][i + 1] == sfl.m[new_node_bi][i]
+                &&& new_sfl.pi[(new_node_bi, i + 1)] == sfl.pi[(new_node_bi, i)]
+            } by {};
+        }
+
         proof fn lemma_ii_push_for_index_ensures(
             sfl: ShadowFreelist<FLLEN, SLLEN>,
             all_blocks: AllBlocks<FLLEN, SLLEN>,
@@ -2223,25 +2327,57 @@ use crate::*;
                         }
             })
         {
+            Self::lemma_ii_push_for_index_transition(
+                sfl, all_blocks, new_node_bi, new_node_ai,
+            );
             let new_sfl = sfl.ii_push_for_index(all_blocks, new_node_bi, new_node_ai);
             assert(new_sfl.pi.is_injective()) by {
                 assert forall|x: (BlockIndex<FLLEN, SLLEN>, int), y: (BlockIndex<FLLEN, SLLEN>, int)|
                     x != y && new_sfl.pi.dom().contains(x) && new_sfl.pi.dom().contains(y)
                         implies new_sfl.pi[x] != new_sfl.pi[y]
                 by {
+                    let old_key = |k: (BlockIndex<FLLEN, SLLEN>, int)| if k.0 == new_node_bi {
+                        (new_node_bi, k.1 - 1)
+                    } else {
+                        k
+                    };
                     if x.0 == new_node_bi && x.1 == 0 {
                         assert(new_sfl.pi[x] == new_node_ai);
-                        if y.0 == new_node_bi {
-                            assert(sfl.pi.contains_key((new_node_bi, y.1 - 1)));
-                        }
+                        assert(sfl.pi.contains_key(old_key(y)));
+                        assert(new_sfl.pi[y] == sfl.pi[old_key(y)]);
+                        sfl.pi.dom().lemma_map_contains(
+                            |k| sfl.pi[k], sfl.pi[old_key(y)],
+                        );
                     } else if y.0 == new_node_bi && y.1 == 0 {
                         assert(new_sfl.pi[y] == new_node_ai);
-                        if x.0 == new_node_bi {
-                            assert(sfl.pi.contains_key((new_node_bi, x.1 - 1)));
-                        }
+                        assert(sfl.pi.contains_key(old_key(x)));
+                        assert(new_sfl.pi[x] == sfl.pi[old_key(x)]);
+                        sfl.pi.dom().lemma_map_contains(
+                            |k| sfl.pi[k], sfl.pi[old_key(x)],
+                        );
+                    } else {
+                        assert(sfl.pi.contains_key(old_key(x)));
+                        assert(sfl.pi.contains_key(old_key(y)));
+                        assert(old_key(x) != old_key(y));
+                        assert(new_sfl.pi[x] == sfl.pi[old_key(x)]);
+                        assert(new_sfl.pi[y] == sfl.pi[old_key(y)]);
                     }
                 };
             };
+            assert forall|idx: BlockIndex<FLLEN, SLLEN>, i: int|
+                idx.wf() && 0 <= i < new_sfl.m[idx].len() implies {
+                    &&& 0 <= new_sfl.pi[(idx, i)] < all_blocks.ptrs@.len()
+                    &&& new_sfl.m[idx][i] == all_blocks.ptrs@[new_sfl.pi[(idx, i)]]
+                }
+            by {
+                if idx == new_node_bi {
+                    if i == 0 {
+                    } else {
+                        assert(0 <= i - 1 < sfl.m[idx].len());
+                    }
+                }
+            };
+            assert(is_identity_injection(new_sfl, all_blocks.ptrs@));
         }
 
         pub(crate) proof fn lemma_ii_remove_for_index_ensures(
