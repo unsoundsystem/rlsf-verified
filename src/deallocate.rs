@@ -26,7 +26,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         align == token.align,
         points_to.is_range(ptr as int, token.user_size),
         points_to.provenance() == ptr@.provenance,
-    ensures self.wf()
+    ensures final(self).wf()
     {
         proof { self.lemma_wf_components(); }
         let ghost block_ptr = self.user_block_map@[ptr];
@@ -59,7 +59,7 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         old(self).all_blocks.perms@[block].pad_perm is None,
         !old(self).all_blocks.perms@[block].points_to.value().is_sentinel(),
     ensures
-        self.wf(),
+        final(self).wf(),
     {
         let ghost block_i = self.all_blocks.get_ptr_internal_index(block);
 
@@ -2454,25 +2454,25 @@ impl<'pool, const FLLEN: usize, const SLLEN: usize> Tlsf<'pool, FLLEN, SLLEN> {
         user_mem.is_range(ptr as int, user_size),
         user_mem.provenance() == ptr@.provenance,
     ensures
-        self.all_blocks.wf(),
-        self.all_freelist_wf(),
-        self.bitmap_sync(),
-        self.bitmap_wf(),
-        self.size_class_condition(),
-        self.all_blocks.contains(r),
-        self.all_blocks.perms@.contains_key(r),
-        self.all_blocks.perms@[r].points_to.is_init(),
-        self.all_blocks.perms@[r].points_to.ptr() == r,
-        self.all_blocks.perms@[r].points_to.value().size & SIZE_USED != 0,
+        final(self).all_blocks.wf(),
+        final(self).all_freelist_wf(),
+        final(self).bitmap_sync(),
+        final(self).bitmap_wf(),
+        final(self).size_class_condition(),
+        final(self).all_blocks.contains(r),
+        final(self).all_blocks.perms@.contains_key(r),
+        final(self).all_blocks.perms@[r].points_to.is_init(),
+        final(self).all_blocks.perms@[r].points_to.ptr() == r,
+        final(self).all_blocks.perms@[r].points_to.value().size & SIZE_USED != 0,
         // mem covers full payload [r+BH, r+phys_size) (user_mem joined back)
-        self.all_blocks.perms@[r].mem.is_range(
+        final(self).all_blocks.perms@[r].mem.is_range(
             r as int + size_of::<BlockHdr>() as int,
-            (self.all_blocks.perms@[r].points_to.value().size & SIZE_SIZE_MASK) as int
+            (final(self).all_blocks.perms@[r].points_to.value().size & SIZE_SIZE_MASK) as int
                 - size_of::<BlockHdr>() as int),
-        self.all_blocks.perms@[r].mem.provenance() == r@.provenance,
-        self.all_blocks.perms@[r].overhead_mem.dom().is_empty(),
-        self.all_blocks.perms@[r].pad_perm is None,
-        !self.all_blocks.perms@[r].points_to.value().is_sentinel(),
+        final(self).all_blocks.perms@[r].mem.provenance() == r@.provenance,
+        final(self).all_blocks.perms@[r].overhead_mem.dom().is_empty(),
+        final(self).all_blocks.perms@[r].pad_perm is None,
+        !final(self).all_blocks.perms@[r].points_to.value().is_sentinel(),
     {
         let ghost tok = DeallocToken { ptr, user_size, align };
         let ghost old_self = *self;

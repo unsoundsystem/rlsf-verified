@@ -830,33 +830,33 @@ use crate::*;
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
             !exceptions.contains(node),
         ensures
-            self.all_blocks.wf(),
-            self.all_freelist_wf_weak(exceptions.insert(node)),
-            self.bitmap_sync(),
-            self.bitmap_wf(),
-            self.wf_shadow(),
+            final(self).all_blocks.wf(),
+            final(self).all_freelist_wf_weak(exceptions.insert(node)),
+            final(self).bitmap_sync(),
+            final(self).bitmap_wf(),
+            final(self).wf_shadow(),
             ({
                 let idx = Self::map_floor_spec(size);
                 let i = choose|i: int|
                     0 <= i < old(self).shadow_freelist@.m[idx].len()
                     && old(self).shadow_freelist@.m[idx][i] == node;
-                self.shadow_freelist@.m[idx] == old(self).shadow_freelist@.m[idx].remove(i)
+                final(self).shadow_freelist@.m[idx] == old(self).shadow_freelist@.m[idx].remove(i)
             }),
-            self.all_blocks.ptrs@ == old(self).all_blocks.ptrs@,
+            final(self).all_blocks.ptrs@ == old(self).all_blocks.ptrs@,
             forall|p: *mut BlockHdr|
                 old(self).all_blocks.perms@.contains_key(p) ==> (
-                    self.all_blocks.perms@.contains_key(p)
-                    && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
-                    && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
-                    && self.all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
-                    && self.all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
+                    final(self).all_blocks.perms@.contains_key(p)
+                    && final(self).all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
+                    && final(self).all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                    && final(self).all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
+                    && final(self).all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
                 ),
             // After unlinking, node is not in any freelist bucket
-            !self.shadow_freelist@.contains(node),
-            self.size_class_condition(),
+            !final(self).shadow_freelist@.contains(node),
+            final(self).size_class_condition(),
             // Other freelist buckets are unchanged
             forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
-                ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi],
+                ==> final(self).shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi],
         {
             vstd::layout::layout_for_type_is_valid::<BlockHdr>();
             proof {
@@ -1449,30 +1449,30 @@ use crate::*;
             // NOTE: not linked to freelist but the flag is marked free & free_link_perm is Some
             old(self).all_blocks.perms@[node].points_to.value().is_free(),
         ensures
-            self.all_blocks.wf(),
+            final(self).all_blocks.wf(),
             // preserving pointer set
-            self.all_blocks.ptrs@ == old(self).all_blocks.ptrs@,
-            self.all_blocks.perms@.contains_key(node),
-            self.all_blocks.perms@[node].points_to == old(self).all_blocks.perms@[node].points_to,
-            self.all_blocks.perms@[node].mem == old(self).all_blocks.perms@[node].mem,
+            final(self).all_blocks.ptrs@ == old(self).all_blocks.ptrs@,
+            final(self).all_blocks.perms@.contains_key(node),
+            final(self).all_blocks.perms@[node].points_to == old(self).all_blocks.perms@[node].points_to,
+            final(self).all_blocks.perms@[node].mem == old(self).all_blocks.perms@[node].mem,
             forall|p: *mut BlockHdr|
                 old(self).all_blocks.perms@.contains_key(p) ==> (
-                    self.all_blocks.perms@.contains_key(p)
-                    && self.all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
-                    && self.all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
-                    && self.all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
-                    && self.all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
+                    final(self).all_blocks.perms@.contains_key(p)
+                    && final(self).all_blocks.perms@[p].points_to == old(self).all_blocks.perms@[p].points_to
+                    && final(self).all_blocks.perms@[p].mem == old(self).all_blocks.perms@[p].mem
+                    && final(self).all_blocks.perms@[p].overhead_mem == old(self).all_blocks.perms@[p].overhead_mem
+                    && final(self).all_blocks.perms@[p].pad_perm == old(self).all_blocks.perms@[p].pad_perm
                 ),
-            self.all_freelist_wf(),
-            self.bitmap_sync(),
-            self.bitmap_wf(),
-            self.size_class_condition(),
+            final(self).all_freelist_wf(),
+            final(self).bitmap_sync(),
+            final(self).bitmap_wf(),
+            final(self).size_class_condition(),
             ({
                 let idx = Self::map_floor_spec(size);
-                self.shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx])
+                final(self).shadow_freelist@.m[idx] == seq![node].add(old(self).shadow_freelist@.m[idx])
             }),
             forall|bi: BlockIndex<FLLEN, SLLEN>| bi.wf() && bi != Self::map_floor_spec(size)
-                ==> self.shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
+                ==> final(self).shadow_freelist@.m[bi] == old(self).shadow_freelist@.m[bi]
         {
             #[cfg(feature = "rdpmc-bench")]
             perf_probe::begin(perf_probe::ProbeSlot::Whole);
@@ -1964,15 +1964,15 @@ use crate::*;
             e: *mut BlockHdr)
             requires idx.wf()
             ensures
-                self.first_free[idx.0 as int][idx.1 as int] == e,
+                final(self).first_free[idx.0 as int][idx.1 as int] == e,
                 forall|i: BlockIndex<FLLEN, SLLEN>|
                     i != idx && i.wf() ==>
                         old(self).first_free[i.0 as int][i.1 as int]
-                            == self.first_free[i.0 as int][i.1 as int],
-                self.shadow_freelist == old(self).shadow_freelist,
-                self.all_blocks == old(self).all_blocks,
-                self.sl_bitmap == old(self).sl_bitmap,
-                self.fl_bitmap == old(self).fl_bitmap,
+                            == final(self).first_free[i.0 as int][i.1 as int],
+                final(self).shadow_freelist == old(self).shadow_freelist,
+                final(self).all_blocks == old(self).all_blocks,
+                final(self).sl_bitmap == old(self).sl_bitmap,
+                final(self).fl_bitmap == old(self).fl_bitmap,
         {
             self.first_free[idx.0][idx.1] = e;
         }
