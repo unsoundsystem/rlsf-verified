@@ -569,7 +569,7 @@ verus! {
 
 
         #[verifier::external_body]
-        fn set_freelist(
+       fn set_freelist(
             freelist: &mut [[Option<*mut BlockHdr>; SLLEN]; FLLEN],
             idx: BlockIndex<FLLEN, SLLEN>, e: Option<*mut BlockHdr>)
             requires idx.wf()
