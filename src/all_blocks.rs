@@ -850,19 +850,22 @@ verus! {
             !self.pi.values().contains(new_node_ai)
         {
             let old_len = self.m[new_node_bi].len();
+            let target_positions = Set::<int>::range(0int, old_len as int + 1);
+            let target_domain = target_positions.map_by(
+                |n: int| (new_node_bi, n),
+                |k: (BlockIndex<FLLEN, SLLEN>, int)| k.1,
+            );
+            let other_domain = self.pi.dom().filter(
+                |k: (BlockIndex<FLLEN, SLLEN>, int)| k.0 != new_node_bi,
+            );
+            let new_pi_domain = target_domain.union(other_domain);
             Self {
                 m: self.m.insert(new_node_bi, seq![all_blocks.ptrs@[new_node_ai]].add(self.m[new_node_bi])),
                 //                   ┌  self.pi[(i, n)]          if i != idx
                 // self.pi[(i, n)] = ┤  self.pi[(i, n - 1)]      if i == idx and n > 0
                 //                   └  new_node_ai              if i == idx and n == 0
                 pi: Map::new(
-                    Set::new(|k: (BlockIndex<FLLEN, SLLEN>, int)| {
-                        if k.0 == new_node_bi {
-                            0 <= k.1 < old_len + 1
-                        } else {
-                            self.pi.contains_key(k)
-                        }
-                    }).unwrap(),
+                    new_pi_domain,
                     |k: (BlockIndex<FLLEN, SLLEN>, int)| {
                         if k.0 == new_node_bi {
                             if k.1 == 0 {
